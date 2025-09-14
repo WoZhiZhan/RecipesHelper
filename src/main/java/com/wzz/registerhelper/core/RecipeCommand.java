@@ -8,12 +8,13 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.network.OpenGUIPacket;
 import com.wzz.registerhelper.Registerhelper;
+import com.wzz.registerhelper.util.RecipeUtil;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.item.ItemArgument;
-import net.minecraft.commands.arguments.item.ItemInput;
 import net.minecraft.commands.arguments.ResourceLocationArgument;
+import net.minecraft.commands.arguments.item.ItemInput;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -24,16 +25,15 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeManager;
-import net.minecraft.world.item.crafting.RecipeType;
-import net.minecraft.network.protocol.game.ClientboundUpdateRecipesPacket;
 import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.server.ServerLifecycleHooks;
 import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
 
-import java.lang.reflect.Field;
 import java.util.*;
+
+import static com.wzz.registerhelper.util.RecipeUtil.getAllRecipeIds;
 
 public class RecipeCommand {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -66,35 +66,31 @@ public class RecipeCommand {
                                                                 .executes(RecipeCommand::addAvaritiaRecipe)))))))
                 .then(Commands.literal("register")
                         .executes(RecipeCommand::registerRecipes))
-                .then(Commands.literal("reload")
-                        .executes((context) -> {
-                            Registerhelper.getRecipeManager().triggerClientResourceReload();
-                            Registerhelper.getRecipeManager().triggerServerRecipeReload();
-                            MinecraftServer server = context.getSource().getServer();
-                            server.getCommands().performPrefixedCommand(
-                                    context.getSource(), "reload"
-                            );
-                            return 1;
-                        }))
+
                 .then(Commands.literal("delete")
                         .then(Commands.literal("recipe")
                                 .then(Commands.argument("recipe_id", ResourceLocationArgument.id())
-                                        .executes(RecipeCommand::deleteSpecificRecipe)))
-                        .then(Commands.literal("all")
+                                        .executes(RecipeCommand::deleteRecipePermanently)))
+                        .then(Commands.literal("all_deleted")
                                 .then(Commands.literal("confirm")
-                                        .executes(RecipeCommand::deleteAllRecipes)))
+                                        .executes(RecipeCommand::restoreAllDeletedRecipes)))
                         .then(Commands.literal("list")
-                                .executes(RecipeCommand::listAllRecipes)))
+                                .executes(RecipeCommand::listAllRecipes))
+                        .then(Commands.literal("deleted")
+                                .executes(RecipeCommand::listDeletedRecipes)))
 
                 .then(Commands.literal("reload")
                         .then(Commands.literal("from_json")
-                                .executes(RecipeCommand::reloadFromJson)))
+                                .executes(RecipeCommand::reloadFromJson))
+                        .executes((context) -> {
+                            applyDeletionsAndReload(context);
+                            return 1;
+                        }))
 
                 .then(Commands.literal("clear")
                         .executes(RecipeCommand::clearRecipes))
-
-                .then(Commands.literal("count")
-                        .executes(RecipeCommand::countRecipes))
+                .then(Commands.literal("status")
+                        .executes(RecipeCommand::showDeletionStatus))
 
                 .then(Commands.literal("help")
                         .executes(RecipeCommand::showHelp)));
@@ -112,6 +108,153 @@ public class RecipeCommand {
         } catch (Exception e) {
             context.getSource().sendFailure(Component.literal("打开GUI失败: " + e.getMessage()));
             return 0;
+        }
+    }
+
+    private static int deleteRecipePermanently(CommandContext<CommandSourceStack> context) {
+        try {
+            ResourceLocation recipeId = ResourceLocationArgument.getId(context, "recipe_id");
+
+            // 检查配方是否存在
+            if (!recipeExists(recipeId)) {
+                context.getSource().sendFailure(Component.literal("配方不存在: " + recipeId));
+                return 0;
+            }
+
+            // 获取原始配方信息用于生成空覆盖
+            Recipe<?> originalRecipe = getRecipeById(recipeId);
+            if (originalRecipe == null) {
+                context.getSource().sendFailure(Component.literal("无法获取配方信息: " + recipeId));
+                return 0;
+            }
+
+            // 生成空的覆盖配方
+            boolean success = createEmptyOverrideRecipe(recipeId, originalRecipe);
+
+            if (success) {
+                // 应用覆盖使删除生效
+                int overriddenCount = RecipeOverrideResolver.resolveConflictsPreferJson();
+
+                if (overriddenCount > 0) {
+                    context.getSource().sendSuccess(() -> Component.literal("§a成功永久删除配方: " + recipeId), true);
+                    context.getSource().sendSuccess(() -> Component.literal("§e配方已被空配方覆盖，永久从游戏中移除"), false);
+
+                    // 通知所有玩家
+                    MinecraftServer server = context.getSource().getServer();
+                    for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                        player.sendSystemMessage(Component.literal("§c配方已被永久删除: " + recipeId));
+                    }
+                } else {
+                    context.getSource().sendFailure(Component.literal("生成覆盖成功，但应用覆盖失败"));
+                    return 0;
+                }
+            } else {
+                context.getSource().sendFailure(Component.literal("永久删除配方失败: " + recipeId));
+                return 0;
+            }
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendFailure(Component.literal("永久删除配方失败: " + e.getMessage()));
+            LOGGER.error("永久删除配方命令执行失败", e);
+            return 0;
+        }
+    }
+
+    private static int restoreAllDeletedRecipes(CommandContext<CommandSourceStack> context) {
+        try {
+            context.getSource().sendSuccess(() -> Component.literal("§c§l警告：正在恢复所有已删除的配方..."), true);
+
+            List<String> allDeletedIds = RecipeJsonManager.getAllSavedRecipeIds();
+            int restoredCount = (int) allDeletedIds.stream().filter(RecipeCommand::isEmptyOverrideRecipe).filter(RecipeJsonManager::deleteRecipe).count();
+
+            if (restoredCount > 0) {
+                context.getSource().sendSuccess(() -> Component.literal("§a成功恢复 " + restoredCount + " 个已删除的配方"), true);
+                context.getSource().sendSuccess(() -> Component.literal("§e使用 §b/recipe_helper reload§e 使恢复生效"), false);
+            } else {
+                context.getSource().sendSuccess(() -> Component.literal("§e没有找到已删除的配方"), false);
+            }
+
+            return restoredCount > 0 ? 1 : 0;
+        } catch (Exception e) {
+            context.getSource().sendFailure(Component.literal("恢复已删除配方失败: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int listDeletedRecipes(CommandContext<CommandSourceStack> context) {
+        try {
+            List<String> deletedRecipes = getDeletedRecipeIds();
+
+            if (deletedRecipes.isEmpty()) {
+                context.getSource().sendSuccess(() -> Component.literal("§e没有已删除的配方"), false);
+                return 1;
+            }
+
+            context.getSource().sendSuccess(() -> Component.literal("§6=== 已删除的配方 (共 " + deletedRecipes.size() + " 个) ==="), false);
+
+            int count = 0;
+            for (String id : deletedRecipes) {
+                if (count >= 20) {
+                    int finalCount = count;
+                    context.getSource().sendSuccess(() -> Component.literal("§e... 还有 " + (deletedRecipes.size() - finalCount) + " 个配方"), false);
+                    break;
+                }
+
+                context.getSource().sendSuccess(() -> Component.literal("§c[已删除] §f" + id), false);
+                count++;
+            }
+
+            context.getSource().sendSuccess(() -> Component.literal("§e使用 §b/recipe_helper delete all_deleted confirm§e 恢复所有已删除配方"), false);
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendFailure(Component.literal("列出已删除配方失败: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    // 显示删除状态
+    private static int showDeletionStatus(CommandContext<CommandSourceStack> context) {
+        try {
+            List<String> deletedRecipes = getDeletedRecipeIds();
+            List<String> allRecipes = RecipeJsonManager.getAllSavedRecipeIds();
+            int totalRecipes = getAllRecipeIds().size();
+
+            context.getSource().sendSuccess(() -> Component.literal("§6=== 配方删除状态 ==="), false);
+            context.getSource().sendSuccess(() -> Component.literal("§f游戏中总配方: §b" + totalRecipes + " §f个"), false);
+            context.getSource().sendSuccess(() -> Component.literal("§f覆盖配方文件: §a" + allRecipes.size() + " §f个"), false);
+            context.getSource().sendSuccess(() -> Component.literal("§f已删除配方: §c" + deletedRecipes.size() + " §f个"), false);
+
+            if (deletedRecipes.size() > 0) {
+                context.getSource().sendSuccess(() -> Component.literal("§e已删除的配方通过空覆盖实现永久移除"), false);
+                context.getSource().sendSuccess(() -> Component.literal("§e使用 §b/recipe_helper delete deleted§e 查看已删除列表"), false);
+            } else {
+                context.getSource().sendSuccess(() -> Component.literal("§a没有配方被删除"), false);
+            }
+
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendFailure(Component.literal("获取删除状态失败: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static void applyDeletionsAndReload(CommandContext<CommandSourceStack> context) {
+        try {
+            int overriddenCount = RecipeOverrideResolver.resolveConflictsPreferJson();
+            if (overriddenCount > 0) {
+                List<String> deletedRecipes = getDeletedRecipeIds();
+                context.getSource().sendSuccess(() -> Component.literal("§a自动应用了 " + overriddenCount + " 个配方覆盖"), true);
+                if (!deletedRecipes.isEmpty()) {
+                    context.getSource().sendSuccess(() -> Component.literal("§c其中 " + deletedRecipes.size() + " 个配方已被永久删除"), false);
+                }
+            }
+            context.getSource().sendSuccess(() -> Component.literal("§a正在重载配方..."), true);
+            Registerhelper.getRecipeManager().triggerClientResourceReload();
+            Registerhelper.getRecipeManager().triggerServerRecipeReload();
+        } catch (Exception e) {
+            context.getSource().sendFailure(Component.literal("重新加载失败: " + e.getMessage()));
         }
     }
 
@@ -297,61 +440,6 @@ public class RecipeCommand {
         }
     }
 
-    // 删除指定配方
-    private static int deleteSpecificRecipe(CommandContext<CommandSourceStack> context) {
-        try {
-            ResourceLocation recipeId = ResourceLocationArgument.getId(context, "recipe_id");
-
-            boolean success = deleteRecipe(recipeId);
-
-            if (success) {
-                context.getSource().sendSuccess(() -> Component.literal("§a成功删除配方: " + recipeId), true);
-
-                // 通知所有玩家
-                MinecraftServer server = context.getSource().getServer();
-                for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                    player.sendSystemMessage(Component.literal("§e使用 §b/recipe_helper reload§e 刷新"));
-                }
-            } else {
-                context.getSource().sendFailure(Component.literal("配方不存在或删除失败: " + recipeId));
-            }
-
-            return success ? 1 : 0;
-        } catch (Exception e) {
-            context.getSource().sendFailure(Component.literal("删除配方失败: " + e.getMessage()));
-            return 0;
-        }
-    }
-
-    // 删除所有配方（危险操作）
-    private static int deleteAllRecipes(CommandContext<CommandSourceStack> context) {
-        try {
-            context.getSource().sendSuccess(() -> Component.literal("§c§l警告：正在删除所有配方..."), true);
-
-            int deletedCount = deleteAllRecipesInternal();
-
-            if (deletedCount > 0) {
-                context.getSource().sendSuccess(() -> Component.literal("§c已删除所有配方，共 " + deletedCount + " 个"), true);
-                context.getSource().sendSuccess(() -> Component.literal("§e包括原版、mod和自定义配方"), false);
-
-                // 警告所有玩家
-                MinecraftServer server = context.getSource().getServer();
-                for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                    player.sendSystemMessage(Component.literal("§c§l[严重警告] 所有合成配方已被管理员删除！"));
-                    player.sendSystemMessage(Component.literal("§e这包括原版和mod的所有配方"));
-                    player.sendSystemMessage(Component.literal("§f请按 §bF3+T§f 刷新JEI以更新显示"));
-                }
-            } else {
-                context.getSource().sendFailure(Component.literal("删除失败或没有配方可删除"));
-            }
-
-            return deletedCount > 0 ? 1 : 0;
-        } catch (Exception e) {
-            context.getSource().sendFailure(Component.literal("删除所有配方失败: " + e.getMessage()));
-            return 0;
-        }
-    }
-
     // 列出所有配方
     private static int listAllRecipes(CommandContext<CommandSourceStack> context) {
         try {
@@ -381,7 +469,7 @@ public class RecipeCommand {
                 count++;
             }
 
-            context.getSource().sendSuccess(() -> Component.literal("§6使用 /recipe_helper delete recipe <配方ID> 删除指定配方"), false);
+            context.getSource().sendSuccess(() -> Component.literal("§6使用 /recipe_helper delete recipe <配方ID> 永久删除指定配方"), false);
             return 1;
 
         } catch (Exception e) {
@@ -395,8 +483,7 @@ public class RecipeCommand {
         try {
             context.getSource().sendSuccess(() -> Component.literal("§e正在从JSON文件重新加载配方..."), true);
 
-                Registerhelper.getRecipeManager().reloadFromJson();
-
+            Registerhelper.getRecipeManager().reloadFromJson();
 
             int pendingCount = Registerhelper.getRecipeManager().getPendingRecipeCount();
             if (pendingCount > 0) {
@@ -420,18 +507,7 @@ public class RecipeCommand {
         return 1;
     }
 
-    private static int countRecipes(CommandContext<CommandSourceStack> context) {
-        int pendingCount = Registerhelper.getRecipeManager().getPendingRecipeCount();
-        List<ResourceLocation> allRecipes = getAllRecipeIds();
-
-        context.getSource().sendSuccess(() -> Component.literal("§6=== 配方统计 ==="), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f待注册配方: §a" + pendingCount + " §f个"), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f游戏中总配方: §b" + allRecipes.size() + " §f个"), false);
-
-        return 1;
-    }
-
-    // 帮助指令 - 更新以包含GUI命令
+    // 帮助指令 - 更新以反映新的删除逻辑
     private static int showHelp(CommandContext<CommandSourceStack> context) {
         context.getSource().sendSuccess(() -> Component.literal("§6========== Recipe Helper 帮助 =========="), false);
         context.getSource().sendSuccess(() -> Component.literal("§f§l图形界面:"), false);
@@ -443,367 +519,156 @@ public class RecipeCommand {
         context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper add smelting <原料> <结果>"), false);
         context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper add avaritia <物品> <数量> <等级> <模式> <材料>"), false);
         context.getSource().sendSuccess(() -> Component.literal(""), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f§l管理配方:"), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper register - 注册待添加的配方"), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper clear - 清空待注册配方"), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper count - 查看配方统计"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§f§l永久删除配方:"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§c  /recipe_helper delete recipe <配方ID> - 永久删除配方"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper delete deleted - 列出已删除的配方"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§c  /recipe_helper delete all_deleted confirm - 恢复所有已删除配方"), false);
         context.getSource().sendSuccess(() -> Component.literal(""), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f§l删除配方:"), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper delete recipe <配方ID> - 删除指定配方"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§f§l配方管理:"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper register - 注册待注册配方"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper reload - 重新加载配方"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper status - 显示删除状态"), false);
         context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper delete list - 列出所有配方"), false);
-        context.getSource().sendSuccess(() -> Component.literal("§c  /recipe_helper delete all confirm - 删除所有配方"), false);
         context.getSource().sendSuccess(() -> Component.literal(""), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f§lJSON功能:"), false);
-        context.getSource().sendSuccess(() -> Component.literal("§f  /recipe_helper reload from_json - 从JSON重新加载"), false);
-        context.getSource().sendSuccess(() -> Component.literal(""), false);
-        context.getSource().sendSuccess(() -> Component.literal("§a推荐使用GUI界面进行配方编辑，更加直观易用！"), false);
-        context.getSource().sendSuccess(() -> Component.literal("§e注意: 配方自动保存到 config/recipes/ 目录"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§c删除配方会通过生成空覆盖实现永久移除！"), false);
+        context.getSource().sendSuccess(() -> Component.literal("§e删除文件保存在 config/recipes/ 目录"), false);
 
         return 1;
     }
 
     /**
-     * 删除配方 - 同时从内存和JSON文件中删除
-     * @param recipeId 要删除的配方ID
-     * @return 是否删除成功
+     * 删除配方的公共接口 - 供其他类调用
+     * 现在使用永久删除逻辑（生成空覆盖配方）
      */
     public static boolean deleteRecipe(ResourceLocation recipeId) {
         try {
-            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-            if (server == null) {
-                LOGGER.error("服务器实例为空，无法删除配方");
+            if (!recipeExists(recipeId)) {
+                LOGGER.warn("尝试删除不存在的配方: " + recipeId);
                 return false;
             }
-
-            boolean deletedFromMemory = deleteFromMemory(server, recipeId);
-            boolean deletedFromJson = deleteFromJson(recipeId);
-
-            if (deletedFromMemory || deletedFromJson) {
-                // 同步到所有客户端
-                syncRecipesToClients(server);
-
-                String status = "";
-                if (deletedFromMemory && deletedFromJson) {
-                    status = "从内存和JSON文件中";
-                } else if (deletedFromMemory) {
-                    status = "从内存中";
-                } else if (deletedFromJson) {
-                    status = "从JSON文件中";
-                }
-
-                LOGGER.info("成功{}删除配方: {}", status, recipeId);
-                return true;
+            Recipe<?> originalRecipe = getRecipeById(recipeId);
+            if (originalRecipe == null) {
+                LOGGER.error("无法获取配方信息进行删除: " + recipeId);
+                return false;
             }
-
-            LOGGER.warn("配方未找到: {}", recipeId);
+            boolean success = createEmptyOverrideRecipe(recipeId, originalRecipe);
+            if (success) {
+                int overriddenCount = RecipeOverrideResolver.resolveConflictsPreferJson();
+                if (overriddenCount > 0) {
+                    return true;
+                } else {
+                    LOGGER.error("生成覆盖成功，但应用覆盖失败: " + recipeId);
+                    return false;
+                }
+            }
             return false;
-
         } catch (Exception e) {
-            LOGGER.error("删除配方失败: " + recipeId, e);
+            LOGGER.error("永久删除配方失败: " + recipeId, e);
             return false;
         }
     }
 
-    /**
-     * 从内存（RecipeManager）中删除配方
-     */
-    @SuppressWarnings("unchecked")
-    private static boolean deleteFromMemory(MinecraftServer server, ResourceLocation recipeId) {
-        try {
-            ServerLevel serverLevel = server.overworld();
-            RecipeManager recipeManager = serverLevel.getRecipeManager();
-
-            Field recipesField;
-            try {
-                recipesField = RecipeManager.class.getDeclaredField("f_44007_");
-            } catch (NoSuchFieldException e) {
-                recipesField = RecipeManager.class.getDeclaredField("recipes");
-            }
-            recipesField.setAccessible(true);
-
-            Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> currentRecipes =
-                    (Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>>) recipesField.get(recipeManager);
-
-            // 拷贝成新的可变 Map
-            Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> newRecipes = new HashMap<>();
-            boolean removed = false;
-
-            for (Map.Entry<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> entry : currentRecipes.entrySet()) {
-                Map<ResourceLocation, Recipe<?>> typeRecipes = new HashMap<>(entry.getValue());
-                if (typeRecipes.remove(recipeId) != null) {
-                    removed = true;
-                    LOGGER.debug("从内存中删除配方: {}", recipeId);
-                }
-                newRecipes.put(entry.getKey(), typeRecipes);
-            }
-
-            if (removed) {
-                recipesField.set(recipeManager, newRecipes);
-            }
-
-            return removed;
-
-        } catch (Exception e) {
-            LOGGER.error("从内存中删除配方失败: " + recipeId, e);
-            return false;
-        }
+    private static boolean recipeExists(ResourceLocation recipeId) {
+        return RecipeUtil.recipeExists(recipeId);
     }
 
-    /**
-     * 从JSON文件中删除配方
-     */
-    private static boolean deleteFromJson(ResourceLocation recipeId) {
-        try {
-            boolean deleted = RecipeJsonManager.deleteRecipe(recipeId.toString());
-            if (deleted) {
-                LOGGER.debug("从JSON文件中删除配方: {}", recipeId);
-            }
-            return deleted;
-        } catch (Exception e) {
-            LOGGER.error("从JSON文件中删除配方失败: " + recipeId, e);
-            return false;
-        }
-    }
-
-    /**
-     * 同步配方到所有客户端
-     */
-    private static void syncRecipesToClients(MinecraftServer server) {
-        try {
-            ServerLevel serverLevel = server.overworld();
-            RecipeManager recipeManager = serverLevel.getRecipeManager();
-
-            ClientboundUpdateRecipesPacket packet = new ClientboundUpdateRecipesPacket(recipeManager.getRecipes());
-
-            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                player.connection.send(packet);
-            }
-
-            LOGGER.debug("已同步配方到所有客户端");
-        } catch (Exception e) {
-            LOGGER.error("同步配方到客户端失败", e);
-        }
-    }
-
-    /**
-     * 批量删除配方
-     * @param recipeIds 要删除的配方ID列表
-     * @return 成功删除的数量
-     */
-    public static int deleteRecipes(ResourceLocation... recipeIds) {
-        int deletedCount = 0;
-
-        for (ResourceLocation recipeId : recipeIds) {
-            if (deleteRecipe(recipeId)) {
-                deletedCount++;
-            }
-        }
-
-        LOGGER.info("批量删除完成，成功删除 {} 个配方", deletedCount);
-        return deletedCount;
-    }
-
-    /**
-     * 清空所有自定义配方
-     * @return 删除的配方数量
-     */
-    public static int clearAllCustomRecipes() {
-        try {
-            List<String> allRecipeIds = RecipeJsonManager.getAllSavedRecipeIds();
-            int count = 0;
-
-            for (String recipeIdStr : allRecipeIds) {
-                try {
-                    ResourceLocation recipeId = new ResourceLocation(recipeIdStr);
-                    if (deleteRecipe(recipeId)) {
-                        count++;
-                    }
-                } catch (Exception e) {
-                    LOGGER.warn("处理配方ID时出错: " + recipeIdStr, e);
-                }
-            }
-
-            LOGGER.info("清空完成，删除了 {} 个自定义配方", count);
-            return count;
-
-        } catch (Exception e) {
-            LOGGER.error("清空自定义配方失败", e);
-            return 0;
-        }
-    }
-
-    /**
-     * 检查配方是否存在（检查内存或JSON文件）
-     */
-    public static boolean recipeExists(ResourceLocation recipeId) {
-        try {
-            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-
-            // 检查内存中是否存在
-            if (server != null) {
-                ServerLevel serverLevel = server.overworld();
-                RecipeManager recipeManager = serverLevel.getRecipeManager();
-
-                for (Recipe<?> recipe : recipeManager.getRecipes()) {
-                    if (recipe.getId().equals(recipeId)) {
-                        return true;
-                    }
-                }
-            }
-
-            // 检查JSON文件中是否存在
-            return RecipeJsonManager.recipeFileExists(recipeId.toString());
-
-        } catch (Exception e) {
-            LOGGER.error("检查配方存在性失败: " + recipeId, e);
-            return false;
-        }
-    }
-
-    /**
-     * 获取所有自定义配方的ID
-     */
-    public static ResourceLocation[] getAllCustomRecipeIds() {
-        try {
-            List<String> stringIds = RecipeJsonManager.getAllSavedRecipeIds();
-            ResourceLocation[] result = new ResourceLocation[stringIds.size()];
-
-            for (int i = 0; i < stringIds.size(); i++) {
-                try {
-                    result[i] = new ResourceLocation(stringIds.get(i));
-                } catch (Exception e) {
-                    LOGGER.warn("解析配方ID失败: " + stringIds.get(i), e);
-                    result[i] = new ResourceLocation("registerhelper", "invalid_" + i);
-                }
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            LOGGER.error("获取自定义配方ID失败", e);
-            return new ResourceLocation[0];
-        }
-    }
-
-    /**
-     * 重新加载所有配方
-     */
-    public static void reloadAllRecipes() {
-        try {
-            LOGGER.info("开始重新加载所有配方...");
-            RecipeJsonManager.reloadAllSavedRecipes();
-            LOGGER.info("配方重新加载完成");
-        } catch (Exception e) {
-            LOGGER.error("重新加载配方失败", e);
-        }
-    }
-
-    /**
-     * 获取配方统计信息
-     */
-    public static String getRecipeStats() {
-        try {
-            List<String> savedRecipes = RecipeJsonManager.getAllSavedRecipeIds();
-            int jsonCount = savedRecipes.size();
-
-            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-            int memoryCount = 0;
-
-            if (server != null) {
-                ServerLevel serverLevel = server.overworld();
-                RecipeManager recipeManager = serverLevel.getRecipeManager();
-                memoryCount = recipeManager.getRecipes().size();
-            }
-
-            return String.format("JSON文件中的配方: %d, 内存中的配方: %d", jsonCount, memoryCount);
-
-        } catch (Exception e) {
-            LOGGER.error("获取配方统计信息失败", e);
-            return "无法获取配方统计信息";
-        }
-    }
-
-    // 删除所有配方
-    private static int deleteAllRecipesInternal() {
-        try {
-            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-            if (server == null) {
-                return 0;
-            }
-
-            ServerLevel serverLevel = server.overworld();
-            RecipeManager recipeManager = serverLevel.getRecipeManager();
-
-            Field recipesField;
-            try {
-                recipesField = RecipeManager.class.getDeclaredField("f_44007_");
-            } catch (NoSuchFieldException e) {
-                recipesField = RecipeManager.class.getDeclaredField("recipes");
-            }
-
-            recipesField.setAccessible(true);
-            Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> currentRecipes =
-                    (Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>>) recipesField.get(recipeManager);
-
-            int totalDeleted = 0;
-
-            // 计算总配方数
-            for (Map<ResourceLocation, Recipe<?>> typeRecipes : currentRecipes.values()) {
-                totalDeleted += typeRecipes.size();
-            }
-
-            // 清空所有配方
-            Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> emptyRecipes = new HashMap<>();
-            for (RecipeType<?> type : currentRecipes.keySet()) {
-                emptyRecipes.put(type, new HashMap<>());
-            }
-
-            recipesField.set(recipeManager, emptyRecipes);
-
-            // 同步到所有客户端
-            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                ClientboundUpdateRecipesPacket packet = new ClientboundUpdateRecipesPacket(recipeManager.getRecipes());
-                player.connection.send(packet);
-            }
-
-            LOGGER.warn("警告：已删除所有配方，共 " + totalDeleted + " 个");
-            return totalDeleted;
-
-        } catch (Exception e) {
-            LOGGER.error("删除所有配方失败", e);
-            return 0;
-        }
-    }
-
-    // 获取所有配方ID
-    private static List<ResourceLocation> getAllRecipeIds() {
-        List<ResourceLocation> recipeIds = new ArrayList<>();
-
+    private static Recipe<?> getRecipeById(ResourceLocation recipeId) {
         try {
             MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
             if (server != null) {
                 ServerLevel serverLevel = server.overworld();
                 RecipeManager recipeManager = serverLevel.getRecipeManager();
 
-                Field recipesField;
-                try {
-                    recipesField = RecipeManager.class.getDeclaredField("f_44007_");
-                } catch (NoSuchFieldException e) {
-                    recipesField = RecipeManager.class.getDeclaredField("recipes");
-                }
-
-                recipesField.setAccessible(true);
-                Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> currentRecipes =
-                        (Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>>) recipesField.get(recipeManager);
-
-                for (Map<ResourceLocation, Recipe<?>> typeRecipes : currentRecipes.values()) {
-                    recipeIds.addAll(typeRecipes.keySet());
-                }
+                return recipeManager.byKey(recipeId).orElse(null);
             }
+            return null;
         } catch (Exception e) {
-            LOGGER.error("获取配方列表失败", e);
+            return null;
+        }
+    }
+
+    private static boolean createEmptyOverrideRecipe(ResourceLocation recipeId, Recipe<?> originalRecipe) {
+        try {
+            String recipeType = getRecipeTypeString(originalRecipe);
+            RecipeJsonManager.RecipeData emptyData = createEmptyRecipeData(recipeId.toString(), recipeType, originalRecipe);
+            ItemStack emptyResult = new ItemStack(Items.AIR, 0);
+            List<ItemStack> emptyIngredients = new ArrayList<>();
+            return RecipeJsonManager.saveRecipe(recipeId.toString(), emptyData, emptyResult, emptyIngredients);
+        } catch (Exception e) {
+            LOGGER.error("创建空覆盖配方失败", e);
+            return false;
+        }
+    }
+
+    private static RecipeJsonManager.RecipeData createEmptyRecipeData(String recipeId, String recipeType, Recipe<?> originalRecipe) {
+        RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
+        data.id = recipeId;
+        data.type = recipeType;
+        data.result = "minecraft:air";
+        data.count = 0;
+        switch (recipeType) {
+            case "shaped":
+                data.pattern = new String[]{};
+                data.materialMapping = new Object[]{};
+                break;
+            case "shapeless":
+                data.ingredients = new String[]{};
+                break;
+            case "smelting":
+                data.ingredients = new String[]{"minecraft:air"};
+                data.experience = 0.0f;
+                data.cookingTime = 200;
+                break;
+            case "avaritia_shaped":
+                data.pattern = new String[]{};
+                data.materialMapping = new Object[]{};
+                data.tier = 1;
+                break;
+            case "avaritia_shapeless":
+                data.ingredients = new String[]{};
+                data.tier = 1;
+                break;
+            default:
+                data.ingredients = new String[]{};
+                break;
         }
 
-        return recipeIds;
+        return data;
+    }
+
+    // 检查是否为空覆盖配方（用于恢复功能）
+    private static boolean isEmptyOverrideRecipe(String recipeId) {
+        try {
+            RecipeJsonManager.RecipeData data = RecipeJsonManager.loadRecipe(recipeId);
+            return data != null && "minecraft:air".equals(data.result) && data.count == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // 获取已删除的配方ID列表
+    private static List<String> getDeletedRecipeIds() {
+        List<String> deletedIds = new ArrayList<>();
+        List<String> allSavedIds = RecipeJsonManager.getAllSavedRecipeIds();
+
+        for (String recipeId : allSavedIds) {
+            if (isEmptyOverrideRecipe(recipeId)) {
+                deletedIds.add(recipeId);
+            }
+        }
+
+        return deletedIds;
+    }
+
+    private static String getRecipeTypeString(Recipe<?> recipe) {
+        String typeName = recipe.getType().toString().toLowerCase();
+        if (typeName.contains("crafting_shaped")) return "shaped";
+        if (typeName.contains("crafting_shapeless")) return "shapeless";
+        if (typeName.contains("smelting")) return "smelting";
+        if (typeName.contains("avaritia")) {
+            if (typeName.contains("shaped")) return "avaritia_shaped";
+            return "avaritia_shapeless";
+        }
+        return "unknown";
     }
 }

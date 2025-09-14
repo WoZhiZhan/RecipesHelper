@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.Registerhelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -27,10 +29,13 @@ public class RecipeJsonManager {
         public String id;
         public String type;
         public String result;
+        public String resultNbt;
         public int count = 1;
         public String[] pattern;
         public String[] ingredients;
+        public String[] ingredientNbts;
         public Object[] materialMapping;
+        public String[] materialNbts;
         public int tier = 0;
         public float experience = 0.0f;
         public int cookingTime = 200;
@@ -45,18 +50,90 @@ public class RecipeJsonManager {
     }
 
     /**
-     * 保存配方到JSON文件
+     * 将ItemStack序列化为包含NBT的字符串
      */
-    public static void saveRecipe(String recipeId, RecipeData data) {
+    public static String serializeItemStack(ItemStack stack) {
+        if (stack.isEmpty()) return "";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(ForgeRegistries.ITEMS.getKey(stack.getItem()).toString());
+
+        if (stack.hasTag()) {
+            sb.append("|").append(stack.getTag().toString());
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 从字符串反序列化ItemStack
+     */
+    public static ItemStack deserializeItemStack(String data, int count) {
+        if (data == null || data.isEmpty()) return ItemStack.EMPTY;
+
+        String[] parts = data.split("\\|", 2);
+        ResourceLocation itemId = new ResourceLocation(parts[0]);
+        Item item = ForgeRegistries.ITEMS.getValue(itemId);
+
+        if (item == null) return ItemStack.EMPTY;
+
+        ItemStack stack = new ItemStack(item, count);
+        if (parts.length > 1 && !parts[1].isEmpty()) {
+            try {
+                CompoundTag nbt = TagParser.parseTag(parts[1]);
+                stack.setTag(nbt);
+            } catch (Exception e) {
+                LOGGER.error("解析NBT数据失败: " + parts[1], e);
+            }
+        }
+
+        return stack;
+    }
+
+    /**
+     * 保存配方到JSON文件
+     *
+     */
+    public static boolean saveRecipe(String recipeId, RecipeData data, ItemStack result, List<ItemStack> ingredients) {
         try {
             File file = new File(RECIPES_DIR, sanitizeFileName(recipeId) + ".json");
             data.id = recipeId;
+
+            data.result = ForgeRegistries.ITEMS.getKey(result.getItem()).toString();
+            if (result.hasTag()) {
+                data.resultNbt = result.getTag().toString();
+            }
 
             JsonObject jsonObject = new JsonObject();
             jsonObject.addProperty("id", data.id);
             jsonObject.addProperty("type", data.type);
             jsonObject.addProperty("result", data.result);
-            jsonObject.addProperty("count", data.count);
+            jsonObject.addProperty("count", result.getCount());
+
+            if (data.resultNbt != null && !data.resultNbt.isEmpty()) {
+                jsonObject.addProperty("resultNbt", data.resultNbt);
+            }
+
+            if (ingredients != null && !ingredients.isEmpty()) {
+                List<String> ingredientStrings = new ArrayList<>();
+                List<String> nbtStrings = new ArrayList<>();
+
+                for (ItemStack ingredient : ingredients) {
+                    if (!ingredient.isEmpty()) {
+                        ingredientStrings.add(ForgeRegistries.ITEMS.getKey(ingredient.getItem()).toString());
+                        if (ingredient.hasTag()) {
+                            nbtStrings.add(ingredient.getTag().toString());
+                        } else {
+                            nbtStrings.add("");
+                        }
+                    }
+                }
+
+                if (!ingredientStrings.isEmpty()) {
+                    jsonObject.add("ingredients", GSON.toJsonTree(ingredientStrings.toArray(new String[0])));
+                    jsonObject.add("ingredientNbts", GSON.toJsonTree(nbtStrings.toArray(new String[0])));
+                }
+            }
 
             if (data.pattern != null) {
                 jsonObject.add("pattern", GSON.toJsonTree(data.pattern));
@@ -67,7 +144,18 @@ public class RecipeJsonManager {
             }
 
             if (data.materialMapping != null) {
-                jsonObject.add("materialMapping", GSON.toJsonTree(data.materialMapping));
+                Object[] safeMapping = new Object[data.materialMapping.length];
+                for (int i = 0; i < data.materialMapping.length; i++) {
+                    Object obj = data.materialMapping[i];
+                    if (obj instanceof Item) {
+                        safeMapping[i] = ForgeRegistries.ITEMS.getKey((Item) obj).toString();
+                    } else if (obj instanceof ItemStack) {
+                        safeMapping[i] = serializeItemStack((ItemStack) obj);
+                    } else {
+                        safeMapping[i] = obj;
+                    }
+                }
+                jsonObject.add("materialMapping", GSON.toJsonTree(safeMapping));
             }
 
             if (data.tier > 0) {
@@ -87,10 +175,11 @@ public class RecipeJsonManager {
             }
 
             LOGGER.info("配方已保存到JSON: {} -> {}", recipeId, file.getName());
-
+            return true;
         } catch (IOException e) {
             LOGGER.error("保存配方JSON失败: " + recipeId, e);
         }
+        return false;
     }
 
     /**
@@ -182,8 +271,6 @@ public class RecipeJsonManager {
                 }
             }
         }
-
-        LOGGER.info("找到 {} 个保存的配方文件", recipeIds.size());
         return recipeIds;
     }
 

@@ -24,6 +24,9 @@ public class CreateRecipePacket {
         SHAPED,
         SHAPELESS,
         SMELTING,
+        BLASTING,      // 新增
+        SMOKING,       // 新增
+        CAMPFIRE,      // 新增
         AVARITIA_SHAPED,
         AVARITIA_SHAPELESS,
     }
@@ -210,6 +213,33 @@ public class CreateRecipePacket {
                     data.cookingTime = (Integer) packet.ingredients[2];
                     break;
 
+                case BLASTING:
+                    data.type = "blasting";
+                    data.ingredients = new String[]{
+                            ForgeRegistries.ITEMS.getKey((Item) packet.ingredients[0]).toString()
+                    };
+                    data.experience = (Float) packet.ingredients[1];
+                    data.cookingTime = (Integer) packet.ingredients[2];
+                    break;
+
+                case SMOKING:
+                    data.type = "smoking";
+                    data.ingredients = new String[]{
+                            ForgeRegistries.ITEMS.getKey((Item) packet.ingredients[0]).toString()
+                    };
+                    data.experience = (Float) packet.ingredients[1];
+                    data.cookingTime = (Integer) packet.ingredients[2];
+                    break;
+
+                case CAMPFIRE:
+                    data.type = "campfire";
+                    data.ingredients = new String[]{
+                            ForgeRegistries.ITEMS.getKey((Item) packet.ingredients[0]).toString()
+                    };
+                    data.experience = (Float) packet.ingredients[1];
+                    data.cookingTime = (Integer) packet.ingredients[2];
+                    break;
+
                 case AVARITIA_SHAPED:
                     data.type = "avaritia_shaped";
                     data.pattern = packet.pattern;
@@ -242,12 +272,12 @@ public class CreateRecipePacket {
             switch (packet.recipeType) {
                 case SHAPED:
                     Registerhelper.getRecipeManager().addShapedRecipe(
-                            packet.result, packet.pattern, packet.ingredients);
+                            recipeId, packet.result, packet.pattern, packet.ingredients);
                     break;
 
                 case SHAPELESS:
                     Registerhelper.getRecipeManager().addShapelessRecipe(
-                            packet.result, packet.ingredients);
+                            recipeId, packet.result, packet.ingredients);
                     break;
 
                 case SMELTING:
@@ -255,12 +285,36 @@ public class CreateRecipePacket {
                     float experience = (Float) packet.ingredients[1];
                     int cookingTime = (Integer) packet.ingredients[2];
                     Registerhelper.getRecipeManager().addSmeltingRecipe(
-                            ingredient, packet.result.getItem(), experience, cookingTime);
+                            recipeId, ingredient, packet.result.getItem(), experience, cookingTime);
+                    break;
+
+                case BLASTING:
+                    Item blastingIngredient = (Item) packet.ingredients[0];
+                    float blastingExperience = (Float) packet.ingredients[1];
+                    int blastingCookingTime = (Integer) packet.ingredients[2];
+                    Registerhelper.getRecipeManager().addBlastingRecipe(
+                            recipeId, blastingIngredient, packet.result.getItem(), blastingExperience, blastingCookingTime);
+                    break;
+
+                case SMOKING:
+                    Item smokingIngredient = (Item) packet.ingredients[0];
+                    float smokingExperience = (Float) packet.ingredients[1];
+                    int smokingCookingTime = (Integer) packet.ingredients[2];
+                    Registerhelper.getRecipeManager().addSmokingRecipe(
+                            recipeId, smokingIngredient, packet.result.getItem(), smokingExperience, smokingCookingTime);
+                    break;
+
+                case CAMPFIRE:
+                    Item campfireIngredient = (Item) packet.ingredients[0];
+                    float campfireExperience = (Float) packet.ingredients[1];
+                    int campfireCookingTime = (Integer) packet.ingredients[2];
+                    Registerhelper.getRecipeManager().addCampfireRecipe(
+                            recipeId, campfireIngredient, packet.result.getItem(), campfireExperience, campfireCookingTime);
                     break;
 
                 case AVARITIA_SHAPED:
                     Registerhelper.getRecipeManager().addAvaritiaTableRecipe(
-                            packet.result, packet.avaritiaTeir, packet.pattern, packet.ingredients);
+                            recipeId, packet.result, packet.avaritiaTeir, packet.pattern, packet.ingredients);
                     break;
 
                 case AVARITIA_SHAPELESS:
@@ -268,13 +322,14 @@ public class CreateRecipePacket {
                     for (Object a : packet.ingredients) {
                         if (a instanceof Item item) {
                             avaritiaIngredients.add(new ItemStack(item));
+                        } else if (a instanceof ItemStack stack) {
+                            avaritiaIngredients.add(stack.copy());
                         }
                     }
                     Registerhelper.getRecipeManager().addAvaritiaShapelessRecipe(
                             recipeId, packet.result, packet.avaritiaTeir, avaritiaIngredients);
                     break;
             }
-            RecipeJsonManager.saveRecipe(recipeId.toString(), recipeData);
             Registerhelper.getRecipeManager().registerRecipes();
             return true;
         } catch (Exception e) {

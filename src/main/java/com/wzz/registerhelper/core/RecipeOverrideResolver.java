@@ -25,34 +25,21 @@ public class RecipeOverrideResolver {
      */
     public static int resolveConflictsPreferJson() {
         try {
-            // 1. 获取所有JSON配方的ID
             Set<ResourceLocation> jsonRecipeIds = getJsonRecipeIds();
             if (jsonRecipeIds.isEmpty()) {
                 LOGGER.info("没有找到JSON配方文件");
                 return 0;
             }
-
             LOGGER.info("找到 {} 个JSON配方", jsonRecipeIds.size());
-
-            // 2. 获取内存中的配方并找出冲突
             Set<ResourceLocation> conflictingIds = findConflictingRecipeIds(jsonRecipeIds);
             if (conflictingIds.isEmpty()) {
                 LOGGER.info("没有发现配方冲突");
                 return 0;
             }
-
-            LOGGER.info("发现 {} 个冲突配方，将从内存中删除原始版本", conflictingIds.size());
-
-            // 3. 从内存中删除冲突的原始配方
             int deletedCount = deleteOriginalRecipesFromMemory(conflictingIds);
-
-            // 4. 记录被覆盖的配方
             OVERRIDDEN_RECIPES.addAll(conflictingIds);
-
             LOGGER.info("成功从内存中删除 {} 个原始配方", deletedCount);
-            
             return deletedCount;
-
         } catch (Exception e) {
             LOGGER.error("解决配方冲突时发生错误", e);
             return 0;
@@ -70,14 +57,12 @@ public class RecipeOverrideResolver {
             
             for (String idString : recipeIdStrings) {
                 try {
-                    // 加载JSON数据获取真实的配方ID
                     RecipeJsonManager.RecipeData data = RecipeJsonManager.loadRecipe(idString);
                     if (data != null && data.id != null && !data.id.trim().isEmpty()) {
                         ResourceLocation actualId = new ResourceLocation(data.id);
                         jsonIds.add(actualId);
                         LOGGER.debug("JSON配方: {} (文件: {})", actualId, idString);
                     } else {
-                        // 如果JSON中没有id字段，使用文件名
                         ResourceLocation fileId = new ResourceLocation(idString);
                         jsonIds.add(fileId);
                         LOGGER.debug("JSON配方(从文件名): {}", fileId);
@@ -110,13 +95,11 @@ public class RecipeOverrideResolver {
             ServerLevel serverLevel = server.overworld();
             RecipeManager recipeManager = serverLevel.getRecipeManager();
 
-            // 检查内存中的每个配方是否与JSON配方冲突
             for (Recipe<?> recipe : recipeManager.getRecipes()) {
                 ResourceLocation recipeId = recipe.getId();
                 
                 if (jsonRecipeIds.contains(recipeId)) {
                     conflictingIds.add(recipeId);
-                    LOGGER.info("发现冲突配方: {} (内存中的原始版本将被删除)", recipeId);
                 }
             }
 
@@ -237,28 +220,6 @@ public class RecipeOverrideResolver {
         public int memoryRecipeCount = 0;
         public List<ResourceLocation> conflictingRecipes = new ArrayList<>();
         public Set<ResourceLocation> overriddenRecipes = new HashSet<>();
-
-        public void printReport() {
-            LOGGER.info("=== 配方覆盖报告 ===");
-            LOGGER.info("JSON配方数量: {}", jsonRecipeCount);
-            LOGGER.info("内存配方数量: {}", memoryRecipeCount);
-            LOGGER.info("当前冲突数量: {}", conflictingRecipes.size());
-            LOGGER.info("已覆盖配方数量: {}", overriddenRecipes.size());
-            
-            if (!conflictingRecipes.isEmpty()) {
-                LOGGER.info("当前冲突配方:");
-                for (ResourceLocation id : conflictingRecipes) {
-                    LOGGER.info("  - {} (内存中的原始版本)", id);
-                }
-            }
-            
-            if (!overriddenRecipes.isEmpty()) {
-                LOGGER.info("已被JSON覆盖的配方:");
-                for (ResourceLocation id : overriddenRecipes) {
-                    LOGGER.info("  - {} (已删除原始版本)", id);
-                }
-            }
-        }
 
         public boolean hasConflicts() {
             return !conflictingRecipes.isEmpty();

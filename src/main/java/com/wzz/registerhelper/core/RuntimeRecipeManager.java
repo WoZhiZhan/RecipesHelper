@@ -12,14 +12,9 @@ import net.minecraftforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 public class RuntimeRecipeManager {
-
-    private static final Set<RuntimeRecipeManager> INSTANCES = new HashSet<>();
-
     private final String modId;
     private final Map<ResourceLocation, Recipe<?>> pendingRecipes = new HashMap<>();
 
@@ -29,15 +24,6 @@ public class RuntimeRecipeManager {
      */
     public RuntimeRecipeManager(String modId) {
         this.modId = modId;
-        INSTANCES.add(this);
-    }
-
-    /**
-     * 销毁实例时清理
-     */
-    public void destroy() {
-        INSTANCES.remove(this);
-        pendingRecipes.clear();
     }
 
     public Map<ResourceLocation, Recipe<?>> getPendingRecipes() {

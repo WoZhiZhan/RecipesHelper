@@ -2,6 +2,8 @@ package com.wzz.registerhelper.gui;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.logging.LogUtils;
+import com.wzz.registerhelper.core.RecipeCommand;
+import com.wzz.registerhelper.core.RecipeJsonManager;
 import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.network.CreateRecipePacket;
 import net.minecraft.client.gui.GuiGraphics;
@@ -26,10 +28,12 @@ public class RecipeCreatorScreen extends Screen {
     public enum RecipeType {
         SHAPED("有序配方", 9),
         SHAPELESS("无序配方", 9),
-        SMELTING("熔炼配方", 1),
+        SMELTING("熔炉配方", 1),
+        BLASTING("高炉配方", 1),
+        SMOKING("烟熏炉配方", 1),
+        CAMPFIRE("营火配方", 1),
         AVARITIA_SHAPELESS("Avaritia无序工作台", 81),
         AVARITIA_SHAPED("Avaritia有序工作台", 81);
-
 
         private final String displayName;
         private final int maxInputs;
@@ -45,6 +49,10 @@ public class RecipeCreatorScreen extends Screen {
 
         public int getMaxInputs() {
             return maxInputs;
+        }
+
+        public boolean isCookingType() {
+            return this == SMELTING || this == BLASTING || this == SMOKING || this == CAMPFIRE;
         }
     }
 
@@ -64,12 +72,17 @@ public class RecipeCreatorScreen extends Screen {
         }
     }
 
-    private static final int GUI_WIDTH = 520;
-    private static final int GUI_HEIGHT = 450;
+    private static final int MIN_GUI_WIDTH = 520;
+    private static final int MIN_GUI_HEIGHT = 450;
     private static final int SLOT_SIZE = 18;
     private static final int SLOT_SPACING = 20;
+    private static final int RIGHT_PANEL_WIDTH = 150;
+    private static final int PADDING = 20;
 
+    private int guiWidth = MIN_GUI_WIDTH;
+    private int guiHeight = MIN_GUI_HEIGHT;
     private int leftPos, topPos;
+
     private RecipeType currentRecipeType = RecipeType.SHAPED;
     private int avaritiaTeir = 1;
     private FillMode fillMode = FillMode.NORMAL;
@@ -79,13 +92,14 @@ public class RecipeCreatorScreen extends Screen {
     private CycleButton<Integer> avaritiaTeierButton;
     private CycleButton<FillMode> fillModeButton;
     private EditBox resultCountBox;
-    private EditBox smeltingTimeBox;
-    private EditBox smeltingExpBox;
+    private EditBox cookingTimeBox;  // 重命名为通用的烹饪时间
+    private EditBox cookingExpBox;   // 重命名为通用的烹饪经验
     private Button createButton;
     private Button cancelButton;
     private Button clearAllButton;
     private Button selectBrushItemButton;
     private Button editExistingRecipeButton;
+    private Button deleteRecipeButton;
 
     private ItemStack resultItem = ItemStack.EMPTY;
     private List<ItemStack> ingredients = new ArrayList<>();
@@ -115,7 +129,38 @@ public class RecipeCreatorScreen extends Screen {
         this.currentRecipeType = RecipeType.SHAPED;
         this.avaritiaTeir = 1;
         this.fillMode = FillMode.NORMAL;
+        calculateDynamicSize();
         initializeSlots();
+    }
+
+    /**
+     * 根据当前配方类型和等级计算动态大小
+     */
+    private void calculateDynamicSize() {
+        int gridWidth = 0;
+        int gridHeight = 0;
+
+        switch (currentRecipeType) {
+            case SHAPED, SHAPELESS -> {
+                gridWidth = 3 * SLOT_SPACING;
+                gridHeight = 3 * SLOT_SPACING;
+            }
+            case SMELTING, BLASTING, SMOKING, CAMPFIRE -> {
+                gridWidth = SLOT_SPACING;
+                gridHeight = SLOT_SPACING;
+            }
+            case AVARITIA_SHAPED, AVARITIA_SHAPELESS -> {
+                int avaritiaGridSize = getAvaritiaGridSize();
+                gridWidth = avaritiaGridSize * SLOT_SPACING;
+                gridHeight = avaritiaGridSize * SLOT_SPACING;
+            }
+        }
+
+        int contentWidth = PADDING + gridWidth + PADDING + RIGHT_PANEL_WIDTH + PADDING;
+        int contentHeight = PADDING + 60 + gridHeight + PADDING + 80; // 60是顶部控件，80是底部按钮区域
+
+        this.guiWidth = Math.max(MIN_GUI_WIDTH, contentWidth);
+        this.guiHeight = Math.max(MIN_GUI_HEIGHT, contentHeight);
     }
 
     private void initializeSlots() {
@@ -123,13 +168,16 @@ public class RecipeCreatorScreen extends Screen {
         ingredientSlots.clear();
         ingredients.clear();
 
+        calculateDynamicSize();
+
         switch (currentRecipeType) {
             case SHAPED -> initializeShapedSlots();
             case AVARITIA_SHAPED -> initializeAvaritiaSlots();
             case SHAPELESS -> initializeShapelessSlots();
             case AVARITIA_SHAPELESS -> initializeAvaritiaShapelessSlots();
-            case SMELTING -> initializeSmeltingSlots();
+            case SMELTING, BLASTING, SMOKING, CAMPFIRE -> initializeCookingSlots();
         }
+
         for (int i = 0; i < ingredientSlots.size(); i++) {
             if (i < oldIngredients.size()) {
                 ingredients.add(oldIngredients.get(i));
@@ -137,11 +185,13 @@ public class RecipeCreatorScreen extends Screen {
                 ingredients.add(ItemStack.EMPTY);
             }
         }
-        resultSlot = new IngredientSlot(leftPos + 400, topPos + 100, -1);
+
+        int rightPanelX = leftPos + guiWidth - RIGHT_PANEL_WIDTH;
+        resultSlot = new IngredientSlot(rightPanelX + 20, topPos + 100, -1);
     }
 
     private void initializeShapedSlots() {
-        int startX = leftPos + 50;
+        int startX = leftPos + PADDING;
         int startY = topPos + 120;
 
         for (int y = 0; y < 3; y++) {
@@ -156,7 +206,7 @@ public class RecipeCreatorScreen extends Screen {
     private void initializeAvaritiaSlots() {
         int gridSize = getAvaritiaGridSize();
         int gridWidth = gridSize * SLOT_SPACING;
-        int startX = leftPos + (320 - gridWidth) / 2;
+        int startX = leftPos + PADDING;
         int startY = topPos + 120;
 
         for (int y = 0; y < gridSize; y++) {
@@ -175,9 +225,7 @@ public class RecipeCreatorScreen extends Screen {
         int cols = Math.min(9, gridSize); // 最多9列
         int rows = (int) Math.ceil((double) totalSlots / cols);
 
-        int gridWidth = cols * SLOT_SPACING;
-        int gridHeight = rows * SLOT_SPACING;
-        int startX = leftPos + (320 - gridWidth) / 2;
+        int startX = leftPos + PADDING;
         int startY = topPos + 120;
 
         for (int i = 0; i < totalSlots; i++) {
@@ -190,7 +238,7 @@ public class RecipeCreatorScreen extends Screen {
     }
 
     private void initializeShapelessSlots() {
-        int startX = leftPos + 50;
+        int startX = leftPos + PADDING;
         int startY = topPos + 120;
 
         for (int i = 0; i < 9; i++) {
@@ -202,8 +250,8 @@ public class RecipeCreatorScreen extends Screen {
         }
     }
 
-    private void initializeSmeltingSlots() {
-        ingredientSlots.add(new IngredientSlot(leftPos + 80, topPos + 140, 0));
+    private void initializeCookingSlots() {
+        ingredientSlots.add(new IngredientSlot(leftPos + PADDING + SLOT_SPACING, topPos + 140, 0));
     }
 
     private int getAvaritiaGridSize() {
@@ -218,76 +266,116 @@ public class RecipeCreatorScreen extends Screen {
 
     @Override
     protected void init() {
-        this.leftPos = (this.width - GUI_WIDTH) / 2;
-        this.topPos = (this.height - GUI_HEIGHT) / 2;
+        this.leftPos = (this.width - guiWidth) / 2;
+        this.topPos = (this.height - guiHeight) / 2;
+
         recipeTypeButton = addRenderableWidget(CycleButton.<RecipeType>builder(
                         type -> Component.literal(type.getDisplayName()))
                 .withValues(RecipeType.values())
                 .withInitialValue(currentRecipeType)
                 .displayOnlyValue()
-                .create(leftPos + 15, topPos + 35, 120, 20,
+                .create(leftPos + 15, topPos + 35, 140, 20,
                         Component.literal("配方类型"), this::onRecipeTypeChanged));
+
         avaritiaTeierButton = addRenderableWidget(CycleButton.<Integer>builder(
                         tier -> Component.literal("等级 " + tier))
                 .withValues(1, 2, 3, 4)
                 .withInitialValue(avaritiaTeir)
                 .displayOnlyValue()
-                .create(leftPos + 145, topPos + 35, 60, 20,
+                .create(leftPos + 165, topPos + 35, 60, 20,
                         Component.literal("工作台等级"), this::onAvaritiaTeierChanged));
+
         fillModeButton = addRenderableWidget(CycleButton.<FillMode>builder(
                         mode -> Component.literal(mode.getDisplayName()))
                 .withValues(FillMode.values())
                 .withInitialValue(fillMode)
                 .displayOnlyValue()
-                .create(leftPos + 215, topPos + 35, 80, 20,
+                .create(leftPos + 235, topPos + 35, 80, 20,
                         Component.literal("填充模式"), this::onFillModeChanged));
-        int rightPanelX = leftPos + 370;
-        resultCountBox = new EditBox(this.font, rightPanelX + 70, topPos + 130, 40, 20,
+
+        int rightPanelX = leftPos + guiWidth - RIGHT_PANEL_WIDTH + 10;
+
+        resultCountBox = new EditBox(this.font, rightPanelX + 60, topPos + 130, 40, 20,
                 Component.literal("数量"));
         resultCountBox.setValue("1");
         resultCountBox.setFilter(text -> text.matches("\\d*") &&
                 (text.isEmpty() || Integer.parseInt(text) <= 64));
-        addWidget(resultCountBox);
-        smeltingTimeBox = new EditBox(this.font, rightPanelX + 70, topPos + 160, 60, 20,
-                Component.literal("熔炼时间"));
-        smeltingTimeBox.setValue("200");
-        smeltingTimeBox.setFilter(text -> text.matches("\\d*") &&
+        addRenderableWidget(resultCountBox);
+
+        // 烹饪时间输入框 - 根据不同配方类型设置默认值
+        cookingTimeBox = new EditBox(this.font, rightPanelX + 60, topPos + 160, 60, 20,
+                Component.literal("烹饪时间"));
+        cookingTimeBox.setValue(getDefaultCookingTime());
+        cookingTimeBox.setFilter(text -> text.matches("\\d*") &&
                 (text.isEmpty() || Integer.parseInt(text) <= 32000));
-        addWidget(smeltingTimeBox);
-        smeltingExpBox = new EditBox(this.font, rightPanelX + 70, topPos + 190, 60, 20,
-                Component.literal("熔炼经验"));
-        smeltingExpBox.setValue("0.1");
-        smeltingExpBox.setFilter(text -> text.matches("\\d*\\.?\\d*"));
-        addWidget(smeltingExpBox);
+        addRenderableWidget(cookingTimeBox);
+
+        // 烹饪经验输入框
+        cookingExpBox = new EditBox(this.font, rightPanelX + 60, topPos + 190, 60, 20,
+                Component.literal("烹饪经验"));
+        cookingExpBox.setValue(getDefaultCookingExp());
+        cookingExpBox.setFilter(text -> text.matches("\\d*\\.?\\d*"));
+        addRenderableWidget(cookingExpBox);
+
         selectBrushItemButton = addRenderableWidget(Button.builder(
                         Component.literal("选择画笔物品"),
                         button -> openItemSelector(this::setBrushItem))
                 .bounds(leftPos + 15, topPos + 65, 120, 20)
                 .build());
-        editExistingRecipeButton = addRenderableWidget(Button.builder(
-                        Component.literal("编辑现有配方"),
-                        button -> openRecipeSelector())
-                .bounds(leftPos + 300, topPos + 35, 100, 20)
-                .build());
+
         clearAllButton = addRenderableWidget(Button.builder(
                         Component.literal("清空材料"),
                         button -> clearAllIngredients())
                 .bounds(rightPanelX, topPos + 250, 80, 20)
                 .build());
+
+        int buttonY = topPos + guiHeight - 30;
+        int centerX = leftPos + guiWidth / 2;
+
+        editExistingRecipeButton = addRenderableWidget(Button.builder(
+                        Component.literal("编辑现有配方"),
+                        button -> openRecipeSelector())
+                .bounds(centerX - 160, buttonY, 90, 20)
+                .build());
+
+        deleteRecipeButton = addRenderableWidget(Button.builder(
+                        Component.literal("删除配方"),
+                        button -> openRecipeDeleteSelector())
+                .bounds(centerX - 65, buttonY, 70, 20)
+                .build());
+
         createButton = addRenderableWidget(Button.builder(
                         Component.literal(isEditingExisting ? "更新配方" : "创建配方"),
                         button -> createRecipe())
-                .bounds(leftPos + 180, topPos + 410, 80, 20)
+                .bounds(centerX + 10, buttonY, 80, 20)
                 .build());
 
         cancelButton = addRenderableWidget(Button.builder(
                         Component.literal("取消"),
                         button -> onClose())
-                .bounds(leftPos + 270, topPos + 410, 50, 20)
+                .bounds(centerX + 95, buttonY, 50, 20)
                 .build());
 
         initializeSlots();
         updateVisibility();
+    }
+
+    private String getDefaultCookingTime() {
+        return switch (currentRecipeType) {
+            case SMELTING -> "200";
+            case BLASTING -> "100";
+            case SMOKING -> "100";
+            case CAMPFIRE -> "600";
+            default -> "200";
+        };
+    }
+
+    private String getDefaultCookingExp() {
+        return switch (currentRecipeType) {
+            case SMELTING, BLASTING -> "0.7";
+            case SMOKING, CAMPFIRE -> "0.35";
+            default -> "0.1";
+        };
     }
 
     private void clearAllIngredients() {
@@ -312,16 +400,21 @@ public class RecipeCreatorScreen extends Screen {
                     currentRecipeType == RecipeType.AVARITIA_SHAPELESS) &&
                     (fillMode == FillMode.BRUSH || fillMode == FillMode.FILL));
         }
-        if (smeltingTimeBox != null) {
-            smeltingTimeBox.visible = (currentRecipeType == RecipeType.SMELTING);
-            if (smeltingTimeBox.visible) {
-                smeltingTimeBox.setFocused(false);
+
+        // 修复烹饪类型配方的输入框显示
+        boolean isCookingType = currentRecipeType.isCookingType();
+        if (cookingTimeBox != null) {
+            cookingTimeBox.visible = isCookingType;
+            cookingTimeBox.setVisible(isCookingType);
+            if (isCookingType) {
+                cookingTimeBox.setValue(getDefaultCookingTime());
             }
         }
-        if (smeltingExpBox != null) {
-            smeltingExpBox.visible = (currentRecipeType == RecipeType.SMELTING);
-            if (smeltingExpBox.visible) {
-                smeltingExpBox.setFocused(false);
+        if (cookingExpBox != null) {
+            cookingExpBox.visible = isCookingType;
+            cookingExpBox.setVisible(isCookingType);
+            if (isCookingType) {
+                cookingExpBox.setValue(getDefaultCookingExp());
             }
         }
     }
@@ -332,12 +425,36 @@ public class RecipeCreatorScreen extends Screen {
         }
     }
 
+    private void openRecipeDeleteSelector() {
+        if (minecraft != null) {
+            minecraft.setScreen(new RecipeSelectorScreen(this, this::deleteSelectedRecipe));
+        }
+    }
+
+    private void deleteSelectedRecipe(ResourceLocation recipeId) {
+        try {
+            boolean success = RecipeCommand.deleteRecipe(recipeId);
+
+            if (success) {
+                displaySuccess("配方删除成功: " + recipeId + " 使用 /recipe_helper reload 刷新！");
+
+                if (editingRecipeId != null && editingRecipeId.equals(recipeId)) {
+                    clearAllIngredients();
+                }
+            } else {
+                displayError("配方删除失败: " + recipeId);
+            }
+        } catch (Exception e) {
+            LOGGER.error("删除配方时发生错误", e);
+            displayError("删除配方时发生错误: " + e.getMessage());
+        }
+    }
+
     private void loadSelectedRecipe(ResourceLocation recipeId) {
         this.editingRecipeId = recipeId;
         this.isEditingExisting = true;
         createButton.setMessage(Component.literal("更新配方"));
         loadExistingRecipe(recipeId);
-        displaySuccess("已载入配方: " + recipeId.toString());
     }
 
     private void loadExistingRecipe(ResourceLocation recipeId) {
@@ -370,7 +487,13 @@ public class RecipeCreatorScreen extends Screen {
             } else if (recipeTypeName.contains("crafting_shapeless")) {
                 loadShapelessRecipe(recipe);
             } else if (recipeTypeName.contains("smelting")) {
-                loadSmeltingRecipe(recipe);
+                loadCookingRecipe(recipe, RecipeType.SMELTING);
+            } else if (recipeTypeName.contains("blasting")) {
+                loadCookingRecipe(recipe, RecipeType.BLASTING);
+            } else if (recipeTypeName.contains("smoking")) {
+                loadCookingRecipe(recipe, RecipeType.SMOKING);
+            } else if (recipeTypeName.contains("campfire")) {
+                loadCookingRecipe(recipe, RecipeType.CAMPFIRE);
             } else if (recipeTypeName.contains("avaritia")) {
                 if (recipeTypeName.contains("shaped")) {
                     loadAvaritiaShapedRecipe(recipe);
@@ -379,7 +502,7 @@ public class RecipeCreatorScreen extends Screen {
                 }
             }
 
-            displayInfo("成功载入配方: " + recipeId.toString());
+            displayInfo("成功载入配方: " + recipeId);
 
         } catch (Exception e) {
             LOGGER.error("加载配方失败", e);
@@ -387,25 +510,39 @@ public class RecipeCreatorScreen extends Screen {
         }
     }
 
-    // 其余方法保持不变...
     private void loadShapedRecipe(net.minecraft.world.item.crafting.Recipe<?> recipe) {
         currentRecipeType = RecipeType.SHAPED;
         recipeTypeButton.setValue(currentRecipeType);
         initializeSlots();
 
         try {
-            var ingredients = recipe.getIngredients();
-            for (int i = 0; i < Math.min(ingredients.size(), this.ingredients.size()); i++) {
-                var ingredient = ingredients.get(i);
-                if (!ingredient.isEmpty()) {
+            var recipeIngredients = recipe.getIngredients();
+            while (this.ingredients.size() < 9) {
+                this.ingredients.add(ItemStack.EMPTY);
+            }
+
+            for (int i = 0; i < recipeIngredients.size() && i < 9; i++) {
+                var ingredient = recipeIngredients.get(i);
+                if (ingredient != null && !ingredient.isEmpty()) {
                     var items = ingredient.getItems();
-                    if (items.length > 0) {
-                        this.ingredients.set(i, items[0].copy());
+                    if (items != null && items.length > 0) {
+                        ItemStack itemStack = items[0].copy();
+                        this.ingredients.set(i, itemStack);
+                    } else {
+                        this.ingredients.set(i, ItemStack.EMPTY);
                     }
+                } else {
+                    this.ingredients.set(i, ItemStack.EMPTY);
                 }
             }
+
+            for (int i = recipeIngredients.size(); i < this.ingredients.size(); i++) {
+                this.ingredients.set(i, ItemStack.EMPTY);
+            }
+
         } catch (Exception e) {
-            LOGGER.warn("解析有序配方失败", e);
+            LOGGER.error("解析有序配方失败", e);
+            displayError("解析有序配方失败: " + e.getMessage());
         }
 
         updateVisibility();
@@ -417,14 +554,23 @@ public class RecipeCreatorScreen extends Screen {
         initializeSlots();
 
         try {
-            var ingredients = recipe.getIngredients();
-            for (int i = 0; i < Math.min(ingredients.size(), this.ingredients.size()); i++) {
-                var ingredient = ingredients.get(i);
-                if (!ingredient.isEmpty()) {
+            var recipeIngredients = recipe.getIngredients();
+
+            while (this.ingredients.size() < 9) {
+                this.ingredients.add(ItemStack.EMPTY);
+            }
+
+            for (int i = 0; i < recipeIngredients.size() && i < 9; i++) {
+                var ingredient = recipeIngredients.get(i);
+                if (ingredient != null && !ingredient.isEmpty()) {
                     var items = ingredient.getItems();
-                    if (items.length > 0) {
+                    if (items != null && items.length > 0) {
                         this.ingredients.set(i, items[0].copy());
+                    } else {
+                        this.ingredients.set(i, ItemStack.EMPTY);
                     }
+                } else {
+                    this.ingredients.set(i, ItemStack.EMPTY);
                 }
             }
         } catch (Exception e) {
@@ -434,15 +580,15 @@ public class RecipeCreatorScreen extends Screen {
         updateVisibility();
     }
 
-    private void loadSmeltingRecipe(net.minecraft.world.item.crafting.Recipe<?> recipe) {
-        currentRecipeType = RecipeType.SMELTING;
+    private void loadCookingRecipe(net.minecraft.world.item.crafting.Recipe<?> recipe, RecipeType recipeType) {
+        currentRecipeType = recipeType;
         recipeTypeButton.setValue(currentRecipeType);
         initializeSlots();
 
         try {
-            var ingredients = recipe.getIngredients();
-            if (!ingredients.isEmpty()) {
-                var ingredient = ingredients.get(0);
+            var recipeIngredients = recipe.getIngredients();
+            if (!recipeIngredients.isEmpty()) {
+                var ingredient = recipeIngredients.get(0);
                 if (!ingredient.isEmpty()) {
                     var items = ingredient.getItems();
                     if (items.length > 0) {
@@ -451,15 +597,16 @@ public class RecipeCreatorScreen extends Screen {
                 }
             }
 
-            if (smeltingTimeBox != null) {
-                smeltingTimeBox.setValue("200");
+            // 尝试获取烹饪时间和经验值
+            if (cookingTimeBox != null) {
+                cookingTimeBox.setValue(getDefaultCookingTime());
             }
-            if (smeltingExpBox != null) {
-                smeltingExpBox.setValue("0.1");
+            if (cookingExpBox != null) {
+                cookingExpBox.setValue(getDefaultCookingExp());
             }
 
         } catch (Exception e) {
-            LOGGER.warn("解析熔炼配方失败", e);
+            LOGGER.warn("解析烹饪配方失败", e);
         }
 
         updateVisibility();
@@ -469,8 +616,8 @@ public class RecipeCreatorScreen extends Screen {
         currentRecipeType = RecipeType.AVARITIA_SHAPED;
         recipeTypeButton.setValue(currentRecipeType);
 
-        var ingredients = recipe.getIngredients();
-        int ingredientCount = ingredients.size();
+        var recipeIngredients = recipe.getIngredients();
+        int ingredientCount = recipeIngredients.size();
         if (ingredientCount <= 9) {
             avaritiaTeir = 1;
         } else if (ingredientCount <= 25) {
@@ -485,8 +632,8 @@ public class RecipeCreatorScreen extends Screen {
         initializeSlots();
 
         try {
-            for (int i = 0; i < Math.min(ingredients.size(), this.ingredients.size()); i++) {
-                var ingredient = ingredients.get(i);
+            for (int i = 0; i < recipeIngredients.size() && i < this.ingredients.size(); i++) {
+                var ingredient = recipeIngredients.get(i);
                 if (!ingredient.isEmpty()) {
                     var items = ingredient.getItems();
                     if (items.length > 0) {
@@ -505,8 +652,8 @@ public class RecipeCreatorScreen extends Screen {
         currentRecipeType = RecipeType.AVARITIA_SHAPELESS;
         recipeTypeButton.setValue(currentRecipeType);
 
-        var ingredients = recipe.getIngredients();
-        int ingredientCount = ingredients.size();
+        var recipeIngredients = recipe.getIngredients();
+        int ingredientCount = recipeIngredients.size();
         if (ingredientCount <= 9) {
             avaritiaTeir = 1;
         } else if (ingredientCount <= 25) {
@@ -521,8 +668,8 @@ public class RecipeCreatorScreen extends Screen {
         initializeSlots();
 
         try {
-            for (int i = 0; i < Math.min(ingredients.size(), this.ingredients.size()); i++) {
-                var ingredient = ingredients.get(i);
+            for (int i = 0; i < recipeIngredients.size() && i < this.ingredients.size(); i++) {
+                var ingredient = recipeIngredients.get(i);
                 if (!ingredient.isEmpty()) {
                     var items = ingredient.getItems();
                     if (items.length > 0) {
@@ -634,9 +781,12 @@ public class RecipeCreatorScreen extends Screen {
             switch (currentRecipeType) {
                 case SHAPED -> createShapedRecipe(result);
                 case SHAPELESS -> createShapelessRecipe(result);
-                case SMELTING -> createSmeltingRecipe(result);
+                case SMELTING -> createCookingRecipe(result, "smelting");
+                case BLASTING -> createCookingRecipe(result, "blasting");
+                case SMOKING -> createCookingRecipe(result, "smoking");
+                case CAMPFIRE -> createCookingRecipe(result, "campfire");
                 case AVARITIA_SHAPED -> createAvaritiaRecipe(result);
-                case AVARITIA_SHAPELESS -> createAvaritiaShapelessRecipe(result); // 修复：添加Avaritia无序配方创建
+                case AVARITIA_SHAPELESS -> createAvaritiaShapelessRecipe(result);
             }
 
         } catch (NumberFormatException e) {
@@ -653,6 +803,7 @@ public class RecipeCreatorScreen extends Screen {
 
         String[] pattern = new String[3];
         Map<ItemStack, Character> itemToSymbol = new HashMap<>();
+        Map<Character, String> symbolToNbt = new HashMap<>();
         char currentSymbol = 'A';
 
         for (int y = 0; y < 3; y++) {
@@ -666,6 +817,10 @@ public class RecipeCreatorScreen extends Screen {
                     if (symbol == null) {
                         symbol = currentSymbol++;
                         itemToSymbol.put(ingredient, symbol);
+
+                        if (ingredient.hasTag()) {
+                            symbolToNbt.put(symbol, ingredient.getTag().toString());
+                        }
                     }
                     row.append(symbol);
                 }
@@ -673,12 +828,29 @@ public class RecipeCreatorScreen extends Screen {
             pattern[y] = row.toString();
         }
 
-        Object[] mappings = new Object[itemToSymbol.size() * 2];
-        int index = 0;
+        List<Object> mappingsList = new ArrayList<>();
+        List<String> nbtsList = new ArrayList<>();
+
         for (Map.Entry<ItemStack, Character> entry : itemToSymbol.entrySet()) {
-            mappings[index++] = entry.getValue();
-            mappings[index++] = entry.getKey().getItem();
+            mappingsList.add(entry.getValue());
+            mappingsList.add(entry.getKey().getItem());
+
+            nbtsList.add(symbolToNbt.getOrDefault(entry.getValue(), ""));
         }
+
+        Object[] mappings = mappingsList.toArray();
+        String[] nbts = nbtsList.toArray(new String[0]);
+
+        RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
+        data.type = "shaped";
+        data.pattern = pattern;
+        data.materialMapping = mappings;
+        data.materialNbts = nbts;
+
+        String recipeId = editingRecipeId != null ? editingRecipeId.toString() :
+                "registerhelper:custom_shaped_" + result.getItem().toString().replace(':', '_') + "_" + System.currentTimeMillis();
+
+        RecipeJsonManager.saveRecipe(recipeId, data, result, ingredients);
 
         ModNetwork.CHANNEL.sendToServer(new CreateRecipePacket(
                 CreateRecipePacket.RecipeType.SHAPED,
@@ -710,32 +882,50 @@ public class RecipeCreatorScreen extends Screen {
         onClose();
     }
 
-    private void createSmeltingRecipe(ItemStack result) {
+    private void createCookingRecipe(ItemStack result, String cookingType) {
         if (ingredients.isEmpty() || ingredients.get(0).isEmpty()) {
-            displayError("请选择熔炼原料！");
+            displayError("请选择" + getCookingTypeDisplayName(cookingType) + "原料！");
             return;
         }
 
         try {
-            int cookingTime = Integer.parseInt(smeltingTimeBox.getValue());
-            float experience = Float.parseFloat(smeltingExpBox.getValue());
+            int cookingTime = Integer.parseInt(cookingTimeBox.getValue());
+            float experience = Float.parseFloat(cookingExpBox.getValue());
 
             if (cookingTime <= 0) {
-                displayError("熔炼时间必须大于0！");
+                displayError("烹饪时间必须大于0！");
                 return;
             }
 
-            Object[] smeltingData = {ingredients.get(0).getItem(), experience, cookingTime};
+            Object[] cookingData = {ingredients.get(0).getItem(), experience, cookingTime};
+
+            CreateRecipePacket.RecipeType packetType = switch (cookingType) {
+                case "smelting" -> CreateRecipePacket.RecipeType.SMELTING;
+                case "blasting" -> CreateRecipePacket.RecipeType.BLASTING;
+                case "smoking" -> CreateRecipePacket.RecipeType.SMOKING;
+                case "campfire" -> CreateRecipePacket.RecipeType.CAMPFIRE;
+                default -> CreateRecipePacket.RecipeType.SMELTING;
+            };
 
             ModNetwork.CHANNEL.sendToServer(new CreateRecipePacket(
-                    CreateRecipePacket.RecipeType.SMELTING,
-                    result, null, smeltingData, 0, editingRecipeId));
+                    packetType, result, null, cookingData, 0, editingRecipeId));
 
-            displaySuccess(isEditingExisting ? "熔炼配方更新成功！" : "熔炼配方创建成功！");
+            String displayName = getCookingTypeDisplayName(cookingType);
+            displaySuccess(isEditingExisting ? displayName + "配方更新成功！" : displayName + "配方创建成功！");
             onClose();
         } catch (NumberFormatException e) {
             displayError("请输入有效的时间和经验值！");
         }
+    }
+
+    private String getCookingTypeDisplayName(String cookingType) {
+        return switch (cookingType) {
+            case "smelting" -> "熔炉";
+            case "blasting" -> "高炉";
+            case "smoking" -> "烟熏炉";
+            case "campfire" -> "营火";
+            default -> "烹饪";
+        };
     }
 
     private void createAvaritiaRecipe(ItemStack result) {
@@ -829,11 +1019,9 @@ public class RecipeCreatorScreen extends Screen {
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(guiGraphics);
 
-        // GUI背景
-        guiGraphics.fill(leftPos, topPos, leftPos + GUI_WIDTH, topPos + GUI_HEIGHT, 0xFFC6C6C6);
-        guiGraphics.fill(leftPos + 1, topPos + 1, leftPos + GUI_WIDTH - 1, topPos + GUI_HEIGHT - 1, 0xFF8B8B8B);
+        guiGraphics.fill(leftPos, topPos, leftPos + guiWidth, topPos + guiHeight, 0xFFC6C6C6);
+        guiGraphics.fill(leftPos + 1, topPos + 1, leftPos + guiWidth - 1, topPos + guiHeight - 1, 0xFF8B8B8B);
 
-        // 标题
         String titleText = isEditingExisting ?
                 (editingRecipeId != null ? "配方编辑器 - " + editingRecipeId.toString() : "配方编辑器")
                 : "配方创建器";
@@ -843,35 +1031,38 @@ public class RecipeCreatorScreen extends Screen {
         guiGraphics.drawString(this.font, "配方类型:", leftPos + 15, topPos + 25, 0x404040, false);
 
         if (currentRecipeType == RecipeType.AVARITIA_SHAPED || currentRecipeType == RecipeType.AVARITIA_SHAPELESS) {
-            guiGraphics.drawString(this.font, "等级:", leftPos + 145, topPos + 25, 0x404040, false);
-            guiGraphics.drawString(this.font, "模式:", leftPos + 215, topPos + 25, 0x404040, false);
+            guiGraphics.drawString(this.font, "等级:", leftPos + 165, topPos + 25, 0x404040, false);
+            guiGraphics.drawString(this.font, "模式:", leftPos + 235, topPos + 25, 0x404040, false);
         }
 
-        int rightPanelX = leftPos + 370;
+        int rightPanelX = leftPos + guiWidth - RIGHT_PANEL_WIDTH + 10;
         guiGraphics.drawString(this.font, "结果:", rightPanelX, topPos + 80, 0x404040, false);
-        guiGraphics.drawString(this.font, "数量:", rightPanelX, topPos + 130, 0x404040, false);
+        guiGraphics.drawString(this.font, "数量:", rightPanelX, topPos + 120, 0x404040, false);
 
-        // 熔炼配方专用标签
-        if (currentRecipeType == RecipeType.SMELTING) {
-            guiGraphics.drawString(this.font, "时间(tick):", rightPanelX, topPos + 150, 0x404040, false);
-            guiGraphics.drawString(this.font, "经验值:", rightPanelX, topPos + 180, 0x404040, false);
+        if (currentRecipeType.isCookingType()) {
+            String cookingTypeName = switch (currentRecipeType) {
+                case SMELTING -> "熔炼";
+                case BLASTING -> "高炉";
+                case SMOKING -> "烟熏";
+                case CAMPFIRE -> "营火";
+                default -> "烹饪";
+            };
+            guiGraphics.drawString(this.font, "时间:", rightPanelX, topPos + 150, 0x404040, false);
+            guiGraphics.drawString(this.font, "经验:", rightPanelX, topPos + 180, 0x404040, false);
         }
 
-        // 分隔线
-        guiGraphics.fill(rightPanelX - 10, topPos + 20, rightPanelX - 8, topPos + GUI_HEIGHT - 40, 0xFF606060);
+        guiGraphics.fill(rightPanelX - 20, topPos + 20, rightPanelX - 18, topPos + guiHeight - 60, 0xFF606060);
 
-        // 渲染槽位
         renderIngredientSlots(guiGraphics, mouseX, mouseY);
         renderResultSlot(guiGraphics, mouseX, mouseY);
 
-        // 渲染填充模式提示
         if (currentRecipeType == RecipeType.AVARITIA_SHAPED || currentRecipeType == RecipeType.AVARITIA_SHAPELESS) {
             renderFillModeHint(guiGraphics);
         }
 
         // 渲染编辑模式提示
         if (isEditingExisting) {
-            guiGraphics.drawString(this.font, "§6编辑模式", leftPos + 15, topPos + 390, 0xFFCC00, false);
+            guiGraphics.drawString(this.font, "§6编辑模式", leftPos + 15, topPos + guiHeight - 45, 0xFFCC00, false);
         }
 
         super.render(guiGraphics, mouseX, mouseY, partialTick);
@@ -982,14 +1173,6 @@ public class RecipeCreatorScreen extends Screen {
         return false;
     }
 
-    private static class IngredientSlot {
-        public final int x, y;
-        public final int index;
-
-        public IngredientSlot(int x, int y, int index) {
-            this.x = x;
-            this.y = y;
-            this.index = index;
-        }
+    private record IngredientSlot(int x, int y, int index) {
     }
 }

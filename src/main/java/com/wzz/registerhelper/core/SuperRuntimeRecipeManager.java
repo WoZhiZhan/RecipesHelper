@@ -4,6 +4,8 @@ import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.integration.AvaritiaIntegration;
 import com.wzz.registerhelper.network.TriggerReloadPacket;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.TagParser;
 import net.minecraft.network.protocol.game.ClientboundUpdateRecipesPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -46,7 +48,6 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
             ServerLevel serverLevel = server.overworld();
             RecipeManager recipeManager = serverLevel.getRecipeManager();
 
-            // 通过反射获取配方映射
             Field recipesField;
             try {
                 recipesField = RecipeManager.class.getDeclaredField("f_44007_");
@@ -81,21 +82,6 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
     }
 
     /**
-     * 删除配方（同时删除内存和JSON文件）
-     */
-    public boolean deleteRecipe(ResourceLocation recipeId) {
-        boolean deletedFromMemory = deleteRecipeFromMemory(recipeId);
-        boolean deletedFromJson = RecipeJsonManager.deleteRecipe(recipeId.toString());
-
-        if (deletedFromMemory || deletedFromJson) {
-            LOGGER.info("成功删除配方: {} (内存: {}, JSON: {})", recipeId, deletedFromMemory, deletedFromJson);
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
      * 检查配方是否存在于内存中
      */
     public boolean recipeExistsInMemory(ResourceLocation recipeId) {
@@ -112,7 +98,6 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
                 }
             }
 
-            // 同时检查待注册列表
             return getPendingRecipes().containsKey(recipeId);
 
         } catch (Exception e) {
@@ -127,17 +112,25 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
             deleteRecipeFromMemory(id);
         }
         super.addShapedRecipe(id, result, pattern, ingredients);
+
         if (!isReloading) {
-            // 保存到JSON
             RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
-            data.id = id.toString(); // 确保ID正确
+            data.id = id.toString();
             data.type = "shaped";
             data.result = getItemResourceLocation(result.getItem()).toString();
             data.count = result.getCount();
             data.pattern = pattern;
             data.materialMapping = convertIngredientsForJson(ingredients);
 
-            RecipeJsonManager.saveRecipe(id.toString(), data);
+            if (result.hasTag()) {
+                data.resultNbt = result.getTag().toString();
+            }
+
+            data.materialNbts = extractNbtsFromIngredients(ingredients);
+
+            List<ItemStack> ingredientStacks = createIngredientStacksFromMapping(ingredients);
+
+            RecipeJsonManager.saveRecipe(id.toString(), data, result, ingredientStacks);
         }
         return this;
     }
@@ -150,18 +143,26 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
         super.addShapelessRecipe(id, result, ingredients);
 
         if (!isReloading) {
-            // 保存到JSON
             RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
-            data.id = id.toString(); // 确保ID正确
+            data.id = id.toString();
             data.type = "shapeless";
             data.result = getItemResourceLocation(result.getItem()).toString();
             data.count = result.getCount();
             data.ingredients = convertIngredientsToStringArray(ingredients);
 
-            RecipeJsonManager.saveRecipe(id.toString(), data);
+            if (result.hasTag()) {
+                data.resultNbt = result.getTag().toString();
+            }
+
+            data.ingredientNbts = extractNbtsFromIngredients(ingredients);
+
+            List<ItemStack> ingredientStacks = createIngredientStacksFromObjects(ingredients);
+
+            RecipeJsonManager.saveRecipe(id.toString(), data, result, ingredientStacks);
         }
         return this;
     }
+
 
     @Override
     public RuntimeRecipeManager addSmeltingRecipe(ResourceLocation id, ItemLike ingredient, ItemLike result, float experience, int cookingTime) {
@@ -169,17 +170,20 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
             deleteRecipeFromMemory(id);
         }
         super.addSmeltingRecipe(id, ingredient, result, experience, cookingTime);
+
         if (!isReloading) {
             RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
-            data.id = id.toString(); // 确保ID正确
+            data.id = id.toString();
             data.type = "smelting";
             data.result = getItemResourceLocation(result.asItem()).toString();
             data.count = 1;
             data.ingredients = new String[]{getItemResourceLocation(ingredient.asItem()).toString()};
             data.experience = experience;
             data.cookingTime = cookingTime;
+            List<ItemStack> ingredientStacks = List.of(ingredient.asItem().getDefaultInstance());
+            ItemStack resultStack = result.asItem().getDefaultInstance();
 
-            RecipeJsonManager.saveRecipe(id.toString(), data);
+            RecipeJsonManager.saveRecipe(id.toString(), data, resultStack, ingredientStacks);
         }
         return this;
     }
@@ -190,42 +194,36 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
             return this;
         }
         try {
-            // 如果配方已存在，先删除旧的
             if (recipeExistsInMemory(id)) {
                 LOGGER.info("检测到重复配方ID，删除旧配方: {}", id);
                 deleteRecipeFromMemory(id);
             }
-
-            // 验证等级
             if (tier < 1 || tier > 4) {
                 LOGGER.warn("无效的工作台等级: {}，使用默认等级1", tier);
                 tier = 1;
             }
-
-            // 验证模式大小
             if (!AvaritiaIntegration.validatePatternForTier(pattern, tier)) {
                 LOGGER.warn("配方模式大小超过等级 {} 支持的最大大小", tier);
                 return this;
             }
-
-            // 直接注册到游戏中
             boolean success = AvaritiaIntegration.createShapedTableRecipe(this, id, result, tier, pattern, ingredients);
-
             if (success) {
                 if (!isReloading) {
-                    // 保存到JSON
                     RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
-                    data.id = id.toString(); // 确保ID正确
-                    data.type = "avaritia_shaped"; // 修正类型名称
+                    data.id = id.toString();
+                    data.type = "avaritia_shaped";
                     data.result = getItemResourceLocation(result.getItem()).toString();
                     data.count = result.getCount();
                     data.pattern = pattern;
                     data.materialMapping = convertIngredientsForJson(ingredients);
                     data.tier = tier;
-
-                    RecipeJsonManager.saveRecipe(id.toString(), data);
+                    if (result.hasTag()) {
+                        data.resultNbt = result.getTag().toString();
+                    }
+                    data.materialNbts = extractNbtsFromIngredients(ingredients);
+                    List<ItemStack> ingredientStacks = createIngredientStacksFromMapping(ingredients);
+                    RecipeJsonManager.saveRecipe(id.toString(), data, result, ingredientStacks);
                 }
-
                 LOGGER.info("成功添加Avaritia工作台配方: {} (等级{})", id, tier);
             } else {
                 LOGGER.warn("添加Avaritia工作台配方失败: {}", id);
@@ -239,37 +237,25 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
         }
     }
 
-    /**
-     * 添加Avaritia无形状工作台配方
-     */
     public SuperRuntimeRecipeManager addAvaritiaShapelessRecipe(ResourceLocation id, ItemStack result, int tier, List<ItemStack> ingredients) {
         if (!AvaritiaIntegration.isAvaritiaLoaded()) {
             LOGGER.warn("Avaritia未加载，无法添加工作台配方");
             return this;
         }
-
         try {
-            // 如果配方已存在，先删除旧的
             if (recipeExistsInMemory(id)) {
                 LOGGER.info("检测到重复配方ID，删除旧配方: {}", id);
                 deleteRecipeFromMemory(id);
             }
-
-            // 验证等级
             if (tier < 1 || tier > 4) {
                 LOGGER.warn("无效的工作台等级: {}，使用默认等级1", tier);
                 tier = 1;
             }
-
-            // 传递重载状态给AvaritiaIntegration
             boolean success = AvaritiaIntegration.createShapelessTableRecipe(id, result, tier, ingredients, isReloading);
-
             if (success) {
-                // 只有在非重载状态下才保存到JSON
                 if (!isReloading) {
-                    // 保存到JSON
                     RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
-                    data.id = id.toString(); // 确保ID正确
+                    data.id = id.toString();
                     data.type = "avaritia_shapeless";
                     data.result = getItemResourceLocation(result.getItem()).toString();
                     data.count = result.getCount();
@@ -277,11 +263,15 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
                             .map(stack -> getItemResourceLocation(stack.getItem()).toString())
                             .toArray(String[]::new);
                     data.tier = tier;
+                    if (result.hasTag()) {
+                        data.resultNbt = result.getTag().toString();
+                    }
+                    data.ingredientNbts = ingredients.stream()
+                            .map(stack -> stack.hasTag() ? stack.getTag().toString() : "")
+                            .toArray(String[]::new);
 
-                    RecipeJsonManager.saveRecipe(id.toString(), data);
+                    RecipeJsonManager.saveRecipe(id.toString(), data, result, ingredients);
                 }
-
-                LOGGER.info("成功添加Avaritia无形状工作台配方: {} (等级{})", id, tier);
             } else {
                 LOGGER.warn("添加Avaritia无形状工作台配方失败: {}", id);
             }
@@ -294,13 +284,63 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
         }
     }
 
-    // ==================== 修复后的reloadFromJson方法 ====================
+// 新增辅助方法
 
     /**
-     * 修复后的reloadFromJson方法
+     * 从materials映射中提取NBT数据
      */
+    private String[] extractNbtsFromIngredients(Object[] ingredients) {
+        List<String> nbts = new ArrayList<>();
+        for (int i = 0; i < ingredients.length; i += 2) {
+            if (i + 1 < ingredients.length) {
+                Object ingredient = ingredients[i + 1];
+                if (ingredient instanceof ItemStack stack && stack.hasTag()) {
+                    nbts.add(stack.getTag().toString());
+                } else {
+                    nbts.add("");
+                }
+            }
+        }
+        return nbts.toArray(new String[0]);
+    }
+
+    /**
+     * 从materials映射创建ItemStack列表
+     */
+    private List<ItemStack> createIngredientStacksFromMapping(Object[] ingredients) {
+        List<ItemStack> stacks = new ArrayList<>();
+        for (int i = 1; i < ingredients.length; i += 2) {
+            Object ingredient = ingredients[i];
+            if (ingredient instanceof ItemStack stack) {
+                stacks.add(stack.copy());
+            } else if (ingredient instanceof Item item) {
+                stacks.add(item.getDefaultInstance());
+            } else if (ingredient instanceof ItemLike itemLike) {
+                stacks.add(itemLike.asItem().getDefaultInstance());
+            }
+        }
+        return stacks;
+    }
+
+    /**
+     * 从Object数组创建ItemStack列表
+     */
+    private List<ItemStack> createIngredientStacksFromObjects(Object[] ingredients) {
+        List<ItemStack> stacks = new ArrayList<>();
+        for (Object ingredient : ingredients) {
+            if (ingredient instanceof ItemStack stack) {
+                stacks.add(stack.copy());
+            } else if (ingredient instanceof Item item) {
+                stacks.add(item.getDefaultInstance());
+            } else if (ingredient instanceof ItemLike itemLike) {
+                stacks.add(itemLike.asItem().getDefaultInstance());
+            }
+        }
+        return stacks;
+    }
+
     public void reloadFromJson() {
-        isReloading = true; // 设置重载标记
+        isReloading = true;
 
         try {
             clearPendingRecipes();
@@ -314,20 +354,21 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
                 RecipeJsonManager.RecipeData data = RecipeJsonManager.loadRecipe(recipeId);
                 if (data != null) {
                     try {
-                        // 先解析ResourceLocation
                         ResourceLocation id = parseResourceLocation(recipeId);
                         if (id == null) {
                             LOGGER.warn("无效的配方ID格式: " + recipeId);
                             continue;
                         }
 
-                        // 根据配方类型分别处理，支持新的类型名称
                         switch (data.type) {
                             case "shaped" -> recreateShapedRecipe(id, data);
                             case "shapeless" -> recreateShapelessRecipe(id, data);
                             case "smelting" -> recreateSmeltingRecipe(id, data);
-                            case "avaritia_table", "avaritia_shaped" -> recreateAvaritiaShapedRecipe(id, data); // 支持两种名称
+                            case "avaritia_table", "avaritia_shaped" -> recreateAvaritiaShapedRecipe(id, data);
                             case "avaritia_shapeless" -> recreateAvaritiaShapelessRecipe(id, data);
+                            case "blasting" -> recreateBlastingRecipe(id, data);
+                            case "campfire" -> recreateCampfireRecipe(id, data);
+                            case "smoking" -> recreateSmokingRecipe(id, data);
                             default -> LOGGER.warn("未知的配方类型: {} (配方ID: {})", data.type, recipeId);
                         }
                         loadedCount++;
@@ -340,11 +381,9 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
             LOGGER.info("从JSON文件重新加载了 {} 个配方", loadedCount);
 
         } finally {
-            isReloading = false; // 确保重载标记被重置
+            isReloading = false;
         }
     }
-
-    // ==================== 现有方法保持不变 ====================
 
     private void recreateShapedRecipe(ResourceLocation id, RecipeJsonManager.RecipeData data) {
         try {
@@ -356,7 +395,16 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
 
             Item resultItem = ForgeRegistries.ITEMS.getValue(resultLoc);
             if (resultItem != null) {
-                ItemStack result = new ItemStack(resultItem, data.count);
+                ItemStack result = resultItem.getDefaultInstance();
+                result.setCount(data.count);
+                if (data.resultNbt != null && !data.resultNbt.isEmpty()) {
+                    try {
+                        CompoundTag tag = TagParser.parseTag(data.resultNbt);
+                        result.setTag(tag);
+                    } catch (Exception e) {
+                        LOGGER.warn("无法解析物品NBT: {}", data.resultNbt, e);
+                    }
+                }
                 Object[] convertedMapping = convertMaterialMappingFromJson(data.materialMapping);
                 addShapedRecipe(id, result, data.pattern, convertedMapping);
             }
@@ -372,10 +420,18 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
                 LOGGER.warn("无效的物品ID: " + data.result);
                 return;
             }
-
             Item resultItem = ForgeRegistries.ITEMS.getValue(resultLoc);
             if (resultItem != null) {
-                ItemStack result = new ItemStack(resultItem, data.count);
+                ItemStack result = resultItem.getDefaultInstance();
+                result.setCount(data.count);
+                if (data.resultNbt != null && !data.resultNbt.isEmpty()) {
+                    try {
+                        CompoundTag tag = TagParser.parseTag(data.resultNbt);
+                        result.setTag(tag);
+                    } catch (Exception e) {
+                        LOGGER.warn("无法解析物品NBT: {}", data.resultNbt, e);
+                    }
+                }
                 Object[] ingredients = new Object[data.ingredients.length];
                 for (int i = 0; i < data.ingredients.length; i++) {
                     ResourceLocation itemLoc = parseResourceLocation(data.ingredients[i]);
@@ -427,7 +483,16 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
 
             Item resultItem = ForgeRegistries.ITEMS.getValue(resultLoc);
             if (resultItem != null) {
-                ItemStack result = new ItemStack(resultItem, data.count);
+                ItemStack result = resultItem.getDefaultInstance();
+                result.setCount(data.count);
+                if (data.resultNbt != null && !data.resultNbt.isEmpty()) {
+                    try {
+                        CompoundTag tag = TagParser.parseTag(data.resultNbt);
+                        result.setTag(tag);
+                    } catch (Exception e) {
+                        LOGGER.warn("解析NBT失败: {}", data.resultNbt, e);
+                    }
+                }
                 Object[] convertedMapping = convertMaterialMappingFromJson(data.materialMapping);
                 addAvaritiaTableRecipe(id, result, data.tier, data.pattern, convertedMapping);
             }
@@ -449,15 +514,23 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
 
             Item resultItem = ForgeRegistries.ITEMS.getValue(resultLoc);
             if (resultItem != null) {
-                ItemStack result = new ItemStack(resultItem, data.count);
-
+                ItemStack result = resultItem.getDefaultInstance();
+                result.setCount(data.count);
+                if (data.resultNbt != null && !data.resultNbt.isEmpty()) {
+                    try {
+                        CompoundTag tag = TagParser.parseTag(data.resultNbt);
+                        result.setTag(tag);
+                    } catch (Exception e) {
+                        LOGGER.warn("解析NBT失败: {}", data.resultNbt, e);
+                    }
+                }
                 List<ItemStack> ingredients = new ArrayList<>();
                 for (String ingredientStr : data.ingredients) {
                     ResourceLocation itemLoc = parseResourceLocation(ingredientStr);
                     if (itemLoc != null) {
                         Item item = ForgeRegistries.ITEMS.getValue(itemLoc);
                         if (item != null) {
-                            ingredients.add(new ItemStack(item));
+                            ingredients.add(item.getDefaultInstance());
                         }
                     }
                 }
@@ -554,6 +627,143 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
         }
     }
 
+    // 在SuperRuntimeRecipeManager类中添加以下方法
+
+    @Override
+    public RuntimeRecipeManager addBlastingRecipe(ResourceLocation id, ItemLike ingredient, ItemLike result, float experience, int cookingTime) {
+        if (recipeExistsInMemory(id)) {
+            deleteRecipeFromMemory(id);
+        }
+        super.addBlastingRecipe(id, ingredient, result, experience, cookingTime);
+
+        if (!isReloading) {
+            RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
+            data.id = id.toString();
+            data.type = "blasting";
+            data.result = getItemResourceLocation(result.asItem()).toString();
+            data.count = 1;
+            data.ingredients = new String[]{getItemResourceLocation(ingredient.asItem()).toString()};
+            data.experience = experience;
+            data.cookingTime = cookingTime;
+            List<ItemStack> ingredientStacks = List.of(ingredient.asItem().getDefaultInstance());
+            ItemStack resultStack = result.asItem().getDefaultInstance();
+
+            RecipeJsonManager.saveRecipe(id.toString(), data, resultStack, ingredientStacks);
+        }
+        return this;
+    }
+
+    @Override
+    public RuntimeRecipeManager addCampfireRecipe(ResourceLocation id, ItemLike ingredient, ItemLike result, float experience, int cookingTime) {
+        if (recipeExistsInMemory(id)) {
+            deleteRecipeFromMemory(id);
+        }
+        super.addCampfireRecipe(id, ingredient, result, experience, cookingTime);
+
+        if (!isReloading) {
+            RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
+            data.id = id.toString();
+            data.type = "campfire";
+            data.result = getItemResourceLocation(result.asItem()).toString();
+            data.count = 1;
+            data.ingredients = new String[]{getItemResourceLocation(ingredient.asItem()).toString()};
+            data.experience = experience;
+            data.cookingTime = cookingTime;
+            List<ItemStack> ingredientStacks = List.of(ingredient.asItem().getDefaultInstance());
+            ItemStack resultStack = result.asItem().getDefaultInstance();
+
+            RecipeJsonManager.saveRecipe(id.toString(), data, resultStack, ingredientStacks);
+        }
+        return this;
+    }
+
+    @Override
+    public RuntimeRecipeManager addSmokingRecipe(ResourceLocation id, ItemLike ingredient, ItemLike result, float experience, int cookingTime) {
+        if (recipeExistsInMemory(id)) {
+            deleteRecipeFromMemory(id);
+        }
+        super.addSmokingRecipe(id, ingredient, result, experience, cookingTime);
+
+        if (!isReloading) {
+            RecipeJsonManager.RecipeData data = new RecipeJsonManager.RecipeData();
+            data.id = id.toString();
+            data.type = "smoking";
+            data.result = getItemResourceLocation(result.asItem()).toString();
+            data.count = 1;
+            data.ingredients = new String[]{getItemResourceLocation(ingredient.asItem()).toString()};
+            data.experience = experience;
+            data.cookingTime = cookingTime;
+            List<ItemStack> ingredientStacks = List.of(ingredient.asItem().getDefaultInstance());
+            ItemStack resultStack = result.asItem().getDefaultInstance();
+
+            RecipeJsonManager.saveRecipe(id.toString(), data, resultStack, ingredientStacks);
+        }
+        return this;
+    }
+
+    private void recreateBlastingRecipe(ResourceLocation id, RecipeJsonManager.RecipeData data) {
+        try {
+            ResourceLocation resultLoc = parseResourceLocation(data.result);
+            ResourceLocation ingredientLoc = parseResourceLocation(data.ingredients[0]);
+
+            if (resultLoc == null || ingredientLoc == null) {
+                LOGGER.warn("无效的物品ID - result: {}, ingredient: {}", data.result, data.ingredients[0]);
+                return;
+            }
+
+            Item resultItem = ForgeRegistries.ITEMS.getValue(resultLoc);
+            Item ingredientItem = ForgeRegistries.ITEMS.getValue(ingredientLoc);
+
+            if (resultItem != null && ingredientItem != null) {
+                addBlastingRecipe(id, ingredientItem, resultItem, data.experience, data.cookingTime);
+            }
+        } catch (Exception e) {
+            LOGGER.warn("重建blasting配方失败: {} - {}", id, e.getMessage());
+        }
+    }
+
+    private void recreateCampfireRecipe(ResourceLocation id, RecipeJsonManager.RecipeData data) {
+        try {
+            ResourceLocation resultLoc = parseResourceLocation(data.result);
+            ResourceLocation ingredientLoc = parseResourceLocation(data.ingredients[0]);
+
+            if (resultLoc == null || ingredientLoc == null) {
+                LOGGER.warn("无效的物品ID - result: {}, ingredient: {}", data.result, data.ingredients[0]);
+                return;
+            }
+
+            Item resultItem = ForgeRegistries.ITEMS.getValue(resultLoc);
+            Item ingredientItem = ForgeRegistries.ITEMS.getValue(ingredientLoc);
+
+            if (resultItem != null && ingredientItem != null) {
+                addCampfireRecipe(id, ingredientItem, resultItem, data.experience, data.cookingTime);
+            }
+        } catch (Exception e) {
+            LOGGER.warn("重建campfire配方失败: {} - {}", id, e.getMessage());
+        }
+    }
+
+    private void recreateSmokingRecipe(ResourceLocation id, RecipeJsonManager.RecipeData data) {
+        try {
+            ResourceLocation resultLoc = parseResourceLocation(data.result);
+            ResourceLocation ingredientLoc = parseResourceLocation(data.ingredients[0]);
+
+            if (resultLoc == null || ingredientLoc == null) {
+                LOGGER.warn("无效的物品ID - result: {}, ingredient: {}", data.result, data.ingredients[0]);
+                return;
+            }
+
+            Item resultItem = ForgeRegistries.ITEMS.getValue(resultLoc);
+            Item ingredientItem = ForgeRegistries.ITEMS.getValue(ingredientLoc);
+
+            if (resultItem != null && ingredientItem != null) {
+                addSmokingRecipe(id, ingredientItem, resultItem, data.experience, data.cookingTime);
+            }
+        } catch (Exception e) {
+            LOGGER.warn("重建smoking配方失败: {} - {}", id, e.getMessage());
+        }
+    }
+
     /**
      * 同步配方到所有客户端
      */
@@ -602,7 +812,6 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
                 return null;
             }
 
-            // 清理字符串，移除可能的前缀
             String cleaned = str.trim();
             if (cleaned.startsWith("Item{") && cleaned.endsWith("}")) {
                 cleaned = cleaned.substring(5, cleaned.length() - 1);
@@ -641,14 +850,12 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
         Object[] result = new Object[ingredients.length];
         for (int i = 0; i < ingredients.length; i++) {
             if (i % 2 == 0) {
-                // 符号字符，转换为字符串保存
                 if (ingredients[i] instanceof Character) {
                     result[i] = ingredients[i].toString();
                 } else {
                     result[i] = ingredients[i];
                 }
             } else {
-                // 物品，转换为ResourceLocation字符串
                 if (ingredients[i] instanceof Item) {
                     result[i] = getItemResourceLocation((Item) ingredients[i]).toString();
                 } else if (ingredients[i] instanceof ItemLike) {
@@ -670,11 +877,9 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
         if (jsonMapping == null) {
             return new Object[0];
         }
-
         Object[] result = new Object[jsonMapping.length];
         for (int i = 0; i < jsonMapping.length; i++) {
             if (i % 2 == 0) {
-                // 符号字符，从字符串转回字符
                 String str = jsonMapping[i].toString();
                 if (str.length() == 1) {
                     result[i] = str.charAt(0);
@@ -682,7 +887,6 @@ public class SuperRuntimeRecipeManager extends RuntimeRecipeManager {
                     result[i] = str;
                 }
             } else {
-                // 物品，从ResourceLocation字符串转回Item
                 ResourceLocation itemLoc = parseResourceLocation(jsonMapping[i].toString());
                 if (itemLoc != null) {
                     Item item = ForgeRegistries.ITEMS.getValue(itemLoc);

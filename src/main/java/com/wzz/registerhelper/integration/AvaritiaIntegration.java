@@ -1,7 +1,6 @@
 package com.wzz.registerhelper.integration;
 
 import com.wzz.registerhelper.core.RuntimeRecipeManager;
-import committee.nova.mods.avaritia.ModApi;
 import committee.nova.mods.avaritia.common.crafting.recipe.ShapedTableCraftingRecipe;
 import committee.nova.mods.avaritia.common.crafting.recipe.ShapelessTableCraftingRecipe;
 import committee.nova.mods.avaritia.init.registry.ModRecipeTypes;
@@ -77,7 +76,7 @@ public class AvaritiaIntegration {
                     if (ingredient instanceof ItemStack stack) {
                         key.put(symbol, Ingredient.of(stack));
                     } else if (ingredient instanceof net.minecraft.world.item.Item item) {
-                        key.put(symbol, Ingredient.of(item));
+                        key.put(symbol, Ingredient.of(item.getDefaultInstance()));
                     } else if (ingredient instanceof Ingredient ing) {
                         key.put(symbol, ing);
                     }
@@ -109,13 +108,6 @@ public class AvaritiaIntegration {
     }
 
     /**
-     * 创建Avaritia无形状工作台配方 - 旧版本（兼容性）
-     */
-    public static boolean createShapelessTableRecipe(ResourceLocation id, ItemStack result, int tier, List<ItemStack> ingredients) {
-        return createShapelessTableRecipe(id, result, tier, ingredients, false);
-    }
-
-    /**
      * 创建Avaritia无形状工作台配方 - 新版本（支持重载状态）
      */
     public static boolean createShapelessTableRecipe(ResourceLocation id, ItemStack result, int tier, List<ItemStack> ingredients, boolean isReloading) {
@@ -125,7 +117,7 @@ public class AvaritiaIntegration {
         }
 
         try {
-            ShapelessTableCraftingRecipe recipe = ModApi.addModShapelessRecipe(result, ingredients, tier);
+            ShapelessTableCraftingRecipe recipe = addModShapelessRecipe(id, result, ingredients, tier);
 
             return registerAvaritiaRecipe(ModRecipeTypes.CRAFTING_TABLE_RECIPE.get(), id, recipe, isReloading);
 
@@ -133,6 +125,26 @@ public class AvaritiaIntegration {
             LOGGER.error("创建Avaritia无形状配方失败: " + id, e);
             return false;
         }
+    }
+
+    public static ShapelessTableCraftingRecipe addModShapelessRecipe(ResourceLocation id, ItemStack result, List<ItemStack> ingredients, int tier) {
+        List<ItemStack> arraylist = new ArrayList<>();
+        for(ItemStack stack : ingredients) {
+            if (stack == null) {
+                throw new RuntimeException("Invalid shapeless recipes!");
+            }
+
+            arraylist.add(stack.copy());
+        }
+        return new ShapelessTableCraftingRecipe(id, getList(arraylist), result, tier);
+    }
+
+    private static NonNullList<Ingredient> getList(List<ItemStack> arrayList) {
+        NonNullList<Ingredient> ingredients = NonNullList.create();
+        for(ItemStack stack : arrayList) {
+            ingredients.add(Ingredient.of(stack));
+        }
+        return ingredients;
     }
 
     /**
@@ -159,8 +171,17 @@ public class AvaritiaIntegration {
             recipesField.setAccessible(true);
             Map<RecipeType<?>, Map<ResourceLocation, net.minecraft.world.item.crafting.Recipe<?>>> currentRecipes =
                     (Map<RecipeType<?>, Map<ResourceLocation, net.minecraft.world.item.crafting.Recipe<?>>>) recipesField.get(recipeManager);
-            currentRecipes.computeIfAbsent(recipeType, k -> new HashMap<>())
-                    .put(id, (net.minecraft.world.item.crafting.Recipe<?>) recipe);
+            Map<RecipeType<?>, Map<ResourceLocation, net.minecraft.world.item.crafting.Recipe<?>>> newRecipes = new HashMap<>(currentRecipes);
+            Map<ResourceLocation, net.minecraft.world.item.crafting.Recipe<?>> typeRecipes = newRecipes.get(recipeType);
+            if (typeRecipes == null) {
+                typeRecipes = new HashMap<>();
+                newRecipes.put(recipeType, typeRecipes);
+            } else {
+                typeRecipes = new HashMap<>(typeRecipes);
+                newRecipes.put(recipeType, typeRecipes);
+            }
+            typeRecipes.put(id, (net.minecraft.world.item.crafting.Recipe<?>) recipe);
+            recipesField.set(recipeManager, newRecipes);
             if (!isReloading) {
                 syncRecipesToClients(server, recipeManager);
             } else {
