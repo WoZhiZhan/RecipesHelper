@@ -1,119 +1,175 @@
 package com.wzz.registerhelper.util;
 
-import com.mojang.logging.LogUtils;
-import com.wzz.registerhelper.core.RecipeJsonManager;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.wzz.registerhelper.recipe.RecipeRequest;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeManager;
-import net.minecraftforge.server.ServerLifecycleHooks;
-import org.slf4j.Logger;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraftforge.registries.ForgeRegistries;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 
 public class RecipeUtil {
-    private static final Logger LOGGER = LogUtils.getLogger();
+    public static JsonObject createShapedTableRecipe(String type, RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", type);
 
-    /**
-     * 检查配方是否存在（检查内存）
-     */
-    public static boolean recipeExistsInMemory(ResourceLocation recipeId) {
-        try {
-            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-            if (server == null) return false;
-
-            ServerLevel serverLevel = server.overworld();
-            RecipeManager recipeManager = serverLevel.getRecipeManager();
-
-            return recipeManager.byKey(recipeId).isPresent();
-
-        } catch (Exception e) {
-            LOGGER.error("检查配方存在性失败: " + recipeId, e);
-            return false;
-        }
-    }
-
-    /**
-     * 检查配方是否存在（检查JSON文件）
-     */
-    public static boolean recipeExistsInJson(ResourceLocation recipeId) {
-        return RecipeJsonManager.recipeFileExists(recipeId.toString());
-    }
-
-    /**
-     * 全面检查配方是否存在（内存或JSON文件）
-     */
-    public static boolean recipeExists(ResourceLocation recipeId) {
-        return recipeExistsInMemory(recipeId) || recipeExistsInJson(recipeId);
-    }
-
-    /**
-     * 获取配方存在状态的详细信息
-     */
-    public static RecipeExistenceStatus getRecipeExistenceStatus(ResourceLocation recipeId) {
-        boolean inMemory = recipeExistsInMemory(recipeId);
-        boolean inJson = recipeExistsInJson(recipeId);
-
-        return new RecipeExistenceStatus(recipeId, inMemory, inJson);
-    }
-
-    /**
-     * 配方存在状态类
-     */
-    public static class RecipeExistenceStatus {
-        public final ResourceLocation recipeId;
-        public final boolean existsInMemory;
-        public final boolean existsInJson;
-
-        public RecipeExistenceStatus(ResourceLocation recipeId, boolean existsInMemory, boolean existsInJson) {
-            this.recipeId = recipeId;
-            this.existsInMemory = existsInMemory;
-            this.existsInJson = existsInJson;
+        // 添加tier
+        Integer tier = (Integer) request.properties.get("tier");
+        if (tier != null) {
+            recipe.addProperty("tier", tier);
         }
 
-        public boolean exists() {
-            return existsInMemory || existsInJson;
-        }
-
-        public String getStatusDescription() {
-            if (existsInMemory && existsInJson) {
-                return "内存和JSON文件中都存在";
-            } else if (existsInMemory) {
-                return "仅在内存中存在";
-            } else if (existsInJson) {
-                return "仅在JSON文件中存在";
-            } else {
-                return "不存在";
+        // 添加pattern
+        if (request.pattern != null) {
+            JsonArray patternArray = new JsonArray();
+            for (String row : request.pattern) {
+                patternArray.add(row);
             }
+            recipe.add("pattern", patternArray);
         }
 
-        @Override
-        public String toString() {
-            return String.format("RecipeStatus[%s: %s]", recipeId, getStatusDescription());
-        }
-    }
+        // 添加key映射
+        if (request.ingredients != null) {
+            JsonObject key = new JsonObject();
+            Map<Character, JsonObject> keyMapping = new HashMap<>();
 
-    /**
-     * 获取所有配方ID（从内存中）
-     */
-    public static List<ResourceLocation> getAllRecipeIds() {
-        List<ResourceLocation> recipeIds = new ArrayList<>();
+            for (int i = 0; i < request.ingredients.length; i += 2) {
+                if (i + 1 < request.ingredients.length) {
+                    char symbol = getCharFromObject(request.ingredients[i]);
+                    Object ingredient = request.ingredients[i + 1];
 
-        try {
-            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-            if (server != null) {
-                ServerLevel serverLevel = server.overworld();
-                RecipeManager recipeManager = serverLevel.getRecipeManager();
-
-                for (Recipe<?> recipe : recipeManager.getRecipes()) {
-                    recipeIds.add(recipe.getId());
+                    JsonObject ingredientJson = createIngredientJson(ingredient);
+                    if (ingredientJson != null) {
+                        keyMapping.put(symbol, ingredientJson);
+                    }
                 }
             }
-        } catch (Exception e) {
-            LOGGER.error("获取配方列表失败", e);
+
+            for (Map.Entry<Character, JsonObject> entry : keyMapping.entrySet()) {
+                key.add(String.valueOf(entry.getKey()), entry.getValue());
+            }
+            recipe.add("key", key);
         }
 
-        return recipeIds;
+        // 添加结果
+        recipe.add("result", createResultJson(request.result, request.resultCount));
+
+        return recipe;
+    }
+
+    public static JsonObject createShapelessTableRecipe(String type, RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", type);
+
+        // 添加tier
+        Integer tier = (Integer) request.properties.get("tier");
+        if (tier != null) {
+            recipe.addProperty("tier", tier);
+        }
+
+        // 添加ingredients
+        if (request.ingredients != null) {
+            JsonArray ingredientsArray = new JsonArray();
+            for (Object ingredient : request.ingredients) {
+                JsonObject ingredientJson = createIngredientJson(ingredient);
+                if (ingredientJson != null) {
+                    ingredientsArray.add(ingredientJson);
+                }
+            }
+            recipe.add("ingredients", ingredientsArray);
+        }
+
+        // 添加结果
+        recipe.add("result", createResultJson(request.result, request.resultCount));
+
+        return recipe;
+    }
+
+    /**
+     * 创建材料JSON对象
+     */
+    public static JsonObject createIngredientJson(Object ingredient) {
+        JsonObject ingredientJson = new JsonObject();
+
+        if (ingredient instanceof ItemStack stack) {
+            String itemId = getItemResourceLocation(stack.getItem()).toString();
+            ingredientJson.addProperty("item", itemId);
+
+            if (stack.getCount() > 1) {
+                ingredientJson.addProperty("count", stack.getCount());
+            }
+
+            if (stack.hasTag()) {
+                ingredientJson.addProperty("nbt", stack.getTag().toString());
+            }
+        } else if (ingredient instanceof Item item) {
+            String itemId = getItemResourceLocation(item).toString();
+            ingredientJson.addProperty("item", itemId);
+        } else if (ingredient instanceof String str) {
+            // 直接是物品ID字符串
+            ingredientJson.addProperty("item", str);
+        } else {
+            return null;
+        }
+
+        return ingredientJson;
+    }
+
+    /**
+     * 创建结果JSON对象
+     */
+    public static JsonObject createResultJson(ItemStack result, int count) {
+        JsonObject resultJson = new JsonObject();
+
+        String itemId = getItemResourceLocation(result.getItem()).toString();
+        resultJson.addProperty("item", itemId);
+
+        if (count > 1) {
+            resultJson.addProperty("count", count);
+        }
+
+        if (result.hasTag()) {
+            resultJson.addProperty("nbt", result.getTag().toString());
+        }
+
+        return resultJson;
+    }
+
+    /**
+     * 从对象中获取字符
+     */
+    public static char getCharFromObject(Object obj) {
+        if (obj instanceof Character) {
+            char c = (Character) obj;
+            // 检查字符是否有效
+            if (c >= 'A' && c <= 'Z') {
+                return c;
+            } else {
+                return 'A';
+            }
+        } else if (obj instanceof String str) {
+            if (str.isEmpty()) {
+                return ' ';
+            }
+            char c = str.charAt(0);
+            // 检查字符是否有效
+            if (c >= 'A' && c <= 'Z') {
+                return c;
+            } else {
+                return 'A';
+            }
+        }
+        return ' ';
+    }
+
+    /**
+     * 获取物品的ResourceLocation
+     */
+    public static ResourceLocation getItemResourceLocation(Item item) {
+        ResourceLocation location = ForgeRegistries.ITEMS.getKey(item);
+        return location != null ? location : new ResourceLocation("minecraft", "air");
     }
 }

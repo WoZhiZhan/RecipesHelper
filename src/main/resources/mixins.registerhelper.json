@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.wzz.registerhelper.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "refmap": "mixins.registerhelper.refmap.json",
+  "mixins": [
+    "RecipeManagerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
