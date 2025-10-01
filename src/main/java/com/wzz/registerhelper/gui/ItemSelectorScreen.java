@@ -1,7 +1,7 @@
 package com.wzz.registerhelper.gui;
 
-import com.github.promeg.pinyinhelper_fork.Pinyin;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.wzz.registerhelper.util.PinyinSearchHelper;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -36,7 +36,9 @@ public class ItemSelectorScreen extends Screen {
     private final List<ItemStack> allItems = new ArrayList<>();
     private final List<ItemStack> filteredItems = new ArrayList<>();
 
-    private final Map<ItemStack, PinyinInfo> pinyinCache = new HashMap<>();
+    // 使用拼音搜索助手
+    private final PinyinSearchHelper<ItemStack> searchHelper;
+
     private int currentPage = 0;
     private int maxPage = 0;
 
@@ -44,28 +46,22 @@ public class ItemSelectorScreen extends Screen {
     private static final int GUI_WIDTH = 220;
     private static final int GUI_HEIGHT = 200;
 
-    /**
-     * 拼音信息类，包含完整拼音和首字母
-     */
-    private static class PinyinInfo {
-        final String fullPinyin;    // 完整拼音：zuan shi
-        final String initials;     // 首字母：zs
-        final String nospace;      // 无空格拼音：zuanshi
-
-        PinyinInfo(String fullPinyin, String initials, String nospace) {
-            this.fullPinyin = fullPinyin;
-            this.initials = initials;
-            this.nospace = nospace;
-        }
-    }
-
     public ItemSelectorScreen(Screen parentScreen, Consumer<ItemStack> onItemSelected) {
         super(Component.literal("选择物品"));
         this.parentScreen = parentScreen;
         this.onItemSelected = onItemSelected;
 
+        // 初始化搜索助手
+        this.searchHelper = new PinyinSearchHelper<>(
+                item -> item.getItem().getDescription().getString(),  // 显示名称获取器
+                item -> {  // ID获取器
+                    ResourceLocation id = ForgeRegistries.ITEMS.getKey(item.getItem());
+                    return id != null ? id.toString() : "";
+                }
+        );
+
         collectAllItems();
-        buildPinyinCache();
+        searchHelper.buildCache(allItems);
         updateFilteredItems("");
     }
 
@@ -92,175 +88,9 @@ public class ItemSelectorScreen extends Screen {
         }
     }
 
-    /**
-     * 构建拼音缓存，提高搜索性能
-     */
-    private void buildPinyinCache() {
-        pinyinCache.clear();
-
-        for (ItemStack item : allItems) {
-            String displayName = item.getItem().getDescription().getString();
-            PinyinInfo pinyinInfo = convertToPinyinInfo(displayName);
-            pinyinCache.put(item, pinyinInfo);
-        }
-    }
-
-    /**
-     * 将字符串转换为拼音信息
-     */
-    private PinyinInfo convertToPinyinInfo(String text) {
-        if (text == null || text.isEmpty()) {
-            return new PinyinInfo("", "", "");
-        }
-
-        try {
-            String fullPinyin = Pinyin.toPinyin(text, " ").toLowerCase();
-            StringBuilder initials = new StringBuilder();
-            StringBuilder nospace = new StringBuilder();
-
-            for (char c : text.toCharArray()) {
-                if (Pinyin.isChinese(c)) {
-                    String pinyin = Pinyin.toPinyin(c).toLowerCase();
-                    if (!pinyin.isEmpty()) {
-                        initials.append(pinyin.charAt(0));
-                        nospace.append(pinyin);
-                    }
-                } else {
-                    initials.append(Character.toLowerCase(c));
-                    nospace.append(Character.toLowerCase(c));
-                }
-            }
-
-            return new PinyinInfo(fullPinyin, initials.toString(), nospace.toString());
-
-        } catch (Exception e) {
-            return new PinyinInfo(text.toLowerCase(), text.toLowerCase(), text.toLowerCase());
-        }
-    }
-
-    /**
-     * 解析mod过滤器，返回过滤后的搜索文本和mod名称
-     */
-    private SearchFilter parseModFilter(String searchText) {
-        if (searchText == null || searchText.trim().isEmpty()) {
-            return new SearchFilter("", null);
-        }
-
-        String trimmed = searchText.trim();
-
-        int atIndex = trimmed.indexOf('@');
-        if (atIndex != -1) {
-            String modPart = trimmed.substring(atIndex + 1);
-            String textPart = trimmed.substring(0, atIndex).trim();
-
-            String modName = normalizeModName(modPart.toLowerCase());
-
-            return new SearchFilter(textPart, modName);
-        }
-
-        return new SearchFilter(trimmed, null);
-    }
-
-    /**
-     * 标准化mod名称，处理常见别名
-     */
-    private String normalizeModName(String modName) {
-        return switch (modName) {
-            case "mc", "minec", "minecraft" -> "minecraft";
-            case "forge" -> "forge";
-            default -> modName;
-        };
-    }
-
-    /**
-     * 搜索过滤器类
-     */
-    private static class SearchFilter {
-        final String searchText;
-        final String modFilter; // null表示不过滤mod
-
-        SearchFilter(String searchText, String modFilter) {
-            this.searchText = searchText;
-            this.modFilter = modFilter;
-        }
-    }
-
-    /**
-     * 检查是否匹配搜索条件
-     */
-    private boolean matchesSearch(ItemStack item, String searchText) {
-        SearchFilter filter = parseModFilter(searchText);
-
-        if (filter.modFilter != null) {
-            ResourceLocation itemId = ForgeRegistries.ITEMS.getKey(item.getItem());
-            if (itemId == null || !itemId.getNamespace().toLowerCase().contains(filter.modFilter)) {
-                return false;
-            }
-        }
-
-        if (filter.searchText.isEmpty()) {
-            return true;
-        }
-
-        String lowerSearch = filter.searchText.toLowerCase().trim();
-
-        ResourceLocation itemId = ForgeRegistries.ITEMS.getKey(item.getItem());
-        if (itemId != null && itemId.toString().toLowerCase().contains(lowerSearch)) {
-            return true;
-        }
-
-        String displayName = item.getItem().getDescription().getString().toLowerCase();
-        if (displayName.contains(lowerSearch)) {
-            return true;
-        }
-
-        PinyinInfo pinyinInfo = pinyinCache.get(item);
-        if (pinyinInfo != null) {
-            if (pinyinInfo.fullPinyin.contains(lowerSearch)) {
-                return true;
-            }
-            if (pinyinInfo.initials.contains(lowerSearch)) {
-                return true;
-            }
-            if (pinyinInfo.nospace.contains(lowerSearch)) {
-                return true;
-            }
-
-            String[] searchWords = lowerSearch.split("\\s+");
-            String[] pinyinWords = pinyinInfo.fullPinyin.split("\\s+");
-
-            if (searchWords.length > 1 && pinyinWords.length >= searchWords.length) {
-                boolean allMatch = true;
-                for (String searchWord : searchWords) {
-                    boolean found = false;
-                    for (String pinyinWord : pinyinWords) {
-                        if (pinyinWord.startsWith(searchWord)) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        allMatch = false;
-                        break;
-                    }
-                }
-                if (allMatch) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
     private void updateFilteredItems(String searchText) {
         filteredItems.clear();
-
-        for (ItemStack item : allItems) {
-            if (matchesSearch(item, searchText)) {
-                filteredItems.add(item);
-            }
-        }
+        filteredItems.addAll(searchHelper.filter(allItems, searchText));
 
         maxPage = Math.max(0, (filteredItems.size() - 1) / ITEMS_PER_PAGE);
         currentPage = Math.min(currentPage, maxPage);
@@ -334,7 +164,6 @@ public class ItemSelectorScreen extends Screen {
         searchBox.render(guiGraphics, mouseX, mouseY, partialTick);
         super.render(guiGraphics, mouseX, mouseY, partialTick);
 
-        // 显示页面信息和搜索结果统计，调整位置
         String pageInfo = String.format("第 %d/%d 页 (共%d个物品)",
                 currentPage + 1, maxPage + 1, filteredItems.size());
         guiGraphics.drawCenteredString(this.font, pageInfo, leftPos + GUI_WIDTH / 2, topPos + GUI_HEIGHT + 5, 0x404040);
@@ -357,11 +186,9 @@ public class ItemSelectorScreen extends Screen {
             boolean isMouseOver = mouseX >= slotX && mouseX < slotX + SLOT_SIZE &&
                     mouseY >= slotY && mouseY < slotY + SLOT_SIZE;
 
-            // 槽位背景
             int bgColor = isMouseOver ? 0x80FFFFFF : 0xFF373737;
             guiGraphics.fill(slotX, slotY, slotX + SLOT_SIZE, slotY + SLOT_SIZE, bgColor);
 
-            // 槽位边框
             int borderColor = isMouseOver ? 0xFFFFFFFF : 0xFF8B8B8B;
             guiGraphics.fill(slotX - 1, slotY - 1, slotX + SLOT_SIZE + 1, slotY, borderColor);
             guiGraphics.fill(slotX - 1, slotY + SLOT_SIZE, slotX + SLOT_SIZE + 1, slotY + SLOT_SIZE + 1, borderColor);
@@ -402,10 +229,11 @@ public class ItemSelectorScreen extends Screen {
                     tooltip.add(Component.literal("§9From: " + itemId.getNamespace()));
                 }
 
-                PinyinInfo pinyinInfo = pinyinCache.get(item);
+                // 使用搜索助手获取拼音信息
+                PinyinSearchHelper.PinyinInfo pinyinInfo = searchHelper.getPinyinInfo(item);
                 if (pinyinInfo != null && !pinyinInfo.fullPinyin.trim().isEmpty()) {
                     String displayName = item.getItem().getDescription().getString();
-                    if (containsChinese(displayName)) {
+                    if (PinyinSearchHelper.containsChinese(displayName)) {
                         tooltip.add(Component.literal("§8拼音: " + pinyinInfo.fullPinyin));
                         tooltip.add(Component.literal("§8简写: " + pinyinInfo.initials));
                     }
@@ -417,22 +245,9 @@ public class ItemSelectorScreen extends Screen {
         }
     }
 
-    /**
-     * 检查字符串是否包含中文字符
-     */
-    private boolean containsChinese(String text) {
-        if (text == null) return false;
-        for (char c : text.toCharArray()) {
-            if (Pinyin.isChinese(c)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0) { // 左键点击
+        if (button == 0) {
             int startIndex = currentPage * ITEMS_PER_PAGE;
             int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, filteredItems.size());
 
@@ -459,7 +274,7 @@ public class ItemSelectorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 256) { // ESC键
+        if (keyCode == 256) {
             onClose();
             return true;
         }

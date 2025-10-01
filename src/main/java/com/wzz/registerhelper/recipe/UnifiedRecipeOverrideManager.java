@@ -316,59 +316,6 @@ public class UnifiedRecipeOverrideManager {
     }
     
     /**
-     * 重新加载覆盖
-     */
-    public static void reload() {
-        try {
-            LOGGER.info("重新加载配方覆盖...");
-            loadOverrides();
-            LOGGER.info("配方覆盖重新加载完成，当前覆盖数量: {}", recipeOverrides.size());
-        } catch (Exception e) {
-            LOGGER.error("重新加载配方覆盖失败", e);
-        }
-    }
-    
-    /**
-     * 验证覆盖JSON格式
-     */
-    public static boolean isValidOverrideJson(JsonObject overrideJson) {
-        try {
-            // 基本验证：必须有type和result字段
-            if (!overrideJson.has("type") || !overrideJson.has("result")) {
-                return false;
-            }
-            
-            // 验证type是否为字符串
-            if (!overrideJson.get("type").isJsonPrimitive() || 
-                !overrideJson.get("type").getAsJsonPrimitive().isString()) {
-                return false;
-            }
-            
-            // 验证result字段
-            JsonElement result = overrideJson.get("result");
-            if (result.isJsonObject()) {
-                JsonObject resultObj = result.getAsJsonObject();
-                return resultObj.has("item");
-            } else if (result.isJsonPrimitive()) {
-                return result.getAsJsonPrimitive().isString();
-            }
-            
-            return false;
-            
-        } catch (Exception e) {
-            LOGGER.warn("验证覆盖JSON失败", e);
-            return false;
-        }
-    }
-    
-    /**
-     * 创建配方覆盖数据
-     */
-    public static OverrideData createOverrideData(ResourceLocation recipeId, JsonObject overrideJson, String description) {
-        return new OverrideData(recipeId, overrideJson, description);
-    }
-    
-    /**
      * 覆盖统计信息
      */
     public static class OverrideStats {

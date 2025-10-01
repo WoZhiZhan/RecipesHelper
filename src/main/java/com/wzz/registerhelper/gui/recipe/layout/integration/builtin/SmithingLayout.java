@@ -1,7 +1,8 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.builtin;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -10,7 +11,7 @@ import java.util.List;
 /**
  * 锻造台布局
  */
-public class SmithingLayout implements GridLayout {
+public class SmithingLayout implements RecipeLayout {
     private final int slotSpacing;
 
     public SmithingLayout() {
@@ -22,22 +23,34 @@ public class SmithingLayout implements GridLayout {
     }
 
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
+    public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
 
         // 模板
-        slots.add(new SlotPosition(0, 1, baseX, baseY + slotSpacing, 0,
-                SlotPosition.SlotType.INPUT, "template"));
+        components.add(new SlotComponent(
+            baseX, 
+            baseY + slotSpacing, 
+            "template",
+            0
+        ));
 
         // 基础物品
-        slots.add(new SlotPosition(1, 1, baseX + slotSpacing, baseY + slotSpacing, 1,
-                SlotPosition.SlotType.INPUT, "base"));
+        components.add(new SlotComponent(
+            baseX + slotSpacing, 
+            baseY + slotSpacing, 
+            "base",
+            1
+        ));
 
         // 添加材料
-        slots.add(new SlotPosition(2, 1, baseX + 2 * slotSpacing, baseY + slotSpacing, 2,
-                SlotPosition.SlotType.INPUT, "addition"));
+        components.add(new SlotComponent(
+            baseX + 2 * slotSpacing, 
+            baseY + slotSpacing, 
+            "addition",
+            2
+        ));
 
-        return slots;
+        return components;
     }
 
     @Override

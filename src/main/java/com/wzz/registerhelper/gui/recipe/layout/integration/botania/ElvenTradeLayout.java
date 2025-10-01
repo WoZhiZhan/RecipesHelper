@@ -1,7 +1,8 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.botania;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -10,7 +11,7 @@ import java.util.List;
 /**
  * 精灵贸易布局（横向5个输入格子）
  */
-public class ElvenTradeLayout implements GridLayout {
+public class ElvenTradeLayout implements RecipeLayout {
     private final int slotSpacing;
     
     public ElvenTradeLayout() {
@@ -22,18 +23,21 @@ public class ElvenTradeLayout implements GridLayout {
     }
     
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
+    public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
         
         // 横向5个输入槽位
         for (int i = 0; i < 5; i++) {
             int x = baseX + i * slotSpacing;
             int y = baseY + slotSpacing;
-            slots.add(new SlotPosition(i, 1, x, y, i, 
-                SlotPosition.SlotType.INPUT, "input_" + (i + 1)));
+            components.add(new SlotComponent(
+                x, y,
+                "input_" + (i + 1),
+                i
+            ));
         }
         
-        return slots;
+        return components;
     }
     
     @Override

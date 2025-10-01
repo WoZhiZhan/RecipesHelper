@@ -1,7 +1,7 @@
 package com.wzz.registerhelper.gui;
 
-import com.github.promeg.pinyinhelper_fork.Pinyin;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
+import com.wzz.registerhelper.util.PinyinSearchHelper;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -16,7 +16,6 @@ import java.util.function.Consumer;
 
 /**
  * 配方类型选择器屏幕
- * 提供分类浏览和搜索功能的下拉式选择器，支持拼音搜索
  */
 @OnlyIn(Dist.CLIENT)
 public class RecipeTypeSelectorScreen extends Screen {
@@ -34,35 +33,19 @@ public class RecipeTypeSelectorScreen extends Screen {
     private Button categoryCookingButton;
     private Button categoryModsButton;
 
+    // 使用拼音搜索助手
+    private final PinyinSearchHelper<RecipeTypeDefinition> searchHelper;
+
     // 状态
     private List<RecipeTypeDefinition> filteredRecipeTypes;
-    private String currentFilter = "";
     private String currentCategory = "all";
     private int scrollOffset = 0;
-    private final int maxVisibleItems = 15; // 增加可见项目数量
-
-    // 拼音缓存
-    private final Map<RecipeTypeDefinition, PinyinInfo> pinyinCache = new HashMap<>();
+    private final int maxVisibleItems = 15;
 
     // 布局
     private int leftPos, topPos;
     private int contentWidth = 400;
-    private int contentHeight = 400; // 进一步增加高度，给列表更多空间
-
-    /**
-     * 拼音信息类，包含完整拼音和首字母
-     */
-    private static class PinyinInfo {
-        final String fullPinyin;    // 完整拼音：zhi ling tai
-        final String initials;     // 首字母：zlt
-        final String nospace;      // 无空格拼音：zhilingtai
-
-        PinyinInfo(String fullPinyin, String initials, String nospace) {
-            this.fullPinyin = fullPinyin;
-            this.initials = initials;
-            this.nospace = nospace;
-        }
-    }
+    private int contentHeight = 400;
 
     public RecipeTypeSelectorScreen(Screen parentScreen, Consumer<RecipeTypeDefinition> selectionCallback,
                                     List<RecipeTypeDefinition> recipeTypes, RecipeTypeDefinition currentSelection) {
@@ -73,67 +56,14 @@ public class RecipeTypeSelectorScreen extends Screen {
         this.currentSelection = currentSelection;
         this.filteredRecipeTypes = new ArrayList<>(recipeTypes);
 
+        // 初始化搜索助手
+        this.searchHelper = new PinyinSearchHelper<>(
+                RecipeTypeDefinition::getDisplayName,  // 显示名称
+                type -> type.getModId() + ":" + type.getId()  // ID（用于mod过滤）
+        );
+
         // 构建拼音缓存
-        buildPinyinCache();
-    }
-
-    /**
-     * 构建拼音缓存，提高搜索性能
-     */
-    private void buildPinyinCache() {
-        pinyinCache.clear();
-
-        for (RecipeTypeDefinition type : allRecipeTypes) {
-            String displayName = type.getDisplayName();
-            PinyinInfo pinyinInfo = convertToPinyinInfo(displayName);
-            pinyinCache.put(type, pinyinInfo);
-        }
-    }
-
-    /**
-     * 将字符串转换为拼音信息
-     */
-    private PinyinInfo convertToPinyinInfo(String text) {
-        if (text == null || text.isEmpty()) {
-            return new PinyinInfo("", "", "");
-        }
-
-        try {
-            String fullPinyin = Pinyin.toPinyin(text, " ").toLowerCase();
-            StringBuilder initials = new StringBuilder();
-            StringBuilder nospace = new StringBuilder();
-
-            for (char c : text.toCharArray()) {
-                if (Pinyin.isChinese(c)) {
-                    String pinyin = Pinyin.toPinyin(c).toLowerCase();
-                    if (!pinyin.isEmpty()) {
-                        initials.append(pinyin.charAt(0));
-                        nospace.append(pinyin);
-                    }
-                } else {
-                    initials.append(Character.toLowerCase(c));
-                    nospace.append(Character.toLowerCase(c));
-                }
-            }
-
-            return new PinyinInfo(fullPinyin, initials.toString(), nospace.toString());
-
-        } catch (Exception e) {
-            return new PinyinInfo(text.toLowerCase(), text.toLowerCase(), text.toLowerCase());
-        }
-    }
-
-    /**
-     * 检查字符串是否包含中文字符
-     */
-    private boolean containsChinese(String text) {
-        if (text == null) return false;
-        for (char c : text.toCharArray()) {
-            if (Pinyin.isChinese(c)) {
-                return true;
-            }
-        }
-        return false;
+        searchHelper.buildCache(allRecipeTypes);
     }
 
     @Override
@@ -145,23 +75,17 @@ public class RecipeTypeSelectorScreen extends Screen {
         initializeCategoryButtons();
         initializeActionButtons();
 
-        updateFilteredList();
+        updateFilteredList("");
     }
 
-    /**
-     * 初始化搜索框
-     */
     private void initializeSearchBox() {
         searchBox = new EditBox(this.font, leftPos + 20, topPos + 30, contentWidth - 40, 20,
                 Component.literal("搜索配方类型"));
         searchBox.setHint(Component.literal("输入配方名称/拼音/mod名称..."));
-        searchBox.setResponder(this::onSearchTextChanged);
+        searchBox.setResponder(this::updateFilteredList);
         addRenderableWidget(searchBox);
     }
 
-    /**
-     * 初始化分类按钮
-     */
     private void initializeCategoryButtons() {
         int buttonY = topPos + 60;
         int buttonWidth = 70;
@@ -198,9 +122,6 @@ public class RecipeTypeSelectorScreen extends Screen {
         updateCategoryButtonStates();
     }
 
-    /**
-     * 初始化操作按钮
-     */
     private void initializeActionButtons() {
         int buttonY = topPos + contentHeight - 30;
 
@@ -211,246 +132,125 @@ public class RecipeTypeSelectorScreen extends Screen {
                 .build());
     }
 
-    /**
-     * 搜索文本变化处理
-     */
-    private void onSearchTextChanged(String searchText) {
-        this.currentFilter = searchText.toLowerCase();
-        this.scrollOffset = 0;
-        updateFilteredList();
-    }
-
-    /**
-     * 选择分类
-     */
     private void selectCategory(String category) {
         this.currentCategory = category;
         this.scrollOffset = 0;
         updateCategoryButtonStates();
-        updateFilteredList();
+        updateFilteredList(searchBox != null ? searchBox.getValue() : "");
     }
 
-    /**
-     * 更新分类按钮状态
-     */
     private void updateCategoryButtonStates() {
-        // 重置所有按钮到原始文本
-        categoryAllButton.setMessage(Component.literal("全部"));
-        categoryCraftingButton.setMessage(Component.literal("合成"));
-        categoryCookingButton.setMessage(Component.literal("烹饪"));
-        categoryModsButton.setMessage(Component.literal("Mods"));
-
-        // 高亮当前选中的分类
-        switch (currentCategory) {
-            case "all" -> categoryAllButton.setMessage(Component.literal("§6全部"));
-            case "crafting" -> categoryCraftingButton.setMessage(Component.literal("§6原版合成"));
-            case "cooking" -> categoryCookingButton.setMessage(Component.literal("§6烹饪"));
-            case "mods" -> categoryModsButton.setMessage(Component.literal("§6Mods"));
-        }
+        categoryAllButton.setMessage(Component.literal(currentCategory.equals("all") ? "§6全部" : "全部"));
+        categoryCraftingButton.setMessage(Component.literal(currentCategory.equals("crafting") ? "§6原版合成" : "原版合成"));
+        categoryCookingButton.setMessage(Component.literal(currentCategory.equals("cooking") ? "§6烹饪" : "烹饪"));
+        categoryModsButton.setMessage(Component.literal(currentCategory.equals("mods") ? "§6Mods" : "Mods"));
     }
 
-    /**
-     * 更新过滤后的列表
-     */
-    private void updateFilteredList() {
-        filteredRecipeTypes.clear();
+    private void updateFilteredList(String searchText) {
+        this.scrollOffset = 0;
 
-        for (RecipeTypeDefinition type : allRecipeTypes) {
-            if (matchesFilter(type) && matchesCategory(type)) {
+        // 先用搜索助手过滤
+        List<RecipeTypeDefinition> searchResults = searchHelper.filter(allRecipeTypes, searchText);
+
+        // 再用分类过滤
+        filteredRecipeTypes.clear();
+        for (RecipeTypeDefinition type : searchResults) {
+            if (matchesCategory(type)) {
                 filteredRecipeTypes.add(type);
             }
         }
 
-        // 按显示名称排序
-        filteredRecipeTypes.sort((a, b) -> a.getDisplayName().compareTo(b.getDisplayName()));
+        // 排序
+        filteredRecipeTypes.sort(Comparator.comparing(RecipeTypeDefinition::getDisplayName));
     }
 
-    /**
-     * 检查是否匹配搜索过滤器（支持拼音搜索）
-     */
-    private boolean matchesFilter(RecipeTypeDefinition type) {
-        if (currentFilter.isEmpty()) {
-            return true;
-        }
-
-        String lowerFilter = currentFilter.trim();
-        String displayName = type.getDisplayName().toLowerCase();
-        String modId = type.getModId().toLowerCase();
-        String typeId = type.getId().toLowerCase();
-
-        // 基础文本匹配
-        if (displayName.contains(lowerFilter) ||
-                modId.contains(lowerFilter) ||
-                typeId.contains(lowerFilter)) {
-            return true;
-        }
-
-        // 拼音匹配
-        PinyinInfo pinyinInfo = pinyinCache.get(type);
-        if (pinyinInfo != null) {
-            // 完整拼音匹配
-            if (pinyinInfo.fullPinyin.contains(lowerFilter)) {
-                return true;
-            }
-            // 首字母匹配
-            if (pinyinInfo.initials.contains(lowerFilter)) {
-                return true;
-            }
-            // 无空格拼音匹配
-            if (pinyinInfo.nospace.contains(lowerFilter)) {
-                return true;
-            }
-
-            // 分词匹配（支持部分拼音输入）
-            String[] searchWords = lowerFilter.split("\\s+");
-            String[] pinyinWords = pinyinInfo.fullPinyin.split("\\s+");
-
-            if (searchWords.length > 1 && pinyinWords.length >= searchWords.length) {
-                boolean allMatch = true;
-                for (String searchWord : searchWords) {
-                    boolean found = false;
-                    for (String pinyinWord : pinyinWords) {
-                        if (pinyinWord.startsWith(searchWord)) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        allMatch = false;
-                        break;
-                    }
-                }
-                return allMatch;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * 检查是否匹配分类过滤器
-     */
     private boolean matchesCategory(RecipeTypeDefinition type) {
-        switch (currentCategory) {
-            case "crafting" -> {
-                return type.getModId().equals("minecraft");
-            }
-            case "cooking" -> {
-                return type.supportsCookingSettings() ||
-                        "cooking".equals(type.getProperty("category", String.class));
-            }
-            case "mods" -> {
-                return !type.getModId().equals("minecraft");
-            }
-            default -> { return true; }
-        }
+        return switch (currentCategory) {
+            case "crafting" -> type.getModId().equals("minecraft");
+            case "cooking" -> type.supportsCookingSettings() ||
+                    "cooking".equals(type.getProperty("category", String.class));
+            case "mods" -> !type.getModId().equals("minecraft");
+            default -> true;
+        };
     }
 
     @Override
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(guiGraphics);
 
-        // 绘制主背景
+        // 主背景
         guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + contentHeight, 0xFFC6C6C6);
         guiGraphics.fill(leftPos + 1, topPos + 1, leftPos + contentWidth - 1, topPos + contentHeight - 1, 0xFF8B8B8B);
 
-        // 绘制标题
+        // 标题
         guiGraphics.drawCenteredString(this.font, this.title, leftPos + contentWidth / 2, topPos + 10, 0x404040);
 
-        // 绘制列表背景
+        // 列表背景
         int listTop = topPos + 90;
         int listHeight = contentHeight - 130;
         guiGraphics.fill(leftPos + 20, listTop, leftPos + contentWidth - 20, listTop + listHeight, 0xFF000000);
         guiGraphics.fill(leftPos + 21, listTop + 1, leftPos + contentWidth - 21, listTop + listHeight - 1, 0xFFFFFFFF);
 
-        // 渲染配方类型列表
         renderRecipeTypeList(guiGraphics, mouseX, mouseY, listTop, listHeight);
 
-        // 渲染滚动条（如果需要）
         if (filteredRecipeTypes.size() > maxVisibleItems) {
             renderScrollbar(guiGraphics, listTop, listHeight);
         }
 
         super.render(guiGraphics, mouseX, mouseY, partialTick);
-
-        // 渲染工具提示
         renderTooltips(guiGraphics, mouseX, mouseY, listTop, listHeight);
     }
 
-    /**
-     * 渲染配方类型列表
-     */
     private void renderRecipeTypeList(GuiGraphics guiGraphics, int mouseX, int mouseY, int listTop, int listHeight) {
         int itemHeight = 18;
-
-        // 设置裁剪区域防止超出边框
         guiGraphics.enableScissor(leftPos + 21, listTop + 1, leftPos + contentWidth - 21, listTop + listHeight - 1);
 
-        // 计算可以显示的项目数量
         int visibleItems = Math.min(maxVisibleItems, listHeight / itemHeight);
 
         for (int i = 0; i < visibleItems; i++) {
             int typeIndex = scrollOffset + i;
-
-            // 检查是否超出了过滤后的配方数量
-            if (typeIndex >= filteredRecipeTypes.size()) {
-                break;
-            }
+            if (typeIndex >= filteredRecipeTypes.size()) break;
 
             RecipeTypeDefinition type = filteredRecipeTypes.get(typeIndex);
-
             int itemY = listTop + 2 + i * itemHeight;
             int itemX = leftPos + 25;
 
-            // 检查鼠标悬停
             boolean isHovered = mouseX >= itemX && mouseX <= leftPos + contentWidth - 25 &&
                     mouseY >= itemY && mouseY < itemY + itemHeight;
-
-            // 检查是否为当前选择
             boolean isSelected = type.equals(currentSelection);
 
-            // 绘制背景
             if (isSelected) {
                 guiGraphics.fill(itemX, itemY, leftPos + contentWidth - 25, itemY + itemHeight, 0xFF4A90E2);
             } else if (isHovered) {
                 guiGraphics.fill(itemX, itemY, leftPos + contentWidth - 25, itemY + itemHeight, 0xFFE0E0E0);
             }
 
-            // 绘制文本
             String displayText = type.getDisplayName();
             String modText = "[" + type.getModId() + "]";
 
             int textColor = isSelected ? 0xFFFFFF : 0x000000;
             int modColor = isSelected ? 0xCCCCCC : 0x666666;
 
-            // 限制文本长度防止超出边界
-            int maxTextWidth = contentWidth - 80; // 为mod文本预留空间
+            int maxTextWidth = contentWidth - 80;
             if (this.font.width(displayText) > maxTextWidth) {
                 displayText = this.font.plainSubstrByWidth(displayText, maxTextWidth - 10) + "...";
             }
 
             guiGraphics.drawString(this.font, displayText, itemX + 5, itemY + 5, textColor, false);
 
-            // 绘制mod信息
             int modWidth = this.font.width(modText);
             guiGraphics.drawString(this.font, modText, leftPos + contentWidth - 30 - modWidth, itemY + 5, modColor, false);
         }
 
-        // 恢复裁剪
         guiGraphics.disableScissor();
     }
 
-    /**
-     * 渲染滚动条
-     */
     private void renderScrollbar(GuiGraphics guiGraphics, int listTop, int listHeight) {
         int scrollbarX = leftPos + contentWidth - 15;
         int scrollbarHeight = listHeight - 4;
 
-        // 滚动条背景
         guiGraphics.fill(scrollbarX, listTop + 2, scrollbarX + 10, listTop + listHeight - 2, 0xFF666666);
 
-        // 滚动条滑块
         float scrollPercentage = (float) scrollOffset / (filteredRecipeTypes.size() - maxVisibleItems);
         int sliderHeight = Math.max(20, scrollbarHeight * maxVisibleItems / filteredRecipeTypes.size());
         int sliderY = listTop + 2 + (int) ((scrollbarHeight - sliderHeight) * scrollPercentage);
@@ -458,24 +258,16 @@ public class RecipeTypeSelectorScreen extends Screen {
         guiGraphics.fill(scrollbarX + 1, sliderY, scrollbarX + 9, sliderY + sliderHeight, 0xFFCCCCCC);
     }
 
-    /**
-     * 渲染工具提示
-     */
     private void renderTooltips(GuiGraphics guiGraphics, int mouseX, int mouseY, int listTop, int listHeight) {
         int itemHeight = 18;
 
-        // 严格限制在列表区域内
         if (mouseX >= leftPos + 25 && mouseX <= leftPos + contentWidth - 25 &&
                 mouseY >= listTop + 1 && mouseY < listTop + listHeight - 1) {
 
-            // 计算鼠标悬停的是哪一行
             int relativeY = (int)(mouseY - (listTop + 2));
             int hoveredRow = relativeY / itemHeight;
-
-            // 计算对应的配方索引
             int typeIndex = scrollOffset + hoveredRow;
 
-            // 确保悬停的行是有效的
             if (hoveredRow >= 0 && typeIndex < filteredRecipeTypes.size()) {
                 RecipeTypeDefinition type = filteredRecipeTypes.get(typeIndex);
 
@@ -492,11 +284,11 @@ public class RecipeTypeSelectorScreen extends Screen {
                     tooltip.add(Component.literal("§e支持烹饪设置"));
                 }
 
-                // 如果配方名包含中文，显示拼音信息
-                PinyinInfo pinyinInfo = pinyinCache.get(type);
+                // 使用搜索助手获取拼音信息
+                PinyinSearchHelper.PinyinInfo pinyinInfo = searchHelper.getPinyinInfo(type);
                 if (pinyinInfo != null && !pinyinInfo.fullPinyin.trim().isEmpty()) {
                     String displayName = type.getDisplayName();
-                    if (containsChinese(displayName)) {
+                    if (PinyinSearchHelper.containsChinese(displayName)) {
                         tooltip.add(Component.literal("§8拼音: " + pinyinInfo.fullPinyin));
                         tooltip.add(Component.literal("§8简写: " + pinyinInfo.initials));
                     }
@@ -509,27 +301,19 @@ public class RecipeTypeSelectorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // 检查是否点击在列表项上
         int listTop = topPos + 90;
         int listHeight = contentHeight - 130;
         int itemHeight = 18;
 
-        // 严格限制在列表区域内
         if (mouseX >= leftPos + 25 && mouseX <= leftPos + contentWidth - 25 &&
                 mouseY >= listTop + 1 && mouseY < listTop + listHeight - 1) {
 
-            // 计算点击的是哪一行
             int relativeY = (int)(mouseY - (listTop + 2));
             int clickedRow = relativeY / itemHeight;
-
-            // 计算对应的配方索引
             int typeIndex = scrollOffset + clickedRow;
 
-            // 确保点击的行是有效的
             if (clickedRow >= 0 && typeIndex < filteredRecipeTypes.size()) {
                 RecipeTypeDefinition selectedType = filteredRecipeTypes.get(typeIndex);
-
-                // 执行选择回调
                 selectionCallback.accept(selectedType);
                 onClose();
                 return true;
@@ -541,7 +325,6 @@ public class RecipeTypeSelectorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        // 滚动列表
         if (filteredRecipeTypes.size() > maxVisibleItems) {
             int maxScrollOffset = Math.max(0, filteredRecipeTypes.size() - maxVisibleItems);
             scrollOffset = Math.max(0, Math.min(maxScrollOffset, scrollOffset - (int) delta));

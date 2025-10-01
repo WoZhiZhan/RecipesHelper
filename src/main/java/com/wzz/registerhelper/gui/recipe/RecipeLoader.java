@@ -47,15 +47,16 @@ public class RecipeLoader {
         public final ItemStack resultItem;
         public final List<ItemStack> ingredients;
         public final String message;
+        public final String originalRecipeTypeId; // 添加这个字段
         public ResourceLocation recipeId;
 
         public LoadResult(boolean success, String message) {
-            this(success, null, null, null, 1, ItemStack.EMPTY, Collections.emptyList(), message);
+            this(success, null, null, null, 1, ItemStack.EMPTY, Collections.emptyList(), message, null);
         }
 
         public LoadResult(boolean success, RecipeType recipeType, CraftingMode craftingMode,
                           CookingType cookingType, int avaritiaTeir, ItemStack resultItem,
-                          List<ItemStack> ingredients, String message) {
+                          List<ItemStack> ingredients, String message, String originalRecipeTypeId) {
             this.success = success;
             this.recipeType = recipeType;
             this.craftingMode = craftingMode;
@@ -64,6 +65,7 @@ public class RecipeLoader {
             this.resultItem = resultItem;
             this.ingredients = ingredients;
             this.message = message;
+            this.originalRecipeTypeId = originalRecipeTypeId;
         }
 
         public void setRecipeId(ResourceLocation id) {
@@ -87,42 +89,198 @@ public class RecipeLoader {
                 return new LoadResult(false, "找不到配方: " + recipeId);
             }
 
+            // 获取原始配方类型ID
+            ResourceLocation recipeTypeRL = net.minecraftforge.registries.ForgeRegistries.RECIPE_TYPES.getKey(recipe.getType());
+            String originalRecipeTypeId = recipeTypeRL != null ? recipeTypeRL.toString() : recipe.getType().toString();
+
             // 获取结果物品
             ItemStack resultItem = recipe.getResultItem(minecraft.level.registryAccess()).copy();
 
             // 根据配方类型和类名加载
-            String recipeTypeName = recipe.getType().toString().toLowerCase();
+            String recipeTypeName = originalRecipeTypeId.toLowerCase();
             String recipeClassName = recipe.getClass().getSimpleName().toLowerCase();
 
             // 检查工作台配方
             if (isShapedCraftingRecipe(recipeTypeName, recipeClassName)) {
-                return loadCraftingRecipe(recipe, resultItem, CraftingMode.SHAPED);
+                return loadCraftingRecipe(recipe, resultItem, CraftingMode.SHAPED, originalRecipeTypeId);
             } else if (isShapelessCraftingRecipe(recipeTypeName, recipeClassName)) {
-                return loadCraftingRecipe(recipe, resultItem, CraftingMode.SHAPELESS);
+                return loadCraftingRecipe(recipe, resultItem, CraftingMode.SHAPELESS, originalRecipeTypeId);
             }
             // 检查烹饪配方
             else if (isSmeltingRecipe(recipeTypeName, recipeClassName)) {
-                return loadCookingRecipe(recipe, resultItem, CookingType.SMELTING);
+                return loadCookingRecipe(recipe, resultItem, CookingType.SMELTING, originalRecipeTypeId);
             } else if (isBlastingRecipe(recipeTypeName, recipeClassName)) {
-                return loadCookingRecipe(recipe, resultItem, CookingType.BLASTING);
+                return loadCookingRecipe(recipe, resultItem, CookingType.BLASTING, originalRecipeTypeId);
             } else if (isSmokingRecipe(recipeTypeName, recipeClassName)) {
-                return loadCookingRecipe(recipe, resultItem, CookingType.SMOKING);
+                return loadCookingRecipe(recipe, resultItem, CookingType.SMOKING, originalRecipeTypeId);
             } else if (isCampfireRecipe(recipeTypeName, recipeClassName)) {
-                return loadCookingRecipe(recipe, resultItem, CookingType.CAMPFIRE);
+                return loadCookingRecipe(recipe, resultItem, CookingType.CAMPFIRE, originalRecipeTypeId);
             }
             // 检查Avaritia配方
             else if (isAvaritiaRecipe(recipeTypeName, recipeClassName)) {
                 CraftingMode mode = recipeTypeName.contains("shaped") || recipeClassName.contains("shaped") ?
                         CraftingMode.SHAPED : CraftingMode.SHAPELESS;
-                return loadAvaritiaRecipe(recipe, resultItem, mode);
+                return loadAvaritiaRecipe(recipe, resultItem, mode, originalRecipeTypeId);
             }
-
-            return new LoadResult(false, "不支持的配方类型: " + recipeTypeName + " (类名: " + recipe.getClass().getName() + ")");
+            // 对于未知类型的配方，尝试通用加载
+            else {
+                return loadGenericModRecipe(recipe, resultItem, originalRecipeTypeId);
+            }
 
         } catch (Exception e) {
             LOGGER.error("加载配方失败", e);
             return new LoadResult(false, "加载配方失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 加载通用模组配方（用于不认识的配方类型）
+     */
+    private LoadResult loadGenericModRecipe(Recipe<?> recipe, ItemStack resultItem, String originalRecipeTypeId) {
+        try {
+            var recipeIngredients = recipe.getIngredients();
+            List<ItemStack> ingredients = new ArrayList<>();
+
+            // 尝试加载材料
+            for (var ingredient : recipeIngredients) {
+                if (ingredient != null && !ingredient.isEmpty()) {
+                    var items = ingredient.getItems();
+                    if (items != null && items.length > 0) {
+                        ingredients.add(items[0].copy());
+                    } else {
+                        ingredients.add(ItemStack.EMPTY);
+                    }
+                } else {
+                    ingredients.add(ItemStack.EMPTY);
+                }
+            }
+
+            LOGGER.info("成功加载未知类型的配方: {}, 类型: {}, 材料数: {}",
+                    recipe.getId(), originalRecipeTypeId, ingredients.size());
+
+            return new LoadResult(true, null, null, null, 1,
+                    resultItem, ingredients, "成功载入模组配方", originalRecipeTypeId);
+
+        } catch (Exception e) {
+            LOGGER.warn("解析通用配方失败", e);
+            return new LoadResult(false, "解析配方失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 加载工作台配方（修改所有返回语句）
+     */
+    private LoadResult loadCraftingRecipe(Recipe<?> recipe, ItemStack resultItem,
+                                          CraftingMode mode, String originalRecipeTypeId) {
+        try {
+            List<ItemStack> ingredients = new ArrayList<>();
+            for (int i = 0; i < 9; i++) {
+                ingredients.add(ItemStack.EMPTY);
+            }
+
+            if (mode == CraftingMode.SHAPED && recipe.getClass().getSimpleName().contains("ShapedRecipe")) {
+                return loadShapedRecipePattern(recipe, resultItem, ingredients, originalRecipeTypeId);
+            } else {
+                return loadGenericCraftingRecipe(recipe, resultItem, mode, ingredients, originalRecipeTypeId);
+            }
+        } catch (Exception e) {
+            LOGGER.error("解析工作台配方失败", e);
+            return new LoadResult(false, "解析工作台配方失败: " + e.getMessage());
+        }
+    }
+
+    private LoadResult loadShapedRecipePattern(Recipe<?> recipe, ItemStack resultItem,
+                                               List<ItemStack> ingredients, String originalRecipeTypeId) {
+        return loadGenericCraftingRecipe(recipe, resultItem, CraftingMode.SHAPED, ingredients, originalRecipeTypeId);
+    }
+
+    private LoadResult loadGenericCraftingRecipe(Recipe<?> recipe, ItemStack resultItem,
+                                                 CraftingMode mode, List<ItemStack> ingredients,
+                                                 String originalRecipeTypeId) {
+        var recipeIngredients = recipe.getIngredients();
+        for (int i = 0; i < Math.min(recipeIngredients.size(), 9); i++) {
+            var ingredient = recipeIngredients.get(i);
+            if (ingredient != null && !ingredient.isEmpty()) {
+                var items = ingredient.getItems();
+                if (items != null && items.length > 0) {
+                    ingredients.set(i, items[0].copy());
+                }
+            }
+        }
+
+        return new LoadResult(true, RecipeType.CRAFTING, mode, null, 1,
+                resultItem, ingredients, "成功载入工作台配方", originalRecipeTypeId);
+    }
+
+    /**
+     * 加载烹饪配方（添加 originalRecipeTypeId 参数）
+     */
+    private LoadResult loadCookingRecipe(Recipe<?> recipe, ItemStack resultItem,
+                                         CookingType cookingType, String originalRecipeTypeId) {
+        try {
+            var recipeIngredients = recipe.getIngredients();
+            List<ItemStack> ingredients = new ArrayList<>();
+            ingredients.add(ItemStack.EMPTY);
+
+            if (!recipeIngredients.isEmpty()) {
+                var ingredient = recipeIngredients.get(0);
+                if (!ingredient.isEmpty()) {
+                    var items = ingredient.getItems();
+                    if (items.length > 0) {
+                        ingredients.set(0, items[0].copy());
+                    }
+                }
+            }
+
+            return new LoadResult(true, RecipeType.COOKING, null, cookingType, 1,
+                    resultItem, ingredients, "成功载入烹饪配方", originalRecipeTypeId);
+
+        } catch (Exception e) {
+            LOGGER.warn("解析烹饪配方失败", e);
+            return new LoadResult(false, "解析烹饪配方失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 加载Avaritia配方
+     */
+    private LoadResult loadAvaritiaRecipe(Recipe<?> recipe, ItemStack resultItem,
+                                          CraftingMode mode, String originalRecipeTypeId) {
+        try {
+            var recipeIngredients = recipe.getIngredients();
+            int ingredientCount = recipeIngredients.size();
+
+            // 正确计算tier
+            int tier = calculateAvaritiaTeir(ingredientCount);
+            int gridSize = AvaritiaConfig.getGridSizeForTier(tier);
+            int maxSlots = gridSize * gridSize;
+            List<ItemStack> ingredients = new ArrayList<>();
+            for (int i = 0; i < maxSlots; i++) {
+                ingredients.add(ItemStack.EMPTY);
+            }
+
+            // 加载配方材料
+            for (int i = 0; i < Math.min(recipeIngredients.size(), maxSlots); i++) {
+                var ingredient = recipeIngredients.get(i);
+                if (!ingredient.isEmpty()) {
+                    var items = ingredient.getItems();
+                    if (items.length > 0) {
+                        ingredients.set(i, items[0].copy());
+                    }
+                }
+            }
+
+            return new LoadResult(true, RecipeType.AVARITIA, mode, null, tier,
+                    resultItem, ingredients, "成功载入Avaritia配方", originalRecipeTypeId);
+
+        } catch (Exception e) {
+            LOGGER.warn("解析Avaritia配方失败", e);
+            return new LoadResult(false, "解析Avaritia配方失败: " + e.getMessage());
+        }
+    }
+
+    private int calculateAvaritiaTeir(int ingredientCount) {
+        return AvaritiaConfig.getTierFromIngredientCount(ingredientCount);
     }
 
     // 配方类型识别辅助方法
@@ -142,6 +300,11 @@ public class RecipeLoader {
         return typeName.contains("smelting") ||
                 className.contains("smeltingrecipe") ||
                 typeName.contains("minecraft:smelting");
+    }
+
+    private boolean isStonecutterRecipe(String typeName, String className) {
+        return typeName.contains("stonecutter") ||
+                typeName.contains("minecraft:stonecutter");
     }
 
     private boolean isBlastingRecipe(String typeName, String className) {
@@ -165,126 +328,6 @@ public class RecipeLoader {
     private boolean isAvaritiaRecipe(String typeName, String className) {
         return typeName.contains("avaritia") ||
                 className.contains("avaritia");
-    }
-
-    /**
-     * 加载工作台配方
-     */
-    private LoadResult loadCraftingRecipe(Recipe<?> recipe, ItemStack resultItem, CraftingMode mode) {
-        try {
-            List<ItemStack> ingredients = new ArrayList<>();
-
-            // 初始化9个空槽位
-            for (int i = 0; i < 9; i++) {
-                ingredients.add(ItemStack.EMPTY);
-            }
-
-            // 对ShapedRecipe进行特殊处理
-            if (mode == CraftingMode.SHAPED && recipe.getClass().getSimpleName().contains("ShapedRecipe")) {
-                return loadShapedRecipePattern(recipe, resultItem, ingredients);
-            } else {
-                // 无序配方或其他类型的有序配方
-                return loadGenericCraftingRecipe(recipe, resultItem, mode, ingredients);
-            }
-
-        } catch (Exception e) {
-            LOGGER.error("解析工作台配方失败", e);
-            return new LoadResult(false, "解析工作台配方失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 加载ShapedRecipe的网格模式
-     */
-    private LoadResult loadShapedRecipePattern(Recipe<?> recipe, ItemStack resultItem, List<ItemStack> ingredients) {
-        return loadGenericCraftingRecipe(recipe, resultItem, CraftingMode.SHAPED, ingredients);
-    }
-
-    /**
-     * 加载通用工作台配方
-     */
-    private LoadResult loadGenericCraftingRecipe(Recipe<?> recipe, ItemStack resultItem,
-                                                 CraftingMode mode, List<ItemStack> ingredients) {
-        var recipeIngredients = recipe.getIngredients();
-
-        // 加载配方材料
-        for (int i = 0; i < Math.min(recipeIngredients.size(), 9); i++) {
-            var ingredient = recipeIngredients.get(i);
-            if (ingredient != null && !ingredient.isEmpty()) {
-                var items = ingredient.getItems();
-                if (items != null && items.length > 0) {
-                    ingredients.set(i, items[0].copy());
-                }
-            }
-        }
-
-        return new LoadResult(true, RecipeType.CRAFTING, mode, null, 1,
-                resultItem, ingredients, "成功载入工作台配方");
-    }
-
-    /**
-     * 加载烹饪配方
-     */
-    private LoadResult loadCookingRecipe(Recipe<?> recipe, ItemStack resultItem, CookingType cookingType) {
-        try {
-            var recipeIngredients = recipe.getIngredients();
-            List<ItemStack> ingredients = new ArrayList<>();
-            ingredients.add(ItemStack.EMPTY);
-
-            if (!recipeIngredients.isEmpty()) {
-                var ingredient = recipeIngredients.get(0);
-                if (!ingredient.isEmpty()) {
-                    var items = ingredient.getItems();
-                    if (items.length > 0) {
-                        ingredients.set(0, items[0].copy());
-                    }
-                }
-            }
-
-            return new LoadResult(true, RecipeType.COOKING, null, cookingType, 1,
-                    resultItem, ingredients, "成功载入烹饪配方");
-
-        } catch (Exception e) {
-            LOGGER.warn("解析烹饪配方失败", e);
-            return new LoadResult(false, "解析烹饪配方失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 加载Avaritia配方
-     */
-    private LoadResult loadAvaritiaRecipe(Recipe<?> recipe, ItemStack resultItem, CraftingMode mode) {
-        try {
-            var recipeIngredients = recipe.getIngredients();
-            int ingredientCount = recipeIngredients.size();
-
-            // 确定网格大小
-            int tier = AvaritiaConfig.getTierFromIngredientCount(ingredientCount);
-            int maxSlots = AvaritiaConfig.getGridSizeForTier(tier) * AvaritiaConfig.getGridSizeForTier(tier);
-
-            List<ItemStack> ingredients = new ArrayList<>();
-            for (int i = 0; i < maxSlots; i++) {
-                ingredients.add(ItemStack.EMPTY);
-            }
-
-            // 加载配方材料
-            for (int i = 0; i < Math.min(recipeIngredients.size(), maxSlots); i++) {
-                var ingredient = recipeIngredients.get(i);
-                if (!ingredient.isEmpty()) {
-                    var items = ingredient.getItems();
-                    if (items.length > 0) {
-                        ingredients.set(i, items[0].copy());
-                    }
-                }
-            }
-
-            return new LoadResult(true, RecipeType.AVARITIA, mode, null, tier,
-                    resultItem, ingredients, "成功载入Avaritia配方");
-
-        } catch (Exception e) {
-            LOGGER.warn("解析Avaritia配方失败", e);
-            return new LoadResult(false, "解析Avaritia配方失败: " + e.getMessage());
-        }
     }
 
     /**

@@ -1,7 +1,8 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.builtin;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -10,7 +11,7 @@ import java.util.List;
 /**
  * 切石机布局
  */
-public class StonecuttingLayout implements GridLayout {
+public class StonecuttingLayout implements RecipeLayout {
     private final int slotSpacing;
 
     public StonecuttingLayout() {
@@ -22,11 +23,18 @@ public class StonecuttingLayout implements GridLayout {
     }
 
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
-        slots.add(new SlotPosition(1, 1, baseX + slotSpacing, baseY + slotSpacing, 0,
-                SlotPosition.SlotType.INPUT, "input"));
-        return slots;
+    public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
+        
+        // 输入槽位
+        components.add(new SlotComponent(
+            baseX + slotSpacing, 
+            baseY + slotSpacing, 
+            "input",
+            0
+        ));
+        
+        return components;
     }
 
     @Override

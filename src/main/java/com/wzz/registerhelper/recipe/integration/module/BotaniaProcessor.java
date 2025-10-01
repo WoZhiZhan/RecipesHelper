@@ -294,7 +294,7 @@ public class BotaniaProcessor implements ModRecipeProcessor {
             obj.addProperty("tag", str.substring(1));
         } else {
             // Item格式
-            obj.addProperty("item", ensureValidItemId(str));
+            obj.addProperty("item", str);
         }
 
         return obj;

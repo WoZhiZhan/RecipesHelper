@@ -54,8 +54,9 @@ public class BotaniaRecipeRegistration {
         LayoutManager.registerLayout("runic_altar", new RunicAltarLayout());
         LayoutManager.registerLayout("petal_apothecary", new PetalApothecaryLayout());
         LayoutManager.registerLayout("pure_daisy", new PureDaisyLayout());
-        LayoutManager.registerLayout("brewing", new BrewingLayout());
+        LayoutManager.registerLayout("brew", new BrewingLayout());
         LayoutManager.registerLayout("mana_infusion", new ManaInfusionLayout());
         LayoutManager.registerLayout("terra_plate", new TerraPlateLayout());
+        LayoutManager.registerLayout("elven_trade", new ElvenTradeLayout());
     }
 }

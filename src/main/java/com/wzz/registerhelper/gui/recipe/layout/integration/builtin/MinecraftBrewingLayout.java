@@ -1,7 +1,8 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.builtin;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -10,7 +11,7 @@ import java.util.List;
 /**
  * 原版酿造台布局
  */
-public class MinecraftBrewingLayout implements GridLayout {
+public class MinecraftBrewingLayout implements RecipeLayout {
     private final int slotSpacing;
 
     public MinecraftBrewingLayout() {
@@ -22,18 +23,26 @@ public class MinecraftBrewingLayout implements GridLayout {
     }
 
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
+    public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
 
         // 基础药水（底部中心）
-        slots.add(new SlotPosition(1, 2, baseX + slotSpacing, baseY + 2 * slotSpacing, 0,
-                SlotPosition.SlotType.INPUT, "base_potion"));
+        components.add(new SlotComponent(
+            baseX + slotSpacing, 
+            baseY + 2 * slotSpacing, 
+            "base_potion",
+            0
+        ));
 
         // 酿造材料（顶部中心）
-        slots.add(new SlotPosition(1, 0, baseX + slotSpacing, baseY, 1,
-                SlotPosition.SlotType.INPUT, "reagent"));
+        components.add(new SlotComponent(
+            baseX + slotSpacing, 
+            baseY, 
+            "reagent",
+            1
+        ));
 
-        return slots;
+        return components;
     }
 
     @Override

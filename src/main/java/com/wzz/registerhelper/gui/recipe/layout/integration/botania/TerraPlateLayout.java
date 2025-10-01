@@ -1,16 +1,17 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.botania;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 泰拉凝聚板布局（网格形）
+ * 泰拉凝聚板布局（十字形）
  */
-public class TerraPlateLayout implements GridLayout {
+public class TerraPlateLayout implements RecipeLayout {
     private final int slotSpacing;
 
     public TerraPlateLayout() {
@@ -22,10 +23,10 @@ public class TerraPlateLayout implements GridLayout {
     }
 
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
+    public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
 
-        // 3x3网格，但只使用特定位置
+        // 3x3网格的十字形布局
         int[][] positions = {
                 {1, 0}, // 上
                 {0, 1}, // 左
@@ -37,11 +38,14 @@ public class TerraPlateLayout implements GridLayout {
         for (int i = 0; i < positions.length; i++) {
             int x = baseX + positions[i][0] * slotSpacing;
             int y = baseY + positions[i][1] * slotSpacing;
-            slots.add(new SlotPosition(positions[i][0], positions[i][1], x, y, i,
-                    SlotPosition.SlotType.INPUT, "material_" + (i + 1)));
+            components.add(new SlotComponent(
+                x, y,
+                "material_" + (i + 1),
+                i
+            ));
         }
 
-        return slots;
+        return components;
     }
 
     @Override

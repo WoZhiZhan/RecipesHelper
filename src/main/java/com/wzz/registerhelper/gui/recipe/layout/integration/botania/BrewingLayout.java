@@ -1,58 +1,43 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.botania;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
-import java.awt.*;
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 酿造台布局（容器+材料）
+ * Botania 酿造布局（5个横向槽位）
  */
-public class BrewingLayout implements GridLayout {
+public class BrewingLayout implements RecipeLayout {
     private final int slotSpacing;
 
     public BrewingLayout() {
         this(30);
     }
 
-    public BrewingLayout(int slotSpacing) {
-        this.slotSpacing = slotSpacing;
+    public BrewingLayout(int spacing) {
+        this.slotSpacing = spacing;
     }
 
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
-
-        // 容器槽位（中心）
-        int centerX = baseX + 2 * slotSpacing;
-        int centerY = baseY + 2 * slotSpacing;
-        slots.add(new SlotPosition(2, 2, centerX, centerY, 0,
-            SlotPosition.SlotType.INPUT, "container"));
-
-        // 材料槽位（围绕容器）
-        int[][] positions = {
-            {2, 1}, // 上
-            {3, 2}, // 右
-            {2, 3}, // 下
-            {1, 2}  // 左
-        };
-
-        for (int i = 0; i < positions.length; i++) {
-            int x = baseX + positions[i][0] * slotSpacing;
-            int y = baseY + positions[i][1] * slotSpacing;
-            slots.add(new SlotPosition(positions[i][0], positions[i][1], x, y, i + 1,
-                SlotPosition.SlotType.INPUT, "ingredient_" + (i + 1)));
-        }
-
-        return slots;
+    public List<RecipeComponent> generateComponents(int offsetX, int offsetY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
+        
+        components.add(new SlotComponent(offsetX + 60, offsetY + 90, "ingredient_0", 0));
+        components.add(new SlotComponent(offsetX + 90, offsetY + 90, "ingredient_1", 1));
+        components.add(new SlotComponent(offsetX + 120, offsetY + 90, "ingredient_2", 2));
+        components.add(new SlotComponent(offsetX + 150, offsetY + 90, "ingredient_3", 3));
+        components.add(new SlotComponent(offsetX + 180, offsetY + 90, "ingredient_4", 4));
+        
+        return components;
     }
 
     @Override
     public Rectangle getBounds(int tier) {
-        int size = 5 * slotSpacing;
-        return new Rectangle(0, 0, size, size);
+        return new Rectangle(0, 0, 210, 120);
     }
 
     @Override
@@ -62,6 +47,6 @@ public class BrewingLayout implements GridLayout {
 
     @Override
     public String getLayoutName() {
-        return "Brewing (Container + Ingredients)";
+        return "Botania Brewing";
     }
 }

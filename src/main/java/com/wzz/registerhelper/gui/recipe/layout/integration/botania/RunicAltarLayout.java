@@ -1,7 +1,8 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.botania;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -10,7 +11,7 @@ import java.util.List;
 /**
  * 植物魔法符文祭坛布局（环形）
  */
-public class RunicAltarLayout implements GridLayout {
+public class RunicAltarLayout implements RecipeLayout {
     private final int slotSpacing;
     
     public RunicAltarLayout() {
@@ -22,8 +23,8 @@ public class RunicAltarLayout implements GridLayout {
     }
     
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
+    public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
         
         // 计算圆形布局
         int centerX = baseX + 3 * slotSpacing;
@@ -38,11 +39,14 @@ public class RunicAltarLayout implements GridLayout {
             int x = (int) (centerX + radius * Math.cos(angle));
             int y = (int) (centerY + radius * Math.sin(angle));
             
-            slots.add(new SlotPosition(x / slotSpacing, y / slotSpacing, x, y, i, 
-                SlotPosition.SlotType.INPUT, "runic_" + (i + 1)));
+            components.add(new SlotComponent(
+                x, y,
+                "runic_" + (i + 1),
+                i
+            ));
         }
         
-        return slots;
+        return components;
     }
     
     @Override

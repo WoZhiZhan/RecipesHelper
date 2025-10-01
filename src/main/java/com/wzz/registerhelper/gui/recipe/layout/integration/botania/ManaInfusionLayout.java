@@ -1,16 +1,17 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.botania;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 魔力灌注布局（横向三个）
+ * 魔力灌注布局（横向三个：输入 - 催化剂 - 输出）
  */
-public class ManaInfusionLayout implements GridLayout {
+public class ManaInfusionLayout implements RecipeLayout {
     private final int slotSpacing;
     
     public ManaInfusionLayout() {
@@ -22,22 +23,26 @@ public class ManaInfusionLayout implements GridLayout {
     }
     
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
+    public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
         
         // 输入物品
-        slots.add(new SlotPosition(0, 1, baseX, baseY + slotSpacing, 0, 
-            SlotPosition.SlotType.INPUT, "input"));
+        components.add(new SlotComponent(
+            baseX, 
+            baseY + slotSpacing, 
+            "input",
+            0
+        ));
         
         // 催化剂（可选）
-        slots.add(new SlotPosition(1, 1, baseX + slotSpacing, baseY + slotSpacing, 1, 
-            SlotPosition.SlotType.CATALYST, "catalyst"));
+        components.add(new SlotComponent(
+            baseX + slotSpacing, 
+            baseY + slotSpacing, 
+            "catalyst",
+            1
+        ));
         
-        // 输出
-        slots.add(new SlotPosition(2, 1, baseX + 2 * slotSpacing, baseY + slotSpacing, 2, 
-            SlotPosition.SlotType.OUTPUT, "output"));
-        
-        return slots;
+        return components;
     }
     
     @Override
@@ -53,5 +58,10 @@ public class ManaInfusionLayout implements GridLayout {
     @Override
     public String getLayoutName() {
         return "Mana Infusion (Horizontal)";
+    }
+    
+    @Override
+    public LayoutType getLayoutType() {
+        return LayoutType.GRID; // 纯槽位布局
     }
 }

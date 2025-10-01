@@ -1,7 +1,8 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.botania;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -10,7 +11,7 @@ import java.util.List;
 /**
  * 纯洁雏菊布局（单一转换）
  */
-public class PureDaisyLayout implements GridLayout {
+public class PureDaisyLayout implements RecipeLayout {
     private final int slotSpacing;
     
     public PureDaisyLayout() {
@@ -22,14 +23,18 @@ public class PureDaisyLayout implements GridLayout {
     }
     
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
+    public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
         
         // 单一输入槽位
-        slots.add(new SlotPosition(1, 1, baseX + slotSpacing, baseY + slotSpacing, 0, 
-            SlotPosition.SlotType.INPUT, "input_block"));
+        components.add(new SlotComponent(
+            baseX + slotSpacing, 
+            baseY + slotSpacing, 
+            "input_block",
+            0
+        ));
         
-        return slots;
+        return components;
     }
     
     @Override

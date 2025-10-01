@@ -5,7 +5,8 @@
   "compatibilityLevel": "JAVA_8",
   "refmap": "mixins.registerhelper.refmap.json",
   "mixins": [
-    "RecipeManagerMixin"
+    "RecipeManagerMixin",
+    "TagLoaderMixin"
   ],
   "injectors": {
     "defaultRequire": 1

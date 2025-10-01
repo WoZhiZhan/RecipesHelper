@@ -1,73 +1,56 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.botania;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
-import java.awt.*;
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 花瓣药剂师布局（十字形）
+ * 花瓣坛布局
  */
-public class PetalApothecaryLayout implements GridLayout {
+public class PetalApothecaryLayout implements RecipeLayout {
     private final int slotSpacing;
-    
+
     public PetalApothecaryLayout() {
-        this(30);
+        this(10);
     }
-    
-    public PetalApothecaryLayout(int slotSpacing) {
-        this.slotSpacing = slotSpacing;
+
+    public PetalApothecaryLayout(int spacing) {
+        this.slotSpacing = spacing;
     }
-    
+
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
+    public List<RecipeComponent> generateComponents(int offsetX, int offsetY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
         
-        int centerX = baseX + 2 * slotSpacing;
-        int centerY = baseY + 2 * slotSpacing;
+        components.add(new SlotComponent(offsetX + 150, offsetY + 80, "petal_0", 0));
+        components.add(new SlotComponent(offsetX + 180, offsetY + 100, "petal_1", 1));
+        components.add(new SlotComponent(offsetX + 200, offsetY + 140, "petal_2", 2));
+        components.add(new SlotComponent(offsetX + 190, offsetY + 180, "petal_3", 3));
+        components.add(new SlotComponent(offsetX + 170, offsetY + 210, "petal_4", 4));
+        components.add(new SlotComponent(offsetX + 140, offsetY + 210, "petal_5", 5));
+        components.add(new SlotComponent(offsetX + 120, offsetY + 180, "petal_6", 6));
+        components.add(new SlotComponent(offsetX + 100, offsetY + 140, "petal_7", 7));
+        components.add(new SlotComponent(offsetX + 120, offsetY + 100, "petal_8", 8));
         
-        // 中心槽位（种子）
-        slots.add(new SlotPosition(2, 2, centerX, centerY, 0, 
-            SlotPosition.SlotType.INPUT, "seed"));
-        
-        // 十字形花瓣槽位
-        int[][] positions = {
-            {2, 1}, // 上
-            {3, 2}, // 右
-            {2, 3}, // 下
-            {1, 2}, // 左
-            {1, 1}, // 左上
-            {3, 1}, // 右上
-            {3, 3}, // 右下
-            {1, 3}  // 左下
-        };
-        
-        int maxSlots = Math.min(positions.length, tier * 2 + 4);
-        for (int i = 0; i < maxSlots; i++) {
-            int x = baseX + positions[i][0] * slotSpacing;
-            int y = baseY + positions[i][1] * slotSpacing;
-            slots.add(new SlotPosition(positions[i][0], positions[i][1], x, y, i + 1, 
-                SlotPosition.SlotType.INPUT, "petal_" + (i + 1)));
-        }
-        
-        return slots;
+        return components;
     }
-    
+
     @Override
     public Rectangle getBounds(int tier) {
-        int size = 5 * slotSpacing;
-        return new Rectangle(0, 0, size, size);
+        return new Rectangle(0, 0, 210, 220);
     }
-    
+
     @Override
     public boolean supportsTiers() {
-        return true;
+        return false;
     }
-    
+
     @Override
     public String getLayoutName() {
-        return "Petal Apothecary (Cross)";
+        return "Petal Apothecary";
     }
 }

@@ -1,16 +1,17 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.immersive_engineering;
 
-import com.wzz.registerhelper.gui.recipe.layout.GridLayout;
-import com.wzz.registerhelper.gui.recipe.layout.SlotPosition;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 沉浸工程电弧炉布局（4输入+1添加剂+1输出+1渣料）
+ * 沉浸工程电弧炉布局（4输入+1添加剂）
  */
-public class ArcFurnaceLayout implements GridLayout {
+public class ArcFurnaceLayout implements RecipeLayout {
     private final int slotSpacing;
     
     public ArcFurnaceLayout() {
@@ -22,8 +23,8 @@ public class ArcFurnaceLayout implements GridLayout {
     }
     
     @Override
-    public List<SlotPosition> generateSlots(int baseX, int baseY, int tier) {
-        List<SlotPosition> slots = new ArrayList<>();
+    public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
+        List<RecipeComponent> components = new ArrayList<>();
         
         // 4个主要输入槽位（2x2）
         for (int y = 0; y < 2; y++) {
@@ -32,18 +33,24 @@ public class ArcFurnaceLayout implements GridLayout {
                 int pixelY = baseY + y * slotSpacing;
                 int index = y * 2 + x;
                 
-                slots.add(new SlotPosition(x, y, pixelX, pixelY, index, 
-                    SlotPosition.SlotType.INPUT, "main_" + (index + 1)));
+                components.add(new SlotComponent(
+                    pixelX, pixelY,
+                    "main_" + (index + 1),
+                    index
+                ));
             }
         }
         
-        // 添加剂槽位
+        // 添加剂槽位（催化剂）
         int additiveX = baseX + 3 * slotSpacing;
         int additiveY = baseY;
-        slots.add(new SlotPosition(3, 0, additiveX, additiveY, 4, 
-            SlotPosition.SlotType.CATALYST, "additive"));
+        components.add(new SlotComponent(
+            additiveX, additiveY,
+            "additive",
+            4
+        ));
         
-        return slots;
+        return components;
     }
     
     @Override

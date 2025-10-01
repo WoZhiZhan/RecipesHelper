@@ -1,14 +1,17 @@
 package com.wzz.registerhelper.gui;
 
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.wzz.registerhelper.generator.KubeJSCodeGenerator;
 import com.wzz.registerhelper.gui.recipe.*;
+import com.wzz.registerhelper.gui.recipe.component.ComponentRenderManager;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
+import com.wzz.registerhelper.tags.CustomTagManager;
+import com.wzz.registerhelper.util.ModLogger;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
@@ -21,9 +24,7 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Consumer;
 
 @OnlyIn(Dist.CLIENT)
@@ -35,7 +36,6 @@ public class RecipeCreatorScreen extends Screen {
     private SlotManager slotManager;
     private FillModeHandler fillModeHandler;
     private RecipeLoader recipeLoader;
-    private RecipeBuilder recipeBuilder;
 
     // 动态尺寸变量
     private int contentWidth;
@@ -67,6 +67,7 @@ public class RecipeCreatorScreen extends Screen {
     private Button recipeOperationButton;
     private Button blacklistManagerButton;
     private Button overrideManagerButton;
+    private ComponentRenderManager componentRenderManager;
 
     // 构造函数
     public RecipeCreatorScreen() {
@@ -80,6 +81,7 @@ public class RecipeCreatorScreen extends Screen {
         }
         initializeComponents();
     }
+    private RecipeLoader.LoadResult pendingLoadResult = null;
 
     public RecipeCreatorScreen(ResourceLocation recipeId) {
         super(Component.literal("配方编辑器"));
@@ -88,7 +90,19 @@ public class RecipeCreatorScreen extends Screen {
         // 设置默认配方类型
         this.currentRecipeType = DynamicRecipeTypeConfig.getRecipeType("crafting_shaped");
         initializeComponents();
-        loadExistingRecipe(recipeId);
+        pendingLoadResult = recipeLoader.loadRecipe(recipeId);
+        if (pendingLoadResult.success) {
+            // 在init之前就确定配方类型
+            RecipeTypeDefinition loadedType = findRecipeTypeDefinition(pendingLoadResult);
+            if (loadedType != null) {
+                this.currentRecipeType = loadedType;
+                this.currentCraftingMode = pendingLoadResult.craftingMode != null ?
+                        pendingLoadResult.craftingMode.name().toLowerCase() : "shaped";
+                this.currentCookingType = pendingLoadResult.cookingType != null ?
+                        pendingLoadResult.cookingType.name().toLowerCase() : "smelting";
+                this.customTier = pendingLoadResult.avaritiaTeir;
+            }
+        }
     }
 
     /**
@@ -104,54 +118,9 @@ public class RecipeCreatorScreen extends Screen {
         // 创建组件实例
         this.fillModeHandler = new FillModeHandler(errorCallback, itemSelectorCallback, brushSelectorCallback);
         this.recipeLoader = new RecipeLoader(this::displayInfo);
-        this.recipeBuilder = new RecipeBuilder(successCallback, errorCallback);
 
-        // SlotManager将在calculateDynamicSize后初始化
         calculateDynamicSize();
-    }
-
-    /**
-     * 计算动态尺寸
-     */
-    private void calculateDynamicSize() {
-        if (currentRecipeType == null) return;
-
-        // 获取当前配方类型的网格尺寸
-        SlotManager.GridDimensions gridDim = getGridDimensions();
-
-        // 计算所需的最小尺寸
-        int rightPanelWidth = 150;
-        this.contentWidth = Math.max(560, PADDING + gridDim.getPixelWidth() + PADDING + rightPanelWidth + PADDING);
-        this.contentHeight = Math.max(480, PADDING + 90 + gridDim.getPixelHeight() + PADDING + 80);
-
-        // 确保不超过屏幕尺寸
-        this.contentWidth = Math.min(this.contentWidth, this.width - 40);
-        this.contentHeight = Math.min(this.contentHeight, this.height - 40);
-
-        // 计算位置
-        this.leftPos = (this.width - contentWidth) / 2;
-        this.topPos = (this.height - contentHeight) / 2;
-
-        // 初始化SlotManager
-        int rightPanelX = leftPos + contentWidth - 150;
-        if (slotManager == null) {
-            slotManager = new SlotManager(leftPos + PADDING, topPos, rightPanelX);
-        } else {
-            slotManager.updateCoordinates(leftPos + PADDING, topPos, rightPanelX);
-        }
-
-        // 设置配方类型到SlotManager（需要更新SlotManager以支持RecipeTypeDefinition）
-        updateSlotManagerRecipeType();
-    }
-
-    /**
-     * 更新SlotManager的配方类型
-     */
-    private void updateSlotManagerRecipeType() {
-        if (slotManager == null || currentRecipeType == null) return;
-
-        // 直接使用更新后的SlotManager，它现在支持RecipeTypeDefinition
-        slotManager.setRecipeType(currentRecipeType, customTier, true);
+        this.componentRenderManager = new ComponentRenderManager(this.font);
     }
 
     /**
@@ -168,11 +137,360 @@ public class RecipeCreatorScreen extends Screen {
         );
     }
 
+    // RecipeCreatorScreen.java
+
     @Override
     protected void init() {
+        if (componentRenderManager != null) {
+            componentRenderManager.clear();
+        }
+
+        // 按顺序调用
         calculateDynamicSize();
         initializeControls();
+        initializeComponentRenderers();
+
+        // 应用待加载的配方数据
+        if (pendingLoadResult != null && pendingLoadResult.success) {
+            applyLoadedRecipe(pendingLoadResult);
+            pendingLoadResult = null;
+        }
+
         updateVisibility();
+    }
+
+    /**
+     * 计算动态尺寸
+     */
+    private void calculateDynamicSize() {
+        if (currentRecipeType == null) {
+            ModLogger.getLogger().error("calculateDynamicSize: currentRecipeType为null");
+            return;
+        }
+
+        // 获取当前配方类型的网格尺寸
+        SlotManager.GridDimensions gridDim = getGridDimensions();
+
+        // 计算所需的最小尺寸
+        int rightPanelWidth = 150;
+        this.contentWidth = Math.max(560, PADDING + gridDim.getPixelWidth() + PADDING + rightPanelWidth + PADDING);
+        this.contentHeight = Math.max(480, PADDING + 90 + gridDim.getPixelHeight() + PADDING + 80);
+
+        this.contentWidth = Math.min(this.contentWidth, this.width - 40);
+        this.contentHeight = Math.min(this.contentHeight, this.height - 40);
+
+        this.leftPos = (this.width - contentWidth) / 2;
+        this.topPos = (this.height - contentHeight) / 2;
+
+        // 初始化或更新SlotManager
+        int rightPanelX = leftPos + contentWidth - 150;
+        if (slotManager == null) {
+            slotManager = new SlotManager(leftPos + PADDING, topPos, rightPanelX);
+        } else {
+            slotManager.updateCoordinates(leftPos + PADDING, topPos, rightPanelX);
+        }
+        updateSlotManagerRecipeType();
+    }
+
+    /**
+     * 更新SlotManager的配方类型
+     */
+    private void updateSlotManagerRecipeType() {
+        if (slotManager == null) {
+            ModLogger.getLogger().error("slotManager为null");
+            return;
+        }
+
+        if (currentRecipeType == null) {
+            ModLogger.getLogger().error("currentRecipeType为null");
+            return;
+        }
+        slotManager.setRecipeType(currentRecipeType, customTier, true);
+    }
+
+    /**
+     * 从选择器加载配方
+     */
+    private void loadSelectedRecipe(ResourceLocation recipeId) {
+        UnifiedRecipeInfo info = recipeLoader.findRecipeInfo(recipeId);
+        if (info == null) {
+            displayError("找不到配方信息: " + recipeId);
+            return;
+        }
+
+        this.editingRecipeId = recipeId;
+        this.isEditingExisting = true;
+
+        RecipeLoader.LoadResult result = recipeLoader.loadRecipe(recipeId);
+        if (!result.success) {
+            displayError(result.message);
+            return;
+        }
+
+        RecipeTypeDefinition loadedType = findRecipeTypeDefinition(result);
+        if (loadedType == null) {
+            displayError("无法识别配方类型: " + result.originalRecipeTypeId);
+            return;
+        }
+
+        // 比较类型ID和tier
+        boolean typeChanged = !loadedType.getId().equals(this.currentRecipeType.getId());
+        boolean tierChanged = result.avaritiaTeir != this.customTier;
+        if (typeChanged || tierChanged) {
+
+            // 设置新类型和tier
+            this.currentRecipeType = loadedType;
+            this.currentCraftingMode = result.craftingMode != null ?
+                    result.craftingMode.name().toLowerCase() : "shaped";
+            this.currentCookingType = result.cookingType != null ?
+                    result.cookingType.name().toLowerCase() : "smelting";
+            this.customTier = result.avaritiaTeir;
+            // 保存数据待应用
+            this.pendingLoadResult = result;
+
+            // 重建界面
+            this.clearWidgets();
+            this.init();
+
+        } else {
+
+            this.currentCraftingMode = result.craftingMode != null ?
+                    result.craftingMode.name().toLowerCase() : "shaped";
+            this.currentCookingType = result.cookingType != null ?
+                    result.cookingType.name().toLowerCase() : "smelting";
+
+            if (craftingModeButton != null) {
+                craftingModeButton.setValue(currentCraftingMode);
+            }
+            if (cookingTypeButton != null) {
+                cookingTypeButton.setValue(currentCookingType);
+            }
+            if (tierButton != null) {
+                tierButton.setValue(customTier);
+            }
+
+            applyLoadedRecipe(result);
+        }
+
+        String buttonText = "更新配方";
+        if (info.hasOverride || (!recipeLoader.isCustomRecipe(recipeId))) {
+            buttonText += " (覆盖)";
+        }
+        if (createButton != null) {
+            createButton.setMessage(Component.literal(buttonText));
+        }
+
+        displayInfo("已载入 " + info.description);
+    }
+
+    /**
+     * 配方类型更改处理
+     */
+    private void onRecipeTypeChanged(RecipeTypeDefinition newType) {
+        if (newType == null) {
+            ModLogger.getLogger().error("新配方类型为null，取消切换");
+            return;
+        }
+
+        // 保存数据
+        ItemStack currentResult = slotManager != null ? slotManager.getResultItem() : ItemStack.EMPTY;
+        List<ItemStack> currentIngredients = slotManager != null ?
+                new ArrayList<>(slotManager.getIngredients()) : new ArrayList<>();
+        String currentResultCount = resultCountBox != null ? resultCountBox.getValue() : "1";
+
+        // 设置新类型
+        this.currentRecipeType = newType;
+
+        // 重置相关设置
+        if (newType.isAvaritiaType()) {
+            Integer defaultTier = newType.getProperty("tier", Integer.class);
+            if (defaultTier != null) {
+                this.customTier = defaultTier;
+            }
+        } else {
+            this.customTier = 1;
+        }
+
+        String mode = newType.getProperty("mode", String.class);
+        if (mode != null) {
+            this.currentCraftingMode = mode;
+        }
+
+        // 完全重建界面
+        this.clearWidgets();
+        this.init();
+        // 恢复数据
+        if (slotManager != null && !currentResult.isEmpty()) {
+            slotManager.setResultItem(currentResult);
+
+            int newSlotCount = slotManager.getIngredientSlots().size();
+            for (int i = 0; i < Math.min(currentIngredients.size(), newSlotCount); i++) {
+                if (!currentIngredients.get(i).isEmpty()) {
+                    slotManager.setIngredient(i, currentIngredients.get(i));
+                }
+            }
+        }
+
+        if (resultCountBox != null) {
+            resultCountBox.setValue(currentResultCount);
+        }
+
+        // 同步到渲染器
+        syncDataToRenderer();
+    }
+
+    /**
+     * 初始化组件渲染器 - 修复版
+     */
+    private void initializeComponentRenderers() {
+        if (slotManager == null) {
+            ModLogger.getLogger().warn("slotManager为空，无法初始化渲染器");
+            return;
+        }
+
+        if (componentRenderManager == null) {
+            ModLogger.getLogger().warn("componentRenderManager为空，无法初始化渲染器");
+            return;
+        }
+
+        List<RecipeComponent> components = slotManager.getComponents();
+        if (components == null || components.isEmpty()) {
+            componentRenderManager.clear();
+            return;
+        }
+
+        // 设置回调
+        componentRenderManager.setSlotCallbacks(
+                this::openItemSelectorForSlot,
+                slotManager::clearSlot
+        );
+        componentRenderManager.setResultCallback(this::openResultSelector);
+
+        // 初始化渲染器
+        componentRenderManager.initializeRenderers(components);
+
+        // 注册EditBox
+        for (EditBox editBox : componentRenderManager.getEditBoxes()) {
+            addRenderableWidget(editBox);
+        }
+
+        // 同步当前数据
+        syncDataToRenderer();
+    }
+
+    /**
+     * 应用已加载的配方数据
+     */
+    private void applyLoadedRecipe(RecipeLoader.LoadResult result) {
+        if (resultCountBox != null) {
+            resultCountBox.setValue(String.valueOf(result.resultItem.getCount()));
+        }
+
+        // 设置材料和结果到 slotManager
+        if (slotManager != null) {
+            // 将ItemStack列表转换为IngredientData列表
+            slotManager.setIngredients(result.ingredients); // 这会自动转换
+            slotManager.setResultItem(result.resultItem);
+        }
+        syncDataToRenderer();
+    }
+
+    /**
+     * 同步数据到渲染器
+     */
+    private void syncDataToRenderer() {
+        if (componentRenderManager == null) {
+            ModLogger.getLogger().warn("componentRenderManager 为空，无法同步");
+            return;
+        }
+
+        if (slotManager == null) {
+            ModLogger.getLogger().warn("slotManager 为空，无法同步");
+            return;
+        }
+
+        // 同步所有槽位物品
+        List<ItemStack> ingredients = slotManager.getIngredients();
+        for (int i = 0; i < ingredients.size(); i++) {
+            ItemStack item = ingredients.get(i);
+            componentRenderManager.updateSlotItem(i, item);
+        }
+
+        // 同步结果物品
+        ItemStack result = slotManager.getResultItem();
+        componentRenderManager.updateResultItem(result);
+    }
+
+    /**
+     * 根据加载结果查找配方类型定义
+     */
+    private RecipeTypeDefinition findRecipeTypeDefinition(RecipeLoader.LoadResult result) {
+        // 优先使用原始配方类型ID
+        if (result.originalRecipeTypeId != null && !result.originalRecipeTypeId.isEmpty()) {
+            RecipeTypeDefinition found = DynamicRecipeTypeConfig.getRecipeType(result.originalRecipeTypeId);
+            if (found != null) {
+                return found;
+            }
+
+            // Avaritia特殊处理：shaped_table -> avaritia_shaped
+            if (result.originalRecipeTypeId.contains("shaped_table")) {
+                found = DynamicRecipeTypeConfig.getRecipeType("avaritia_shaped");
+                if (found != null) {
+                    return found;
+                }
+            } else if (result.originalRecipeTypeId.contains("shapeless_table")) {
+                found = DynamicRecipeTypeConfig.getRecipeType("avaritia_shapeless");
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+
+        // 降级到枚举类型匹配
+        if (result.recipeType != null) {
+            String recipeTypeName = result.recipeType.name().toLowerCase();
+
+            if ("crafting".equals(recipeTypeName)) {
+                String mode = result.craftingMode != null ? result.craftingMode.name().toLowerCase() : "shaped";
+                String typeId = "crafting_" + mode;
+                return DynamicRecipeTypeConfig.getRecipeType(typeId);
+
+            } else if ("cooking".equals(recipeTypeName)) {
+                String cookingType = result.cookingType != null ? result.cookingType.name().toLowerCase() : "smelting";
+                return DynamicRecipeTypeConfig.getRecipeType(cookingType);
+
+            } else if ("avaritia".equals(recipeTypeName)) {
+                // Avaritia 配方：配置中注册的是 "avaritia_shaped" 或 "avaritia_shapeless"
+                // 不需要加 tier 后缀
+                String mode = result.craftingMode != null ? result.craftingMode.name().toLowerCase() : "shaped";
+                String typeId = "avaritia_" + mode;
+
+                RecipeTypeDefinition found = DynamicRecipeTypeConfig.getRecipeType(typeId);
+                if (found != null) {
+                    return found;
+                }
+
+                // 如果没找到，尝试查找原始ID（移除 ":crafting_table_recipe" 后缀）
+                if (result.originalRecipeTypeId != null) {
+                    String namespace = result.originalRecipeTypeId.split(":")[0];
+                    if ("avaritia".equals(namespace)) {
+                        // 尝试直接使用 "avaritia_shaped"
+                        return DynamicRecipeTypeConfig.getRecipeType("avaritia_shaped");
+                    }
+                }
+                return found;
+
+            } else if ("brewing".equals(recipeTypeName)) {
+                return DynamicRecipeTypeConfig.getRecipeType("brewing");
+
+            } else if ("stonecutting".equals(recipeTypeName)) {
+                return DynamicRecipeTypeConfig.getRecipeType("stonecutting");
+
+            } else if ("smithing".equals(recipeTypeName) || "smithing_transform".equals(recipeTypeName)) {
+                return DynamicRecipeTypeConfig.getRecipeType("smithing_transform");
+            }
+        }
+        return null;
     }
 
     /**
@@ -185,8 +503,6 @@ public class RecipeCreatorScreen extends Screen {
         int controlSpacing = 10;
         int currentX = controlStartX;
 
-        // 配方类型选择器 - 改为下拉列表
-        List<RecipeTypeDefinition> availableTypes = DynamicRecipeTypeConfig.getAvailableRecipeTypes();
         String currentTypeName = currentRecipeType != null ? currentRecipeType.getDisplayName() : "选择配方类型";
 
         recipeTypeButton = addRenderableWidget(Button.builder(
@@ -413,18 +729,10 @@ public class RecipeCreatorScreen extends Screen {
                 .build());
         buttonStartX += buttonWidths[4] + buttonSpacing;
 
-        // 新增导出KubeJS按钮
-        Button exportKubeJSButton = addRenderableWidget(Button.builder(
-                        Component.literal("导出KubeJS"),
-                        button -> exportToKubeJS())
-                .bounds(buttonStartX, buttonY, buttonWidths[5], 20)
-                .build());
-        buttonStartX += buttonWidths[5] + buttonSpacing;
-
         cancelButton = addRenderableWidget(Button.builder(
                         Component.literal("取消"),
                         button -> onClose())
-                .bounds(buttonStartX, buttonY, buttonWidths[6], 20)
+                .bounds(buttonStartX, buttonY, buttonWidths[5], 20)
                 .build());
     }
 
@@ -511,43 +819,6 @@ public class RecipeCreatorScreen extends Screen {
         }
     }
 
-    /**
-     * 配方类型更改处理（重命名原方法）
-     */
-    private void onRecipeTypeChanged(RecipeTypeDefinition newType) {
-        this.currentRecipeType = newType;
-
-        // 更新按钮显示
-        if (recipeTypeButton != null) {
-            recipeTypeButton.setMessage(Component.literal(newType.getDisplayName() + " ▼"));
-        }
-
-        // 重置相关设置
-        if (newType.isAvaritiaType()) {
-            Integer defaultTier = newType.getProperty("tier", Integer.class);
-            if (defaultTier != null) {
-                this.customTier = defaultTier;
-            }
-        }
-
-        // 根据新类型自动设置模式
-        String mode = newType.getProperty("mode", String.class);
-        if (mode != null) {
-            this.currentCraftingMode = mode;
-            if (craftingModeButton != null) {
-                craftingModeButton.setValue(mode);
-            }
-        }
-
-        updateSlotManagerRecipeType();
-        updateVisibility();
-
-        // 可能需要重新计算尺寸
-        if (newType.isAvaritiaType() || newType.getMaxGridWidth() != 3) {
-            calculateDynamicSize();
-        }
-    }
-
     private void onCraftingModeChanged(CycleButton<String> button, String newMode) {
         this.currentCraftingMode = newMode;
     }
@@ -581,8 +852,9 @@ public class RecipeCreatorScreen extends Screen {
 
     private void openItemSelectorForSlot(int slotIndex) {
         if (minecraft != null) {
-            minecraft.setScreen(new ItemSelectorScreen(this, item -> {
-                slotManager.setIngredient(slotIndex, item);
+            // 打开材料类型选择器
+            minecraft.setScreen(new IngredientTypeSelector(this, slotIndex, selectionType -> {
+                handleIngredientTypeSelection(slotIndex, selectionType);
             }));
         }
     }
@@ -595,7 +867,13 @@ public class RecipeCreatorScreen extends Screen {
 
     private void openResultSelector() {
         if (minecraft != null) {
-            minecraft.setScreen(new ItemSelectorScreen(this, slotManager::setResultItem));
+            minecraft.setScreen(new ItemSelectorScreen(this, item -> {
+                slotManager.setResultItem(item);
+                // 同步到渲染器
+                if (componentRenderManager != null) {
+                    componentRenderManager.updateResultItem(item);
+                }
+            }));
         }
     }
 
@@ -631,6 +909,68 @@ public class RecipeCreatorScreen extends Screen {
         }
     }
 
+    /**
+     * 处理材料类型选择
+     */
+    private void handleIngredientTypeSelection(int slotIndex, IngredientTypeSelector.SelectionType type) {
+        if (minecraft == null) return;
+
+        switch (type) {
+            case ALL_ITEMS -> {
+                // 从所有物品选择（原有功能）
+                minecraft.setScreen(new ItemSelectorScreen(this, item -> {
+                    IngredientData data = IngredientData.fromItem(item);
+                    slotManager.setIngredientData(slotIndex, data);
+                    // 同步到渲染器
+                    if (componentRenderManager != null) {
+                        componentRenderManager.updateSlotItem(slotIndex, item);
+                    }
+                }));
+            }
+            case INVENTORY -> {
+                // 从背包选择（带NBT）
+                minecraft.setScreen(new InventoryItemSelectorScreen(this, item -> {
+                    IngredientData data = IngredientData.fromItem(item);
+                    slotManager.setIngredientData(slotIndex, data);
+                    // 同步到渲染器
+                    if (componentRenderManager != null) {
+                        componentRenderManager.updateSlotItem(slotIndex, item);
+                    }
+
+                    // 如果物品有NBT，显示提示
+                    if (item.hasTag()) {
+                        displayInfo("已添加带NBT的物品: " + item.getHoverName().getString());
+                    }
+                }));
+            }
+            case TAG -> {
+                // 选择标签
+                minecraft.setScreen(new TagSelectorScreen(this, tagId -> {
+                    IngredientData data = IngredientData.fromTag(tagId);
+                    slotManager.setIngredientData(slotIndex, data);
+                    // 同步到渲染器（使用标签的第一个物品显示）
+                    if (componentRenderManager != null) {
+                        componentRenderManager.updateSlotItem(slotIndex, data.getDisplayStack());
+                    }
+                    displayInfo("已添加标签: #" + tagId);
+                }));
+            }
+            case CUSTOM_TAG -> {
+                // 创建自定义标签
+                minecraft.setScreen(new CustomTagCreatorScreen(this, (tagId, items) -> {
+                    CustomTagManager.registerTag(tagId, items);
+                    IngredientData data = IngredientData.fromCustomTag(tagId, items);
+                    slotManager.setIngredientData(slotIndex, data);
+                    // 同步到渲染器（使用第一个物品显示）
+                    if (componentRenderManager != null) {
+                        componentRenderManager.updateSlotItem(slotIndex, data.getDisplayStack());
+                    }
+                    displayInfo("已添加自定义标签: #" + tagId + " (包含 " + items.size() + " 个物品)");
+                }));
+            }
+        }
+    }
+
     private void openBlacklistManager() {
         if (minecraft != null) {
             minecraft.setScreen(new BlacklistManagerScreen(this));
@@ -641,98 +981,6 @@ public class RecipeCreatorScreen extends Screen {
         if (minecraft != null) {
             minecraft.setScreen(new OverrideManagerScreen(this));
         }
-    }
-
-    private void loadSelectedRecipe(ResourceLocation recipeId) {
-        UnifiedRecipeInfo info = recipeLoader.findRecipeInfo(recipeId);
-        if (info == null) {
-            displayError("找不到配方信息: " + recipeId);
-            return;
-        }
-
-        this.editingRecipeId = recipeId;
-        this.isEditingExisting = true;
-
-        String buttonText = "更新配方";
-        if (info.hasOverride || (!recipeLoader.isCustomRecipe(recipeId))) {
-            buttonText += " (覆盖)";
-        }
-        createButton.setMessage(Component.literal(buttonText));
-
-        loadExistingRecipe(recipeId);
-        displayInfo("已载入 " + info.description);
-    }
-
-    private void loadExistingRecipe(ResourceLocation recipeId) {
-        RecipeLoader.LoadResult result = recipeLoader.loadRecipe(recipeId);
-
-        if (!result.success) {
-            displayError(result.message);
-            return;
-        }
-
-        // 根据加载的配方类型查找对应的RecipeTypeDefinition
-        RecipeTypeDefinition loadedType = findRecipeTypeDefinition(result);
-        if (loadedType != null) {
-            this.currentRecipeType = loadedType;
-            recipeTypeButton.setMessage(Component.literal(loadedType.getDisplayName() + " ▼"));
-        }
-
-        // 应用其他设置
-        this.currentCraftingMode = result.craftingMode != null ?
-                (result.craftingMode.name().toLowerCase()) : "shaped";
-        this.currentCookingType = result.cookingType != null ?
-                result.cookingType.name().toLowerCase() : "smelting";
-        this.customTier = result.avaritiaTeir;
-
-        // 更新UI控件
-        craftingModeButton.setValue(currentCraftingMode);
-        cookingTypeButton.setValue(currentCookingType);
-        tierButton.setValue(customTier);
-
-        // 设置材料和结果
-        updateSlotManagerRecipeType();
-        slotManager.setIngredients(result.ingredients);
-        slotManager.setResultItem(result.resultItem);
-
-        // 重新计算尺寸
-        calculateDynamicSize();
-
-        // 更新结果数量输入框
-        if (resultCountBox != null) {
-            resultCountBox.setValue(String.valueOf(result.resultItem.getCount()));
-        }
-
-        updateVisibility();
-        displayInfo(result.message + ": " + recipeId);
-    }
-
-    /**
-     * 根据加载结果查找对应的配方类型定义
-     */
-    private RecipeTypeDefinition findRecipeTypeDefinition(RecipeLoader.LoadResult result) {
-        if (result.recipeType != null) {
-            String recipeTypeName = result.recipeType.name().toLowerCase();
-
-            if ("crafting".equals(recipeTypeName)) {
-                String mode = result.craftingMode != null ? result.craftingMode.name().toLowerCase() : "shaped";
-                return DynamicRecipeTypeConfig.getRecipeType("crafting_" + mode);
-            } else if ("cooking".equals(recipeTypeName)) {
-                String cookingType = result.cookingType != null ? result.cookingType.name().toLowerCase() : "smelting";
-                return DynamicRecipeTypeConfig.getRecipeType(cookingType);
-            } else if ("avaritia".equals(recipeTypeName)) {
-                String mode = result.craftingMode != null ? result.craftingMode.name().toLowerCase() : "shaped";
-                return DynamicRecipeTypeConfig.getRecipeType("avaritia_" + mode + "_t" + result.avaritiaTeir);
-            } else if ("brewing".equals(recipeTypeName)) {
-                return DynamicRecipeTypeConfig.getRecipeType("brewing");
-            } else if ("stonecutting".equals(recipeTypeName)) {
-                return DynamicRecipeTypeConfig.getRecipeType("stonecutting");
-            } else if ("smithing".equals(recipeTypeName) || "smithing_transform".equals(recipeTypeName)) {
-                return DynamicRecipeTypeConfig.getRecipeType("smithing_transform");
-            }
-        }
-
-        return currentRecipeType;
     }
 
     private void handleRecipeOperation(ResourceLocation recipeId) {
@@ -782,7 +1030,6 @@ public class RecipeCreatorScreen extends Screen {
             displayError("请选择配方类型！");
             return;
         }
-
         try {
             int count = Integer.parseInt(resultCountBox.getValue());
             if (count <= 0) {
@@ -804,14 +1051,7 @@ public class RecipeCreatorScreen extends Screen {
             float cookingExp = currentRecipeType.supportsCookingSettings() ?
                     Float.parseFloat(cookingExpBox.getValue()) : 0;
 
-            // 创建构建参数 - 需要更新RecipeBuilder以支持新系统
-            DynamicRecipeBuilder.BuildParams params = new DynamicRecipeBuilder.BuildParams(
-                    currentRecipeType, currentCraftingMode, currentCookingType, customTier,
-                    resultItem, slotManager.getIngredients(), cookingTime, cookingExp,
-                    editingRecipeId, isEditingExisting
-            );
-
-            // 使用新的构建器
+            DynamicRecipeBuilder.BuildParams params = getBuildParams(resultItem, cookingTime, cookingExp);
             DynamicRecipeBuilder dynamicBuilder = new DynamicRecipeBuilder(this::displaySuccess, this::displayError);
             dynamicBuilder.buildRecipe(params);
 
@@ -820,7 +1060,34 @@ public class RecipeCreatorScreen extends Screen {
         }
     }
 
-    // 渲染方法保持不变...
+    private DynamicRecipeBuilder.BuildParams getBuildParams(ItemStack resultItem, float cookingTime, float cookingExp) {
+        Map<String, Object> componentData = new HashMap<>();
+        if (componentRenderManager != null) {
+            componentData = componentRenderManager.getDataManager().getAllData();
+        }
+
+        // 获取完整的IngredientData列表
+        List<IngredientData> ingredientsData = slotManager.getIngredientsData();
+
+        // 为了兼容性，同时提供ItemStack列表
+        List<ItemStack> ingredients = slotManager.getIngredients();
+
+        return new DynamicRecipeBuilder.BuildParams(
+                currentRecipeType,
+                currentCraftingMode,
+                currentCookingType,
+                customTier,
+                resultItem,
+                ingredients,
+                ingredientsData,
+                cookingTime,
+                cookingExp,
+                editingRecipeId,
+                isEditingExisting,
+                componentData
+        );
+    }
+
     @Override
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(guiGraphics);
@@ -831,21 +1098,24 @@ public class RecipeCreatorScreen extends Screen {
 
         // 绘制标题
         String titleText = isEditingExisting ?
-                (editingRecipeId != null ? "配方编辑器 - " + editingRecipeId.toString() : "配方编辑器")
+                (editingRecipeId != null ? "配方编辑器 - " + editingRecipeId : "配方编辑器")
                 : "配方创建器";
         guiGraphics.drawCenteredString(this.font, titleText, leftPos + contentWidth / 2, topPos + 15, 0x404040);
 
-        // 绘制标签
         renderLabels(guiGraphics);
 
-        // 绘制分割线
         int rightPanelX = leftPos + contentWidth - 150 + 10;
         guiGraphics.fill(rightPanelX - 20, topPos + 20, rightPanelX - 18, topPos + contentHeight - 60, 0xFF606060);
 
-        // 渲染槽位
-        renderSlots(guiGraphics, mouseX, mouseY);
+        // 使用组件渲染器渲染
+        if (componentRenderManager != null && !slotManager.getComponents().isEmpty()) {
+            componentRenderManager.renderAll(guiGraphics, mouseX, mouseY);
+            // 如果使用组件渲染器，还需要手动渲染结果槽
+            renderResultSlot(guiGraphics, mouseX, mouseY);
+        } else {
+            renderSlots(guiGraphics, mouseX, mouseY);
+        }
 
-        // 渲染填充模式提示
         if (currentRecipeType != null && currentRecipeType.supportsFillMode()) {
             renderFillModeHint(guiGraphics);
         }
@@ -900,19 +1170,26 @@ public class RecipeCreatorScreen extends Screen {
         }
     }
 
-    private void renderSlots(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        // 只渲染材料槽位，输出槽由GUI自动创建
-        for (int i = 0; i < slotManager.getIngredientSlots().size(); i++) {
-            SlotManager.IngredientSlot slot = slotManager.getIngredientSlots().get(i);
-            ItemStack item = i < slotManager.getIngredients().size() ?
-                    slotManager.getIngredients().get(i) : ItemStack.EMPTY;
-            renderSlot(guiGraphics, slot, mouseX, mouseY, item);
-        }
-
+    private void renderResultSlot(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        if (slotManager == null) return;
         renderSlot(guiGraphics, slotManager.getResultSlot(), mouseX, mouseY, slotManager.getResultItem());
     }
 
-    private void renderSlot(GuiGraphics guiGraphics, SlotManager.IngredientSlot slot, int mouseX, int mouseY, ItemStack item) {
+    private void renderSlots(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        // 渲染材料槽位
+        for (int i = 0; i < slotManager.getIngredientSlots().size(); i++) {
+            SlotManager.IngredientSlot slot = slotManager.getIngredientSlots().get(i);
+            IngredientData data = slotManager.getIngredientData(i);
+            ItemStack displayItem = data != null ? data.getDisplayStack() : ItemStack.EMPTY;
+            renderSlot(guiGraphics, slot, mouseX, mouseY, displayItem);
+        }
+
+        // 渲染结果槽位
+        renderSlot(guiGraphics, slotManager.getResultSlot(), mouseX, mouseY, slotManager.getResultItem());
+    }
+
+    private void renderSlot(GuiGraphics guiGraphics, SlotManager.IngredientSlot slot,
+                            int mouseX, int mouseY, ItemStack displayItem) {
         boolean isMouseOver = mouseX >= slot.x() && mouseX < slot.x() + 18 &&
                 mouseY >= slot.y() && mouseY < slot.y() + 18;
 
@@ -925,9 +1202,48 @@ public class RecipeCreatorScreen extends Screen {
         guiGraphics.fill(slot.x() - 1, slot.y(), slot.x(), slot.y() + 18, 0xFF000000);
         guiGraphics.fill(slot.x() + 18, slot.y(), slot.x() + 19, slot.y() + 18, 0xFF000000);
 
-        if (!item.isEmpty()) {
+        // 获取对应的IngredientData
+        int slotIndex = slot.index();
+        IngredientData data = null;
+
+        if (slotIndex >= 0 && slotManager != null) {
+            data = slotManager.getIngredientData(slotIndex);
+        }
+
+        // 渲染物品或标签图标
+        if (data != null && !data.isEmpty()) {
+            ItemStack stackToRender = data.getDisplayStack();
+
+            if (!stackToRender.isEmpty()) {
+                RenderSystem.enableDepthTest();
+                guiGraphics.renderItem(stackToRender, slot.x() + 1, slot.y() + 1);
+                RenderSystem.disableDepthTest();
+            }
+
+            // 在右上角显示类型指示器
+            switch (data.getType()) {
+                case TAG -> {
+                    // 标签：金色#标记 + 半透明金色背景
+                    guiGraphics.fill(slot.x() + 10, slot.y() + 1, slot.x() + 18, slot.y() + 9, 0x80FFD700);
+                    guiGraphics.drawString(this.font, "§6§l#", slot.x() + 11, slot.y() + 1, 0xFFFFFF, true);
+                }
+                case CUSTOM_TAG -> {
+                    // 自定义标签：青色#标记 + 半透明青色背景
+                    guiGraphics.fill(slot.x() + 10, slot.y() + 1, slot.x() + 18, slot.y() + 9, 0x8000FFFF);
+                    guiGraphics.drawString(this.font, "§b§l#", slot.x() + 11, slot.y() + 1, 0xFFFFFF, true);
+                }
+                case ITEM -> {
+                    if (data.hasNBT()) {
+                        // 带NBT：紫色*标记 + 半透明紫色背景
+                        guiGraphics.fill(slot.x() + 10, slot.y() + 1, slot.x() + 18, slot.y() + 9, 0x80FF00FF);
+                        guiGraphics.drawString(this.font, "§d§l*", slot.x() + 12, slot.y() + 1, 0xFFFFFF, true);
+                    }
+                }
+            }
+        } else if (!displayItem.isEmpty()) {
+            // 兼容旧代码：直接显示ItemStack
             RenderSystem.enableDepthTest();
-            guiGraphics.renderItem(item, slot.x() + 1, slot.y() + 1);
+            guiGraphics.renderItem(displayItem, slot.x() + 1, slot.y() + 1);
             RenderSystem.disableDepthTest();
         }
     }
@@ -946,17 +1262,71 @@ public class RecipeCreatorScreen extends Screen {
             if (mouseX >= slot.x() && mouseX < slot.x() + 18 &&
                     mouseY >= slot.y() && mouseY < slot.y() + 18) {
 
-                if (i < slotManager.getIngredients().size() && !slotManager.getIngredients().get(i).isEmpty()) {
-                    guiGraphics.renderTooltip(this.font, slotManager.getIngredients().get(i), mouseX, mouseY);
+                IngredientData data = slotManager.getIngredientData(i);
+
+                if (!data.isEmpty()) {
+                    List<Component> tooltip = new ArrayList<>();
+
+                    // 根据类型显示不同的工具提示
+                    switch (data.getType()) {
+                        case ITEM -> {
+                            ItemStack stack = data.getItemStack();
+                            tooltip.add(stack.getHoverName());
+
+                            if (data.hasNBT()) {
+                                tooltip.add(Component.literal("§b✦ 包含NBT数据"));
+                                tooltip.add(Component.literal("§8将保留附魔、名称等数据"));
+                            }
+                        }
+                        case TAG -> {
+                            tooltip.add(Component.literal("§6§l[标签材料]"));
+                            tooltip.add(Component.literal("§e#" + data.getTagId()));
+
+                            // 显示标签包含的物品示例
+                            ItemStack displayItem = data.getDisplayStack();
+                            if (!displayItem.isEmpty()) {
+                                tooltip.add(Component.literal("§7示例: " + displayItem.getHoverName().getString()));
+                            }
+
+                            tooltip.add(Component.literal("§8匹配该标签的所有物品"));
+                        }
+                        case CUSTOM_TAG -> {
+                            tooltip.add(Component.literal("§b§l[自定义标签]"));
+                            tooltip.add(Component.literal("§3#" + data.getTagId()));
+
+                            List<ItemStack> items = data.getCustomTagItems();
+                            tooltip.add(Component.literal("§7包含 " + items.size() + " 个物品:"));
+
+                            // 显示前3个物品
+                            int showCount = Math.min(3, items.size());
+                            for (int j = 0; j < showCount; j++) {
+                                tooltip.add(Component.literal("  §8• " +
+                                        items.get(j).getHoverName().getString()));
+                            }
+
+                            if (items.size() > 3) {
+                                tooltip.add(Component.literal("  §8... 还有 " +
+                                        (items.size() - 3) + " 个物品"));
+                            }
+                        }
+                    }
+
+                    tooltip.add(Component.literal("")); // 空行
+                    tooltip.add(Component.literal("§7左键: 修改材料"));
+                    tooltip.add(Component.literal("§7右键: 清空槽位"));
+
+                    guiGraphics.renderTooltip(this.font, tooltip, Optional.empty(), mouseX, mouseY);
                 } else {
-                    String tooltip = fillModeHandler.getSlotTooltip();
-                    guiGraphics.renderTooltip(this.font, Component.literal(tooltip), mouseX, mouseY);
+                    List<Component> tooltip = new ArrayList<>();
+                    tooltip.add(Component.literal("§7空槽位"));
+                    tooltip.add(Component.literal("§8左键选择材料类型"));
+                    guiGraphics.renderTooltip(this.font, tooltip, Optional.empty(), mouseX, mouseY);
                 }
                 return;
             }
         }
 
-
+        // 结果槽位工具提示
         SlotManager.IngredientSlot resultSlot = slotManager.getResultSlot();
         if (mouseX >= resultSlot.x() && mouseX < resultSlot.x() + 18 &&
                 mouseY >= resultSlot.y() && mouseY < resultSlot.y() + 18) {
@@ -970,26 +1340,47 @@ public class RecipeCreatorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-
-        SlotManager.IngredientSlot resultSlot = slotManager.getResultSlot();
-        if (mouseX >= resultSlot.x() && mouseX < resultSlot.x() + 18 &&
-                mouseY >= resultSlot.y() && mouseY < resultSlot.y() + 18) {
-            if (button == 0) {
-                openResultSelector();
-            } else if (button == 1) {
-                slotManager.setResultItem(ItemStack.EMPTY);
+        // 优先处理材料槽的填充模式
+        if (slotManager != null) {
+            for (int i = 0; i < slotManager.getIngredientSlots().size(); i++) {
+                SlotManager.IngredientSlot slot = slotManager.getIngredientSlots().get(i);
+                if (mouseX >= slot.x() && mouseX < slot.x() + 18 &&
+                        mouseY >= slot.y() && mouseY < slot.y() + 18) {
+                    // 使用填充模式处理
+                    fillModeHandler.handleSlotClick(slotManager, i, button == 1);
+                    // 同步到渲染器
+                    if (componentRenderManager != null) {
+                        List<ItemStack> ingredients = slotManager.getIngredients();
+                        if (i < ingredients.size()) {
+                            componentRenderManager.updateSlotItem(i, ingredients.get(i));
+                        }
+                    }
+                    return true;
+                }
             }
-            return true;
         }
 
-        // 材料槽位点击
-        for (int i = 0; i < slotManager.getIngredientSlots().size(); i++) {
-            SlotManager.IngredientSlot slot = slotManager.getIngredientSlots().get(i);
-            if (mouseX >= slot.x() && mouseX < slot.x() + 18 &&
-                    mouseY >= slot.y() && mouseY < slot.y() + 18) {
-                fillModeHandler.handleSlotClick(slotManager, i, button == 1);
+        // 处理结果槽点击
+        if (slotManager != null) {
+            SlotManager.IngredientSlot resultSlot = slotManager.getResultSlot();
+            if (mouseX >= resultSlot.x() && mouseX < resultSlot.x() + 18 &&
+                    mouseY >= resultSlot.y() && mouseY < resultSlot.y() + 18) {
+                if (button == 0) {
+                    openResultSelector();
+                } else if (button == 1) {
+                    slotManager.setResultItem(ItemStack.EMPTY);
+                    if (componentRenderManager != null) {
+                        componentRenderManager.updateResultItem(ItemStack.EMPTY);
+                    }
+                }
                 return true;
             }
+        }
+
+        // 其他组件的点击处理
+        if (componentRenderManager != null &&
+                componentRenderManager.handleMouseClick(mouseX, mouseY, button)) {
+            return true;
         }
 
         return super.mouseClicked(mouseX, mouseY, button);
@@ -998,60 +1389,6 @@ public class RecipeCreatorScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
-    }
-
-    /**
-     * 导出为KubeJS代码
-     */
-    private void exportToKubeJS() {
-        if (currentRecipeType == null) {
-            displayError("请先选择配方类型！");
-            return;
-        }
-
-        ItemStack resultItem = slotManager.getResultItem();
-        if (resultItem.isEmpty()) {
-            displayError("请选择结果物品！");
-            return;
-        }
-
-        List<ItemStack> ingredients = slotManager.getIngredients();
-        if (ingredients.isEmpty() || ingredients.stream().allMatch(ItemStack::isEmpty)) {
-            displayError("请添加合成材料！");
-            return;
-        }
-
-        try {
-            int resultCount = Integer.parseInt(resultCountBox.getValue());
-            if (resultCount <= 0) {
-                displayError("数量必须大于0！");
-                return;
-            }
-
-            KubeJSCodeGenerator.GenerationResult result = KubeJSCodeGenerator.generateCode(
-                    currentRecipeType, currentCraftingMode, resultItem, resultCount, ingredients
-            );
-
-            if (result.success) {
-                copyToClipboard(result.code);
-                displaySuccess(result.message + " 代码已复制到剪贴板！");
-            } else {
-                displayError(result.message);
-            }
-        } catch (NumberFormatException e) {
-            displayError("请输入有效的数量！");
-        } catch (Exception e) {
-            displayError("导出失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 复制到剪贴板
-     */
-    private void copyToClipboard(String text) {
-        if (minecraft != null) {
-            minecraft.keyboardHandler.setClipboard(text);
-        }
     }
 
     // 消息显示方法
