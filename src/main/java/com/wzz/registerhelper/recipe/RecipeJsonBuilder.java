@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static com.wzz.registerhelper.gui.recipe.RecipeTypeConfig.AvaritiaConfig.getGridSizeForTier;
+
 /**
  * 配方JSON构建器
  * 正确处理NBT数据和标签
@@ -113,42 +115,33 @@ public class RecipeJsonBuilder {
      */
     private static JsonObject createIngredientJson(IngredientData data) {
         JsonObject ingredient = new JsonObject();
-        
+
         switch (data.getType()) {
             case ITEM -> {
                 ItemStack stack = data.getItemStack();
-                // 添加物品ID
-                ingredient.addProperty("item", ForgeRegistries.ITEMS.getKey(stack.getItem()).toString());
-                
-                // 如果有NBT数据，添加NBT字段
                 if (stack.hasTag()) {
-                    CompoundTag tag = stack.getTag();
-                    if (tag != null) {
-                        // 将NBT转换为字符串格式
-                        ingredient.addProperty("nbt", tag.toString());
-                    }
+                    ingredient.addProperty("type", "forge:nbt");
+                    ingredient.addProperty("item", ForgeRegistries.ITEMS.getKey(stack.getItem()).toString());
+                    ingredient.addProperty("nbt", stack.getTag().toString());
+                } else {
+                    // 普通物品
+                    ingredient.addProperty("item", ForgeRegistries.ITEMS.getKey(stack.getItem()).toString());
                 }
-                
-                // 如果数量大于1，添加count字段
                 if (stack.getCount() > 1) {
                     ingredient.addProperty("count", stack.getCount());
                 }
             }
             case TAG -> {
-                // 标签使用 "tag" 字段，而不是 "item"
+                // 标签使用 "tag"
                 ResourceLocation tagId = data.getTagId();
                 ingredient.addProperty("tag", tagId.toString());
             }
             case CUSTOM_TAG -> {
-                // 自定义标签也使用 "tag" 字段
                 ResourceLocation tagId = data.getTagId();
                 ingredient.addProperty("tag", tagId.toString());
-                
-                // 注意：自定义标签需要先注册到游戏中才能使用
-                // 可以在注释中提醒用户
             }
         }
-        
+
         return ingredient;
     }
     
@@ -157,23 +150,20 @@ public class RecipeJsonBuilder {
      */
     private static JsonObject createResultJson(ItemStack result) {
         JsonObject resultObj = new JsonObject();
-        
-        // 物品ID
-        resultObj.addProperty("item", ForgeRegistries.ITEMS.getKey(result.getItem()).toString());
-        
-        // 数量（如果大于1）
+
+        if (result.hasTag()) {
+            // forge:nbt 输出
+            resultObj.addProperty("type", "forge:nbt");
+            resultObj.addProperty("item", ForgeRegistries.ITEMS.getKey(result.getItem()).toString());
+            resultObj.addProperty("nbt", result.getTag().toString());
+        } else {
+            resultObj.addProperty("item", ForgeRegistries.ITEMS.getKey(result.getItem()).toString());
+        }
+
         if (result.getCount() > 1) {
             resultObj.addProperty("count", result.getCount());
         }
-        
-        // NBT数据（如果有）
-        if (result.hasTag()) {
-            CompoundTag tag = result.getTag();
-            if (tag != null) {
-                resultObj.addProperty("nbt", tag.toString());
-            }
-        }
-        
+
         return resultObj;
     }
     
@@ -301,12 +291,6 @@ public class RecipeJsonBuilder {
      * 获取Avaritia网格大小
      */
     private static int getAvaritiaGridSize(int tier) {
-        return switch (tier) {
-            case 1 -> 3;
-            case 2 -> 5;
-            case 3 -> 7;
-            case 4 -> 9;
-            default -> 3;
-        };
+        return getGridSizeForTier(tier);
     }
 }

@@ -30,7 +30,7 @@ public class FarmersDelightProcessor implements ModRecipeProcessor {
         String recipeType = request.recipeType;
         ModLogger.getLogger().info("Type {}", recipeType);
         return switch (recipeType) {
-            case "cooking" -> createCookingRecipe(request);
+            case "farmersdelight:cooking" -> createCookingRecipe(request);
             default -> createCuttingRecipe(request);
         };
     }

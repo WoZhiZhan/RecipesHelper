@@ -40,9 +40,7 @@ public class IngredientData {
         this.type = type;
         this.customTagItems = new ArrayList<>();
     }
-    
-    // === 静态工厂方法 ===
-    
+
     /**
      * 创建物品材料（带NBT）
      */

@@ -31,7 +31,7 @@ public class SlotManager {
     private int baseX, baseY;
     private int rightPanelX;
 
-    public static record IngredientSlot(int x, int y, int index) {}
+    public record IngredientSlot(int x, int y, int index) {}
 
     public SlotManager(int baseX, int baseY, int rightPanelX) {
         this.baseX = baseX;
@@ -157,7 +157,6 @@ public class SlotManager {
         ingredients.clear();
 
         components = layout.generateComponents(baseX, baseY + 150, customTier);
-
         for (RecipeComponent component : components) {
             if (component instanceof SlotComponent slotComp) {
                 int index = slotComp.getSlotIndex();
@@ -171,8 +170,20 @@ public class SlotManager {
         }
     }
 
+    public int getBaseX() {
+        return baseX;
+    }
+
+    public int getBaseY() {
+        return baseY;
+    }
+
     public List<RecipeComponent> getComponents() {
         return components;
+    }
+
+    public List<RecipeComponent> setComponents(List<RecipeComponent> components) {
+        return this.components = components;
     }
 
     private void initializeTraditionalLayout() {
@@ -229,7 +240,6 @@ public class SlotManager {
     private void initializeGridSlots(int gridWidth, int gridHeight) {
         int startX = baseX;
         int startY = baseY + 150;
-
         for (int y = 0; y < gridHeight; y++) {
             for (int x = 0; x < gridWidth; x++) {
                 int slotX = startX + x * SLOT_SPACING;
@@ -278,8 +288,6 @@ public class SlotManager {
         return new ArrayList<>(ingredients);
     }
 
-    // === 保持向后兼容的旧方法 ===
-    
     /**
      * 设置材料列表（兼容旧代码，从ItemStack转换为IngredientData）
      */
@@ -378,11 +386,11 @@ public class SlotManager {
 
         if ("cooking".equals(category) || currentRecipeType.supportsCookingSettings()) {
             return new GridDimensions(1, 1);
-        } else if ("avaritia".equals(category)) {
-            Integer tier = currentRecipeType.getProperty("tier", Integer.class);
-            int actualTier = tier != null ? tier : customTier;
-            int gridSize = getAvaritiaGridSize(actualTier);
-            return new GridDimensions(gridSize, gridSize);
+//        } else if ("avaritia".equals(category)) {
+//            Integer tier = currentRecipeType.getProperty("tier", Integer.class);
+//            int actualTier = tier != null ? tier : customTier;
+//            int gridSize = getAvaritiaGridSize(actualTier);
+//            return new GridDimensions(gridSize, gridSize);
         } else {
             return new GridDimensions(
                     currentRecipeType.getMaxGridWidth(),

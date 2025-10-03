@@ -16,7 +16,6 @@ public class DynamicRecipeTypeConfig {
     private static final Map<String, ModRecipeProcessor> MOD_PROCESSORS = new ConcurrentHashMap<>();
 
     static {
-        // 注册内置配方类型
         registerBuiltinRecipeTypes();
     }
 
@@ -32,6 +31,7 @@ public class DynamicRecipeTypeConfig {
         private final int maxGridHeight;
         private final boolean supportsFillMode;
         private final boolean supportsCookingSettings;
+        private final boolean displayable;
         private final Map<String, Object> additionalProperties;
         private final ModRecipeProcessor processor;
 
@@ -46,6 +46,7 @@ public class DynamicRecipeTypeConfig {
             this.supportsCookingSettings = builder.supportsCookingSettings;
             this.additionalProperties = new HashMap<>(builder.additionalProperties);
             this.processor = builder.processor;
+            this.displayable = builder.displayable;
         }
 
         // Getters
@@ -58,6 +59,7 @@ public class DynamicRecipeTypeConfig {
         public boolean supportsFillMode() { return supportsFillMode; }
         public boolean supportsCookingSettings() { return supportsCookingSettings; }
         public ModRecipeProcessor getProcessor() { return processor; }
+        public boolean getDisplayable() { return displayable; }
 
         public <T> T getProperty(String key, Class<T> type) {
             Object value = additionalProperties.get(key);
@@ -88,6 +90,7 @@ public class DynamicRecipeTypeConfig {
             private int maxGridHeight = 3;
             private boolean supportsFillMode = true;
             private boolean supportsCookingSettings = false;
+            private boolean displayable = true;
             private final Map<String, Object> additionalProperties = new HashMap<>();
             private ModRecipeProcessor processor;
 
@@ -108,6 +111,10 @@ public class DynamicRecipeTypeConfig {
             public Builder supportsCookingSettings(boolean supports) { this.supportsCookingSettings = supports; return this; }
             public Builder processor(ModRecipeProcessor processor) { this.processor = processor; return this; }
             public Builder property(String key, Object value) { this.additionalProperties.put(key, value); return this; }
+            public Builder displayable(boolean displayable) {
+                this.displayable = displayable;
+                return this;
+            }
 
             public RecipeTypeDefinition build() {
                 return new RecipeTypeDefinition(this);
@@ -200,6 +207,13 @@ public class DynamicRecipeTypeConfig {
                 .property("category", "crafting")
                 .property("mode", "shaped")
                 .build());
+        registerRecipeType(new RecipeTypeDefinition.Builder("crafting_shapeless", "原版合成无序")
+                .modId("minecraft")
+                .gridSize(3, 3)
+                .property("category", "crafting")
+                .property("mode", "shaped")
+                .displayable(false)
+                .build());
         registerRecipeType(new RecipeTypeDefinition.Builder("smelting", "熔炉")
                 .modId("minecraft")
                 .gridSize(1, 1)
@@ -252,15 +266,6 @@ public class DynamicRecipeTypeConfig {
                 .property("layout", "stonecutting")
                 .processor(minecraftProcessor)
                 .build());
-        if (isModLoaded("avaritia")) {
-            registerRecipeType(new RecipeTypeDefinition.Builder("avaritia_shaped", "Avaritia合成")
-                    .modId("avaritia")
-                    .gridSize(9, 9) // 最大网格，实际大小由tier决定
-                    .property("category", "avaritia")
-                    .property("mode", "shaped")
-                    .property("supportsTiers", true) // 标记支持等级选择
-                    .build());
-        }
     }
 
     /**
@@ -279,6 +284,20 @@ public class DynamicRecipeTypeConfig {
      */
     public static List<RecipeTypeDefinition> getAvailableRecipeTypes() {
         return RECIPE_TYPES.values().stream()
+                .filter(def -> {
+                    ModRecipeProcessor processor = def.getProcessor();
+                    return processor == null || processor.isModLoaded();
+                })
+                .sorted(Comparator.comparing(RecipeTypeDefinition::getDisplayName))
+                .toList();
+    }
+
+    /**
+     * 获取所有显示的配方类型
+     */
+    public static List<RecipeTypeDefinition> getAvailableDisplayRecipeTypes() {
+        return RECIPE_TYPES.values().stream()
+                .filter(RecipeTypeDefinition::getDisplayable)
                 .filter(def -> {
                     ModRecipeProcessor processor = def.getProcessor();
                     return processor == null || processor.isModLoaded();

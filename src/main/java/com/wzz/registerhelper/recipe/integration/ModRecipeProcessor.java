@@ -21,4 +21,16 @@ public interface ModRecipeProcessor {
      * 获取支持的配方类型
      */
     String[] getSupportedRecipeTypes();
+
+    /**
+     * 判断配方类型是有序还是无序
+     * @param recipeType 配方类型
+     * @return true表示有序配方，false表示无序配方
+     */
+    default boolean isShapedRecipe(String recipeType) {
+        return switch (recipeType) {
+            case "crafting_shaped", "shaped" -> true;
+            default -> false;
+        };
+    }
 }

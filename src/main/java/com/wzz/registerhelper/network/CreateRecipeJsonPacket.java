@@ -76,7 +76,6 @@ public class CreateRecipeJsonPacket {
                 boolean success;
 
                 if (packet.isOverride) {
-                    // 覆盖模式：使用 UnifiedRecipeOverrideManager
                     success = UnifiedRecipeOverrideManager.addOverride(recipeIdLoc, recipeObj);
 
                     if (success) {
@@ -88,7 +87,6 @@ public class CreateRecipeJsonPacket {
                         LOGGER.warn("配方覆盖失败: {}", packet.recipeId);
                     }
                 } else {
-                    // 创建模式：保存到 recipes 目录
                     success = saveRecipeFile(recipeIdLoc, recipeObj);
 
                     if (success) {

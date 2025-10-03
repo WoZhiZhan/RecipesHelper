@@ -80,6 +80,7 @@ public class RecipeTypeConfig {
                 case 2 -> 5;
                 case 3 -> 7;
                 case 4 -> 9;
+                case 5 -> 11;
                 default -> 3;
             };
         }
@@ -90,6 +91,7 @@ public class RecipeTypeConfig {
                 case 5 -> 2;
                 case 7 -> 3;
                 case 9 -> 4;
+                case 11 -> 5;
                 default -> 1;
             };
         }
@@ -98,7 +100,8 @@ public class RecipeTypeConfig {
             if (count <= 9) return 1;
             if (count <= 25) return 2;
             if (count <= 49) return 3;
-            return 4;
+            if (count <= 81) return 4;
+            return 5;
         }
     }
 }

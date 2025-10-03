@@ -1,21 +1,15 @@
 package com.wzz.registerhelper.util;
 
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig;
-import com.wzz.registerhelper.recipe.UniversalRecipeManager;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 
-import java.util.HashSet;
-import java.util.Set;
-
 public class RegisterHelper {
-    private static final Set<String> registeredBackendProcessors = new HashSet<>();
 
     /**
      * 简单注册：自动发现配方类型
      */
     public static void registerProcessor(String modID, ModRecipeProcessor processor) {
         DynamicRecipeTypeConfig.registerModProcessor(modID, processor);
-        registerBackendProcessor(modID, processor);
     }
 
     /**
@@ -26,11 +20,18 @@ public class RegisterHelper {
         registerRecipeType(modID, type, displayName, processor, gridSize, gridSize, supportsTiers);
     }
 
-    /**
-     * 完整注册：支持不同宽高的网格
-     */
+    public static void registerRecipeType(String modID, String type, String displayName,
+                                          ModRecipeProcessor processor, int gridSize, boolean supportsTiers, boolean displayable) {
+        registerRecipeType(modID, type, displayName, processor, gridSize, gridSize, supportsTiers, displayable);
+    }
+
     public static void registerRecipeType(String modID, String type, String displayName,
                                           ModRecipeProcessor processor, int gridWidth, int gridHeight, boolean supportsTiers) {
+        registerRecipeType(modID, type, displayName, processor, gridWidth, gridHeight, supportsTiers, true);
+    }
+
+    public static void registerRecipeType(String modID, String type, String displayName,
+                                          ModRecipeProcessor processor, int gridWidth, int gridHeight, boolean supportsTiers, boolean displayable) {
         String recipeId = modID + ":" + type;
         String mode = extractMode(type);
         String category = extractCategory(type, modID);
@@ -43,11 +44,10 @@ public class RegisterHelper {
                         .property("category", category)
                         .property("mode", mode)
                         .property("supportsTiers", supportsTiers)
+                        .displayable(displayable)
                         .processor(processor)
                         .build()
         );
-
-        registerBackendProcessor(modID, processor);
     }
 
     /**
@@ -66,17 +66,6 @@ public class RegisterHelper {
                         .processor(processor)
                         .build()
         );
-        registerBackendProcessor(modID, processor);
-    }
-
-    /**
-     * 避免重复注册后端处理器
-     */
-    private static void registerBackendProcessor(String modID, ModRecipeProcessor processor) {
-        if (!registeredBackendProcessors.contains(modID)) {
-            UniversalRecipeManager.registerProcessor(modID, processor);
-            registeredBackendProcessors.add(modID);
-        }
     }
 
     /**
@@ -88,7 +77,7 @@ public class RegisterHelper {
         if (type.contains("smelting")) return "smelting";
         if (type.contains("blasting")) return "blasting";
         if (type.contains("smoking")) return "smoking";
-        return "custom"; // 默认为自定义模式
+        return "custom";
     }
 
     /**

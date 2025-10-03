@@ -4,17 +4,15 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.gui.recipe.IngredientData;
+import com.wzz.registerhelper.gui.recipe.component.ComponentDataManager;
 import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.network.CreateRecipeJsonPacket;
-import com.wzz.registerhelper.network.CreateRecipePacket;
-import com.wzz.registerhelper.generator.RecipeGenerator;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
 import com.wzz.registerhelper.recipe.RecipeJsonBuilder;
 import com.wzz.registerhelper.recipe.RecipeRequest;
-import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import com.wzz.registerhelper.tags.CustomTagManager;
-import net.minecraft.nbt.CompoundTag;
+import com.wzz.registerhelper.util.ModLogger;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -23,6 +21,8 @@ import org.slf4j.Logger;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+
+import static com.wzz.registerhelper.gui.recipe.RecipeTypeConfig.AvaritiaConfig.getGridSizeForTier;
 
 /**
  * 动态配方构建器
@@ -55,6 +55,7 @@ public class DynamicRecipeBuilder {
         public final ResourceLocation editingRecipeId;
         public final boolean isEditing;
         public final Map<String, Object> extraProperties;
+        public ComponentDataManager componentDataManager;
 
         public BuildParams(RecipeTypeDefinition recipeType, String craftingMode, String cookingType,
                            int customTier, ItemStack resultItem, List<ItemStack> ingredients,
@@ -73,14 +74,6 @@ public class DynamicRecipeBuilder {
             this.editingRecipeId = editingRecipeId;
             this.isEditing = isEditing;
             this.extraProperties = extraProperties != null ? new HashMap<>(extraProperties) : new HashMap<>();
-        }
-
-        public BuildParams(RecipeTypeDefinition recipeType, String craftingMode, String cookingType,
-                           int customTier, ItemStack resultItem, List<ItemStack> ingredients,
-                           float cookingTime, float cookingExp, ResourceLocation editingRecipeId,
-                           boolean isEditing, Map<String, Object> extraProperties) {
-            this(recipeType, craftingMode, cookingType, customTier, resultItem, ingredients, null,
-                    cookingTime, cookingExp, editingRecipeId, isEditing, extraProperties);
         }
     }
 
@@ -222,8 +215,8 @@ public class DynamicRecipeBuilder {
                 ingredient.addProperty("item",
                         ForgeRegistries.ITEMS.getKey(stack.getItem()).toString());
 
-                // 支持NBT
                 if (stack.hasTag()) {
+                    ingredient.addProperty("type", "forge:nbt");
                     ingredient.addProperty("nbt", stack.getTag().toString());
                 }
 
@@ -232,7 +225,6 @@ public class DynamicRecipeBuilder {
                 }
             }
             case TAG, CUSTOM_TAG -> {
-                // 关键：使用 "tag" 字段而不是 "item"
                 ingredient.addProperty("tag", data.getTagId().toString());
             }
         }
@@ -253,49 +245,6 @@ public class DynamicRecipeBuilder {
             }
         }
         return result;
-    }
-
-    /**
-     * 使用内置系统构建配方（向后兼容）
-     */
-    private void buildWithBuiltinSystem(BuildParams params) {
-        try {
-            // 转换为传统的RecipeGenerator模式
-            RecipeGenerator.RecipeMode mode = convertToLegacyMode(params);
-            String modId = params.recipeType.getModId();
-
-            // 生成配方ID
-            String recipeId = generateRecipeId(params, modId, mode);
-            boolean isOverride = isOverrideMode(params);
-
-            LOGGER.info("构建配方: {} (覆盖模式: {})", recipeId, isOverride);
-
-            // 构建配方数据
-            RecipeGenerator.RecipeData recipeData = buildLegacyRecipeData(params, modId, recipeId, mode);
-
-            if (!RecipeGenerator.validateRecipeData(recipeData)) {
-                showError("配方数据无效！");
-                return;
-            }
-
-            // 创建配方
-            boolean success = isOverride ?
-                createRecipeOverride(recipeData) :
-                createNormalRecipe(recipeData);
-
-            if (success) {
-                String action = params.isEditing ? "更新" : "创建";
-                String method = isOverride ? "覆盖" : "创建";
-                showSuccess(action + "配方成功！类型: " + mode.getDisplayName() +
-                           " (" + method + "模式) 使用 /reload 刷新配方");
-            } else {
-                showError("配方" + (isOverride ? "覆盖" : "创建") + "失败！");
-            }
-
-        } catch (Exception e) {
-            LOGGER.error("使用内置系统构建配方失败", e);
-            showError("内置配方处理失败: " + e.getMessage());
-        }
     }
 
     /**
@@ -321,30 +270,6 @@ public class DynamicRecipeBuilder {
             }
             return request;
         }
-    }
-
-    private String[] generateCustomPattern(List<ItemStack> ingredients, int gridWidth, int gridHeight) {
-        String[] pattern = new String[gridHeight];
-        AtomicReference<Character> currentChar = new AtomicReference<>('A');
-        Map<String, Character> itemToChar = new HashMap<>();
-
-        for (int row = 0; row < gridHeight; row++) {
-            StringBuilder rowPattern = new StringBuilder();
-            for (int col = 0; col < gridWidth; col++) {
-                int index = row * gridWidth + col;
-                if (index < ingredients.size() && !ingredients.get(index).isEmpty()) {
-                    String itemKey = ForgeRegistries.ITEMS.getKey(ingredients.get(index).getItem()).toString();
-                    char symbol = itemToChar.computeIfAbsent(itemKey,
-                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
-                    rowPattern.append(symbol);
-                } else {
-                    rowPattern.append(' ');
-                }
-            }
-            pattern[row] = rowPattern.toString();
-        }
-
-        return pattern;
     }
 
     /**
@@ -391,10 +316,16 @@ public class DynamicRecipeBuilder {
      * 创建工作台配方请求
      */
     private RecipeRequest createCraftingRequest(BuildParams params, String recipeId) {
-        Object[] ingredients = convertIngredientsToArray(params);
-
         if ("shaped".equals(params.craftingMode)) {
-            String[] pattern = generateCraftingPattern(params);
+            Map<Character, Object> symbolMapping = new HashMap<>();
+            String[] pattern = generateCraftingPatternWithMapping(params, symbolMapping);
+            List<Object> ingredientsList = new ArrayList<>();
+            for (Map.Entry<Character, Object> entry : symbolMapping.entrySet()) {
+                ingredientsList.add(entry.getKey());   // 符号
+                ingredientsList.add(entry.getValue()); // 物品
+            }
+            Object[] ingredients = ingredientsList.toArray();
+
             return RecipeRequest.shaped(
                     params.recipeType.getModId(),
                     recipeId,
@@ -403,6 +334,8 @@ public class DynamicRecipeBuilder {
                     ingredients
             );
         } else {
+            // Shapeless 配方只需要物品数组
+            Object[] ingredients = convertIngredientsToArray(params);
             return RecipeRequest.shapeless(
                     params.recipeType.getModId(),
                     recipeId,
@@ -410,6 +343,48 @@ public class DynamicRecipeBuilder {
                     ingredients
             );
         }
+    }
+
+    /**
+     * 生成工作台配方模式并构建符号映射
+     */
+    private String[] generateCraftingPatternWithMapping(BuildParams params,
+                                                        Map<Character, Object> symbolMapping) {
+        String[] pattern = new String[3];
+        AtomicReference<Character> currentChar = new AtomicReference<>('A');
+        Map<String, Character> itemToChar = new HashMap<>();
+
+        List<IngredientData> dataList = params.ingredientsData;
+        if (dataList == null || dataList.isEmpty()) {
+            dataList = convertItemStacksToIngredientData(params.ingredients);
+        }
+
+        for (int row = 0; row < 3; row++) {
+            StringBuilder rowPattern = new StringBuilder();
+            for (int col = 0; col < 3; col++) {
+                int index = row * 3 + col;
+                if (index < dataList.size() && !dataList.get(index).isEmpty()) {
+                    IngredientData data = dataList.get(index);
+                    String key = getIngredientKey(data);
+
+                    // 获取或创建符号
+                    char symbol = itemToChar.computeIfAbsent(key,
+                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
+
+                    // 保存符号映射
+                    if (!symbolMapping.containsKey(symbol)) {
+                        symbolMapping.put(symbol, convertIngredientDataToObject(data));
+                    }
+
+                    rowPattern.append(symbol);
+                } else {
+                    rowPattern.append(' ');
+                }
+            }
+            pattern[row] = rowPattern.toString();
+        }
+
+        return pattern;
     }
 
     /**
@@ -449,20 +424,32 @@ public class DynamicRecipeBuilder {
      * 创建自定义配方请求
      */
     private RecipeRequest createCustomRequest(BuildParams params, String recipeId) {
-        Object[] ingredients = convertIngredientsToArray(params);
-
         RecipeRequest request = new RecipeRequest();
         request.modId = params.recipeType.getModId();
         request.recipeType = params.recipeType.getId();
         request.recipeId = recipeId;
         request.result = params.resultItem;
         request.resultCount = params.resultItem.getCount();
-        request.ingredients = ingredients;
-        if ("shaped".equals(params.craftingMode)) {
+        ModRecipeProcessor processor = params.recipeType.getProcessor();
+        boolean isShaped = processor.isShapedRecipe(params.recipeType.getId());
+        if (isShaped) {
             int gridWidth = params.recipeType.getMaxGridWidth();
             int gridHeight = params.recipeType.getMaxGridHeight();
-            request.pattern = generateCustomPattern(params.ingredients, gridWidth, gridHeight);
+            Map<Character, Object> symbolMapping = new HashMap<>();
+            request.pattern = generateCustomPatternWithMapping(
+                    params, gridWidth, gridHeight, symbolMapping);
+
+            List<Object> ingredientsList = new ArrayList<>();
+            for (Map.Entry<Character, Object> entry : symbolMapping.entrySet()) {
+                ingredientsList.add(entry.getKey());   // 符号
+                ingredientsList.add(entry.getValue()); // 物品
+            }
+            request.ingredients = ingredientsList.toArray();
+
+        } else {
+            request.ingredients = convertIngredientsToArray(params);
         }
+
         // 添加所有自定义属性
         request.withProperty("craftingMode", params.craftingMode);
         request.withProperty("cookingType", params.cookingType);
@@ -472,12 +459,72 @@ public class DynamicRecipeBuilder {
         request.withProperty("experience", params.cookingExp);
         request.withProperty("cookingtime", params.cookingTime);
 
-        // 添加配方类型定义的所有属性
         if (params.recipeType.getProperty("category", String.class) != null) {
             request.withProperty("category", params.recipeType.getProperty("category", String.class));
         }
-
+        if (params.componentDataManager != null) {
+            extractComponentData(params.extraProperties, request);
+        }
         return request;
+    }
+
+    /**
+     * 从组件数据管理器提取数据到 RecipeRequest
+     */
+    private void extractComponentData(Map<String, Object> allData, RecipeRequest request) {
+        for (Map.Entry<String, Object> entry : allData.entrySet()) {
+            request.withProperty(entry.getKey(), entry.getValue());
+        }
+        if (allData.containsKey("fluidAmount")) {
+            Map<String, Object> fluidOutput = new HashMap<>();
+            fluidOutput.put("fluid", allData.get("fluid"));
+            fluidOutput.put("amount", allData.get("fluidAmount"));
+            allData.put("fluidOutput", fluidOutput);
+        }
+//        if (allData.containsKey("create_cutting")) {
+//            allData.put("processingTime", allData.get("processingTime"));
+//        }
+    }
+
+    /**
+     * 生成自定义 pattern 并构建符号映射
+     */
+    private String[] generateCustomPatternWithMapping(BuildParams params, int gridWidth,
+                                                      int gridHeight, Map<Character, Object> symbolMapping) {
+        String[] pattern = new String[gridHeight];
+        AtomicReference<Character> currentChar = new AtomicReference<>('A');
+        Map<String, Character> itemToChar = new HashMap<>();
+
+        List<IngredientData> dataList = params.ingredientsData;
+        if (dataList == null || dataList.isEmpty()) {
+            dataList = convertItemStacksToIngredientData(params.ingredients);
+        }
+
+        for (int row = 0; row < gridHeight; row++) {
+            StringBuilder rowPattern = new StringBuilder();
+            for (int col = 0; col < gridWidth; col++) {
+                int index = row * gridWidth + col;
+                if (index < dataList.size() && !dataList.get(index).isEmpty()) {
+                    IngredientData data = dataList.get(index);
+                    String key = getIngredientKey(data);
+
+                    // 获取或创建符号
+                    char symbol = itemToChar.computeIfAbsent(key,
+                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
+
+                    if (!symbolMapping.containsKey(symbol)) {
+                        symbolMapping.put(symbol, convertIngredientDataToObject(data));
+                    }
+
+                    rowPattern.append(symbol);
+                } else {
+                    rowPattern.append(' ');
+                }
+            }
+            pattern[row] = rowPattern.toString();
+        }
+
+        return pattern;
     }
 
     /**
@@ -492,7 +539,6 @@ public class DynamicRecipeBuilder {
                     .toArray(Object[]::new);
         }
 
-        // 兼容旧版本：使用 ingredients
         return params.ingredients.stream()
                 .filter(item -> !item.isEmpty())
                 .map(item -> ForgeRegistries.ITEMS.getKey(item.getItem()).toString())
@@ -504,93 +550,13 @@ public class DynamicRecipeBuilder {
      */
     private Object convertIngredientDataToObject(IngredientData data) {
         return switch (data.getType()) {
-            case ITEM -> {
-                ItemStack stack = data.getItemStack();
-                if (stack.hasTag()) {
-                    // 带NBT的物品：返回完整的ItemStack信息
-                    yield createItemWithNBT(stack);
-                } else {
-                    // 普通物品：返回物品ID字符串
-                    yield ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
-                }
-            }
-            case TAG -> {
-                // 标签：返回 "#namespace:path" 格式
-                yield "#" + data.getTagId().toString();
-            }
-            case CUSTOM_TAG -> {
-                // 自定义标签：返回 "#namespace:path" 格式
-                yield "#" + data.getTagId().toString();
-            }
+            case ITEM ->
+                    data.getItemStack();
+            case TAG -> // 标签：返回 "#namespace:path" 格式
+                    "#" + data.getTagId().toString();
+            case CUSTOM_TAG -> // 自定义标签：返回 "#namespace:path" 格式
+                    "#" + data.getTagId().toString();
         };
-    }
-
-    /**
-     * 创建带NBT的物品JSON对象
-     */
-    private JsonObject createItemWithNBT(ItemStack stack) {
-        JsonObject itemObj = new JsonObject();
-
-        // 物品ID
-        itemObj.addProperty("item", ForgeRegistries.ITEMS.getKey(stack.getItem()).toString());
-
-        // 数量
-        if (stack.getCount() > 1) {
-            itemObj.addProperty("count", stack.getCount());
-        }
-
-        // NBT数据
-        if (stack.hasTag()) {
-            CompoundTag tag = stack.getTag();
-            if (tag != null) {
-                try {
-                    // 将NBT转换为字符串格式
-                    String nbtString = tag.toString();
-                    itemObj.addProperty("nbt", nbtString);
-                } catch (Exception e) {
-                    LOGGER.error("无法序列化NBT数据", e);
-                }
-            }
-        }
-
-        return itemObj;
-    }
-
-    /**
-     * 生成工作台配方模式
-     */
-    private String[] generateCraftingPattern(BuildParams params) {
-        String[] pattern = new String[3];
-        AtomicReference<Character> currentChar = new AtomicReference<>('A');
-        Map<String, Character> itemToChar = new HashMap<>();
-
-        List<IngredientData> dataList = params.ingredientsData;
-        if (dataList == null || dataList.isEmpty()) {
-            // 兼容旧版本
-            dataList = new ArrayList<>();
-            for (ItemStack stack : params.ingredients) {
-                dataList.add(stack.isEmpty() ? IngredientData.empty() : IngredientData.fromItem(stack));
-            }
-        }
-
-        for (int row = 0; row < 3; row++) {
-            StringBuilder rowPattern = new StringBuilder();
-            for (int col = 0; col < 3; col++) {
-                int index = row * 3 + col;
-                if (index < dataList.size() && !dataList.get(index).isEmpty()) {
-                    IngredientData data = dataList.get(index);
-                    String key = getIngredientKey(data);
-                    char symbol = itemToChar.computeIfAbsent(key,
-                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
-                    rowPattern.append(symbol);
-                } else {
-                    rowPattern.append(' ');
-                }
-            }
-            pattern[row] = rowPattern.toString();
-        }
-
-        return pattern;
     }
 
     /**
@@ -653,45 +619,7 @@ public class DynamicRecipeBuilder {
      * 获取Avaritia网格大小
      */
     private int getAvaritiaGridSize(int tier) {
-        return switch (tier) {
-            case 1 -> 3;
-            case 2 -> 5;
-            case 3 -> 7;
-            case 4 -> 9;
-            default -> 3;
-        };
-    }
-
-    /**
-     * 创建材料JSON
-     */
-    private JsonObject createIngredientsJson(List<ItemStack> ingredients) {
-        JsonObject ingredientsJson = new JsonObject();
-        
-        for (int i = 0; i < ingredients.size(); i++) {
-            ItemStack ingredient = ingredients.get(i);
-            if (!ingredient.isEmpty()) {
-                JsonObject ingredientObj = new JsonObject();
-                ingredientObj.addProperty("item", ForgeRegistries.ITEMS.getKey(ingredient.getItem()).toString());
-                if (ingredient.getCount() > 1) {
-                    ingredientObj.addProperty("count", ingredient.getCount());
-                }
-                ingredientsJson.add(String.valueOf(i), ingredientObj);
-            }
-        }
-        
-        return ingredientsJson;
-    }
-
-    /**
-     * 获取合成模式
-     */
-    private String getCraftingModeFromParams(BuildParams params) {
-        String category = params.recipeType.getProperty("category", String.class);
-        if ("crafting".equals(category) || "avaritia".equals(category)) {
-            return params.craftingMode;
-        }
-        return params.recipeType.getProperty("mode", String.class);
+        return getGridSizeForTier(tier);
     }
 
     /**
@@ -701,50 +629,6 @@ public class DynamicRecipeBuilder {
         String itemName = ForgeRegistries.ITEMS.getKey(params.resultItem.getItem()).getPath();
         String typeName = params.recipeType.getId().replace(":", "_");
         return "custom_" + typeName + "_" + itemName + "_" + System.currentTimeMillis();
-    }
-
-    /**
-     * 转换为传统模式（向后兼容）
-     */
-    private RecipeGenerator.RecipeMode convertToLegacyMode(BuildParams params) {
-        String category = params.recipeType.getProperty("category", String.class);
-
-        if ("cooking".equals(category)) {
-            return switch (params.recipeType.getId()) {
-                case "blasting" -> RecipeGenerator.RecipeMode.BLASTING;
-                case "smoking" -> RecipeGenerator.RecipeMode.SMOKING;
-                case "campfire_cooking" -> RecipeGenerator.RecipeMode.CAMPFIRE;
-                default -> RecipeGenerator.RecipeMode.SMELTING;
-            };
-        } else if ("avaritia".equals(category)) {
-            Integer tier = params.recipeType.getProperty("tier", Integer.class);
-            int actualTier = tier != null ? tier : params.customTier;
-            boolean shaped = "shaped".equals(params.craftingMode);
-            return getAvaritiaMode(actualTier, shaped);
-        } else if ("brewing".equals(category)) {
-            return RecipeGenerator.RecipeMode.BREWING; // 需要添加这个枚举值
-        } else if ("stonecutting".equals(category)) {
-            return RecipeGenerator.RecipeMode.STONECUTTING; // 需要添加这个枚举值
-        } else if ("smithing".equals(category)) {
-            return RecipeGenerator.RecipeMode.SMITHING; // 需要添加这个枚举值
-        } else {
-            // 保持现有的3x3逻辑作为最后的回退
-            boolean shaped = "shaped".equals(params.craftingMode);
-            return shaped ? RecipeGenerator.RecipeMode.SHAPED_3X3 : RecipeGenerator.RecipeMode.SHAPELESS_3X3;
-        }
-    }
-
-    /**
-     * 获取Avaritia模式
-     */
-    private RecipeGenerator.RecipeMode getAvaritiaMode(int tier, boolean shaped) {
-        return switch (tier) {
-            case 1 -> shaped ? RecipeGenerator.RecipeMode.SHAPED_3X3 : RecipeGenerator.RecipeMode.SHAPELESS_3X3;
-            case 2 -> shaped ? RecipeGenerator.RecipeMode.SHAPED_5X5 : RecipeGenerator.RecipeMode.SHAPELESS_5X5;
-            case 3 -> shaped ? RecipeGenerator.RecipeMode.SHAPED_7X7 : RecipeGenerator.RecipeMode.SHAPELESS_7X7;
-            case 4 -> shaped ? RecipeGenerator.RecipeMode.SHAPED_9X9 : RecipeGenerator.RecipeMode.SHAPELESS_9X9;
-            default -> RecipeGenerator.RecipeMode.SHAPED_3X3;
-        };
     }
 
     /**
@@ -813,148 +697,6 @@ public class DynamicRecipeBuilder {
         return namespace.equals("registerhelper") ||
                 path.startsWith("custom_") ||
                 path.contains("_custom_");
-    }
-
-    /**
-     * 生成配方ID
-     */
-    private String generateRecipeId(BuildParams params, String modId, RecipeGenerator.RecipeMode mode) {
-        if (params.isEditing && params.editingRecipeId != null) {
-            return params.editingRecipeId.toString();
-        }
-        return RecipeGenerator.generateRecipeId(modId, mode, params.resultItem);
-    }
-
-    /**
-     * 构建传统配方数据
-     */
-    private RecipeGenerator.RecipeData buildLegacyRecipeData(BuildParams params, String modId, 
-                                                           String recipeId, RecipeGenerator.RecipeMode mode) {
-        RecipeGenerator.RecipeData recipeData = RecipeGenerator.buildFromGrid(
-                modId, recipeId, mode, params.resultItem, params.ingredients);
-
-        // 设置烹饪相关参数
-        if (mode.isCooking()) {
-            recipeData.experience = params.cookingExp;
-            recipeData.cookingTime = (int) params.cookingTime;
-        }
-
-        return recipeData;
-    }
-
-    /**
-     * 创建配方覆盖（传统方式）
-     */
-    private boolean createRecipeOverride(RecipeGenerator.RecipeData data) {
-        try {
-            JsonObject recipeJson;
-            if (data.mode.isAvaritia()) {
-                recipeJson = RecipeGenerator.generateAvaritiaRecipe(data);
-            } else {
-                recipeJson = RecipeGenerator.generateMinecraftRecipe(data);
-            }
-            ResourceLocation recipeId = new ResourceLocation(data.recipeId);
-            return UnifiedRecipeOverrideManager.addOverride(recipeId, recipeJson);
-
-        } catch (Exception e) {
-            LOGGER.error("创建配方覆盖失败", e);
-            return false;
-        }
-    }
-
-    /**
-     * 创建普通配方（传统方式）
-     */
-    private boolean createNormalRecipe(RecipeGenerator.RecipeData data) {
-        try {
-            CreateRecipePacket packet = createNetworkPacket(data);
-            if (packet != null) {
-                ModNetwork.CHANNEL.sendToServer(packet);
-                return true;
-            }
-            return false;
-
-        } catch (Exception e) {
-            LOGGER.error("创建普通配方失败", e);
-            return false;
-        }
-    }
-
-    /**
-     * 创建网络数据包（传统方式）
-     */
-    private CreateRecipePacket createNetworkPacket(RecipeGenerator.RecipeData data) {
-        if (data.mode.isCooking()) {
-            return CreateRecipePacket.cooking(
-                    data.modId,
-                    getCookingRecipeType(data.mode),
-                    data.recipeId,
-                    data.result,
-                    ForgeRegistries.ITEMS.getKey(data.cookingIngredient.getItem()).toString(),
-                    data.experience,
-                    data.cookingTime
-            );
-        } else if (data.mode.isShaped()) {
-            List<String> ingredientList = new ArrayList<>();
-            for (Map.Entry<Character, ItemStack> entry : data.symbolMapping.entrySet()) {
-                ingredientList.add(String.valueOf(entry.getKey()));
-                ingredientList.add(ForgeRegistries.ITEMS.getKey(entry.getValue().getItem()).toString());
-            }
-            String[] ingredientItems = ingredientList.toArray(new String[0]);
-
-            if (data.mode.isAvaritia()) {
-                return CreateRecipePacket.avaritia(
-                        "shaped_table",
-                        data.recipeId,
-                        data.result,
-                        data.pattern,
-                        ingredientItems,
-                        RecipeGenerator.getTierFromGridSize(data.mode.getGridSize())
-                );
-            } else {
-                return CreateRecipePacket.shaped(
-                        data.modId,
-                        data.recipeId,
-                        data.result,
-                        data.pattern,
-                        ingredientItems
-                );
-            }
-        } else {
-            String[] ingredientItems = data.ingredients.stream()
-                    .map(item -> ForgeRegistries.ITEMS.getKey(item.getItem()).toString())
-                    .toArray(String[]::new);
-
-            if (data.mode.isAvaritia()) {
-                return CreateRecipePacket.avaritia(
-                        "shapeless_table",
-                        data.recipeId,
-                        data.result,
-                        null,
-                        ingredientItems,
-                        RecipeGenerator.getTierFromIngredientCount(data.ingredients.size())
-                );
-            } else {
-                return CreateRecipePacket.shapeless(
-                        data.modId,
-                        data.recipeId,
-                        data.result,
-                        ingredientItems
-                );
-            }
-        }
-    }
-
-    /**
-     * 获取烹饪配方类型字符串
-     */
-    private String getCookingRecipeType(RecipeGenerator.RecipeMode mode) {
-        return switch (mode) {
-            case BLASTING -> "blasting";
-            case SMOKING -> "smoking";
-            case CAMPFIRE -> "campfire_cooking";
-            default -> "smelting";
-        };
     }
 
     private void showSuccess(String message) {

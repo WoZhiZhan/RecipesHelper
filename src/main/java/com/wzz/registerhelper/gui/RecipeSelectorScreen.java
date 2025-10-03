@@ -162,19 +162,22 @@ public class RecipeSelectorScreen extends Screen {
     private String classifyRecipeType(Recipe<?> recipe) {
         try {
             String typeName = recipe.getType().toString().toLowerCase();
-            if (typeName.contains("minecraft:crafting_shaped") || typeName.contains("shaped")) {
+
+            if (typeName.contains("minecraft:crafting_shaped")) {
                 return "有形状配方";
-            } else if (typeName.contains("minecraft:crafting_shapeless") || typeName.contains("shapeless")) {
+            } else if (typeName.contains("minecraft:crafting_shapeless")) {
                 return "无形状配方";
-            } else if (typeName.contains("minecraft:smelting") || typeName.contains("smelting")) {
+            } else if (typeName.contains("minecraft:smelting")) {
                 return "熔炼配方";
-            } else if (typeName.contains("minecraft:blasting") || typeName.contains("blasting")) {
+            } else if (typeName.contains("minecraft:blasting")) {
                 return "高炉配方";
-            } else if (typeName.contains("minecraft:smoking") || typeName.contains("smoking")) {
+            } else if (typeName.contains("minecraft:smoking")) {
                 return "烟熏配方";
-            } else if (typeName.contains("minecraft:campfire_cooking") || typeName.contains("campfire")) {
+            } else if (typeName.contains("minecraft:campfire_cooking")) {
                 return "营火烹饪";
-            } else if (typeName.contains("avaritia")) {
+            }
+
+            else if (typeName.contains("avaritia")) {
                 if (typeName.contains("shaped")) {
                     return "Avaritia有形状配方";
                 } else if (typeName.contains("shapeless")) {
@@ -182,11 +185,12 @@ public class RecipeSelectorScreen extends Screen {
                 } else {
                     return "Avaritia配方";
                 }
-            } else if (typeName.contains("crafting")) {
-                return "工作台配方";
-            } else {
+            }
+
+            else {
                 return typeName;
             }
+
         } catch (Exception e) {
             LOGGER.warn("分类配方类型失败: {}", e.getMessage());
             return "未知类型";
@@ -684,13 +688,25 @@ public class RecipeSelectorScreen extends Screen {
         }
     }
 
+    /**
+     * 计算槽位间距（通用方法）
+     */
+    private int getSlotSpacing(int gridSize) {
+        return gridSize > 3 ?
+                Math.min(SLOT_SIZE + 2, (RECIPE_DETAIL_WIDTH - 40) / gridSize) :
+                SLOT_SPACING;
+    }
+
     private void parseShapedRecipe(Recipe<?> recipe, int startX, int startY) {
         List<Ingredient> ingredients = recipe.getIngredients();
+        int gridSize = getGridSizeFromIngredientCount(ingredients.size());
+        int slotSpacing = gridSize > 3 ?
+                Math.min(SLOT_SIZE + 2, (RECIPE_DETAIL_WIDTH - 40) / gridSize) :
+                SLOT_SPACING;
 
-        // 3x3网格
-        for (int y = 0; y < 3; y++) {
-            for (int x = 0; x < 3; x++) {
-                int index = y * 3 + x;
+        for (int y = 0; y < gridSize; y++) {
+            for (int x = 0; x < gridSize; x++) {
+                int index = y * gridSize + x;
                 ItemStack item = ItemStack.EMPTY;
 
                 if (index < ingredients.size() && !ingredients.get(index).isEmpty()) {
@@ -701,35 +717,60 @@ public class RecipeSelectorScreen extends Screen {
                 }
 
                 currentRecipeSlots.add(new SlotInfo(
-                        startX + x * SLOT_SPACING,
-                        startY + y * SLOT_SPACING,
+                        startX + x * slotSpacing,
+                        startY + y * slotSpacing,
                         item
                 ));
             }
         }
     }
 
+    /**
+     * 根据材料数量判断网格大小
+     */
+    private int getGridSizeFromIngredientCount(int ingredientCount) {
+        if (ingredientCount <= 9) return 3;    // 3x3
+        if (ingredientCount <= 25) return 5;   // 5x5
+        if (ingredientCount <= 49) return 7;   // 7x7
+        if (ingredientCount <= 81) return 9;   // 9x9
+        return 11;
+    }
+
     private void parseShapelessRecipe(Recipe<?> recipe, int startX, int startY) {
         List<Ingredient> ingredients = recipe.getIngredients();
+        int ingredientCount = ingredients.size();
 
-        // 3x3网格，但只显示有材料的槽位
-        for (int i = 0; i < 9; i++) {
-            int x = i % 3;
-            int y = i / 3;
+        // 动态计算显示网格大小 (3x3, 5x5, 7x7, 9x9...)
+        int gridSize = getGridSizeFromIngredientCount(ingredientCount);
+        int slotSpacing = getSlotSpacing(gridSize);
+
+        // 计算每行能放几个，自动居中
+        int cols = Math.min(ingredientCount, gridSize);
+        int rows = (int) Math.ceil(ingredientCount / (double) gridSize);
+
+        // 偏移量（让材料居中）
+        int xOffset = (gridSize - cols) / 2;
+        int yOffset = (gridSize - rows) / 2;
+
+        for (int i = 0; i < ingredientCount; i++) {
+            int col = i % gridSize;
+            int row = i / gridSize;
+
+            // 取 Ingredient
             ItemStack item = ItemStack.EMPTY;
-
-            if (i < ingredients.size() && !ingredients.get(i).isEmpty()) {
-                ItemStack[] items = ingredients.get(i).getItems();
+            Ingredient ing = ingredients.get(i);
+            if (!ing.isEmpty()) {
+                ItemStack[] items = ing.getItems();
                 if (items.length > 0) {
                     item = items[0].copy();
                 }
             }
 
-            currentRecipeSlots.add(new SlotInfo(
-                    startX + x * SLOT_SPACING,
-                    startY + y * SLOT_SPACING,
-                    item
-            ));
+            // 计算实际渲染位置
+            int drawX = startX + (col + xOffset) * slotSpacing;
+            int drawY = startY + (row + yOffset) * slotSpacing;
+
+            currentRecipeSlots.add(new SlotInfo(drawX, drawY, item));
         }
     }
 

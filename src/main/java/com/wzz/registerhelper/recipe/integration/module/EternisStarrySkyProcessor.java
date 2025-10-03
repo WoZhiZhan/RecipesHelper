@@ -16,6 +16,11 @@ public class EternisStarrySkyProcessor implements ModRecipeProcessor {
     public String[] getSupportedRecipeTypes() {
         return new String[]{"vanilla_workbench_s"};
     }
+
+    @Override
+    public boolean isShapedRecipe(String recipeType) {
+        return true;
+    }
     
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {

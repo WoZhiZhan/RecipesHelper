@@ -39,9 +39,7 @@ public abstract class RecipeComponent {
     public enum ComponentType {
         SLOT,           // 物品槽位
         NUMBER_INPUT,   // 数值输入框
-        TEXT_INPUT,     // 文本输入框
-        LABEL,          // 文本标签
-        DROPDOWN,       // 下拉选择框
-        CHECKBOX        // 复选框
+        STRING_INPUT,     // 文本输入框
+        LABEL          // 文本标签
     }
 }

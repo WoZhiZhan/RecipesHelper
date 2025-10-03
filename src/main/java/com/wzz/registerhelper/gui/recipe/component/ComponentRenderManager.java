@@ -76,9 +76,10 @@ public class ComponentRenderManager {
             ComponentRenderer renderer = createRenderer(component);
             if (renderer != null) {
                 renderers.add(renderer);
-
                 if (renderer instanceof NumberInputRenderer numberRenderer) {
                     editBoxes.add(numberRenderer.getEditBox());
+                } else if (renderer instanceof StringInputRenderer stringRenderer) {
+                    editBoxes.add(stringRenderer.getEditBox());
                 }
             }
         }
@@ -97,18 +98,29 @@ public class ComponentRenderManager {
     private ComponentRenderer createRenderer(RecipeComponent component) {
         switch (component.getType()) {
             case SLOT:
-                SlotComponent slotComp = (SlotComponent) component;
-                int slotIndex = slotComp.getSlotIndex();
-                return new SlotRenderer(slotComp,
-                        () -> slotItems.getOrDefault(slotIndex, ItemStack.EMPTY),
-                        idx -> { if (onSlotLeftClick != null) onSlotLeftClick.accept(slotIndex); },
-                        idx -> { if (onSlotRightClick != null) onSlotRightClick.accept(slotIndex); });
+                if (component instanceof SlotComponent slotComp) {
+                    int slotIndex = slotComp.getSlotIndex();
+                    return new SlotRenderer(slotComp,
+                            () -> slotItems.getOrDefault(slotIndex, ItemStack.EMPTY),
+                            idx -> {
+                                if (onSlotLeftClick != null) onSlotLeftClick.accept(slotIndex);
+                            },
+                            idx -> {
+                                if (onSlotRightClick != null) onSlotRightClick.accept(slotIndex);
+                            });
+                }
 
             case LABEL:
-                return new LabelRenderer((LabelComponent) component);
+                if (component instanceof LabelComponent labelComponent)
+                    return new LabelRenderer(labelComponent);
 
             case NUMBER_INPUT:
-                return new NumberInputRenderer((NumberInputComponent) component, font, dataManager);
+                if (component instanceof NumberInputComponent numberInputComponent)
+                    return new NumberInputRenderer(numberInputComponent, font, dataManager);
+
+            case STRING_INPUT:
+                if (component instanceof StringInputComponent stringInputComponent)
+                    return new StringInputRenderer(stringInputComponent, font, dataManager);
 
             default:
                 return null;
@@ -131,8 +143,8 @@ public class ComponentRenderManager {
      */
     public boolean handleMouseClick(double mouseX, double mouseY, int button) {
         for (ComponentRenderer renderer : renderers) {
-            // 只处理非 EditBox 的组件
-            if (!(renderer instanceof NumberInputRenderer)) {
+            if (!(renderer instanceof NumberInputRenderer) &&
+                    !(renderer instanceof StringInputRenderer)) {
                 if (renderer.mouseClicked(mouseX, mouseY, button)) {
                     return true;
                 }

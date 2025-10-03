@@ -8,14 +8,14 @@ import java.util.Map;
  */
 public class ComponentDataManager {
     private final Map<String, Object> data = new HashMap<>();
-    
+
     /**
      * 设置数值
      */
     public void setNumber(String id, int value) {
         data.put(id, value);
     }
-    
+
     /**
      * 获取数值
      */
@@ -26,32 +26,32 @@ public class ComponentDataManager {
         }
         return defaultValue;
     }
-    
+
     /**
-     * 设置文本
+     * 设置字符串
      */
-    public void setText(String id, String value) {
+    public void setString(String id, String value) {
         data.put(id, value);
     }
-    
+
     /**
-     * 获取文本
+     * 获取字符串
      */
-    public String getText(String id, String defaultValue) {
+    public String getString(String id, String defaultValue) {
         Object value = data.get(id);
         if (value instanceof String) {
             return (String) value;
         }
         return defaultValue;
     }
-    
+
     /**
      * 设置布尔值
      */
     public void setBoolean(String id, boolean value) {
         data.put(id, value);
     }
-    
+
     /**
      * 获取布尔值
      */
@@ -62,14 +62,14 @@ public class ComponentDataManager {
         }
         return defaultValue;
     }
-    
+
     /**
      * 清空所有数据
      */
     public void clear() {
         data.clear();
     }
-    
+
     /**
      * 获取所有数据（用于配方构建）
      */

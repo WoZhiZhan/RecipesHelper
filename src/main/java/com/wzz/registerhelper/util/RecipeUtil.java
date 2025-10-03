@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.util;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import net.minecraft.resources.ResourceLocation;
@@ -12,8 +13,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class RecipeUtil {
-
-    // ========== 有序配方（工作台） ==========
 
     public static JsonObject createShapedTableRecipe(String type, RecipeRequest request) {
         JsonObject recipe = new JsonObject();
@@ -34,20 +33,33 @@ public class RecipeUtil {
             recipe.add("pattern", patternArray);
         }
 
-        // 添加key映射
         if (request.ingredients != null) {
             JsonObject key = new JsonObject();
             Map<Character, JsonObject> keyMapping = new HashMap<>();
 
-            for (int i = 0; i < request.ingredients.length; i += 2) {
-                if (i + 1 < request.ingredients.length) {
-                    char symbol = getCharFromObject(request.ingredients[i]);
-                    Object ingredient = request.ingredients[i + 1];
+            // 修复：使用自动字符映射，而不是从原料数组中读取符号
+            char currentChar = 'A';
+            for (Object ingredient : request.ingredients) {
+                // 跳过null或空物品
+                if (ingredient == null) continue;
 
-                    JsonObject ingredientJson = createIngredientJson(ingredient);
-                    if (ingredientJson != null) {
-                        keyMapping.put(symbol, ingredientJson);
+                if (ingredient instanceof ItemStack stack && stack.isEmpty()) {
+                    continue;
+                }
+
+                // 为每个有效原料分配一个字符
+                JsonObject ingredientJson = createIngredientJson(ingredient);
+                if (ingredientJson != null) {
+                    // 找到可用的字符
+                    while (currentChar <= 'Z' && keyMapping.containsKey(currentChar)) {
+                        currentChar++;
                     }
+                    if (currentChar > 'Z') {
+                        throw new IllegalArgumentException("合成表原料过多，超过26个字符限制");
+                    }
+
+                    keyMapping.put(currentChar, ingredientJson);
+                    currentChar++;
                 }
             }
 
@@ -57,13 +69,11 @@ public class RecipeUtil {
             recipe.add("key", key);
         }
 
-        // 添加结果
         recipe.add("result", createResultJson(request.result, request.resultCount));
 
         return recipe;
     }
 
-    // ========== 无序配方（工作台） ==========
 
     public static JsonObject createShapelessTableRecipe(String type, RecipeRequest request) {
         JsonObject recipe = new JsonObject();
@@ -92,8 +102,6 @@ public class RecipeUtil {
 
         return recipe;
     }
-
-    // ========== 烹饪配方 ==========
 
     /**
      * 创建熔炉配方
@@ -228,11 +236,10 @@ public class RecipeUtil {
         return resultArray;
     }
 
-    // ========== 基础工具方法 ==========
-
     /**
      * 创建材料JSON对象
      */
+    @SuppressWarnings("unchecked")
     public static JsonObject createIngredientJson(Object ingredient) {
         JsonObject ingredientJson = new JsonObject();
 
@@ -243,26 +250,44 @@ public class RecipeUtil {
             if (stack.getCount() > 1) {
                 ingredientJson.addProperty("count", stack.getCount());
             }
-
             if (stack.hasTag()) {
+                ingredientJson.addProperty("type", "forge:nbt");
                 ingredientJson.addProperty("nbt", stack.getTag().toString());
             }
         } else if (ingredient instanceof Item item) {
             String itemId = getItemResourceLocation(item).toString();
             ingredientJson.addProperty("item", itemId);
         } else if (ingredient instanceof String str) {
-            // 检查是否是标签
             if (str.startsWith("#")) {
                 ingredientJson.addProperty("tag", str.substring(1));
             } else {
                 ingredientJson.addProperty("item", str);
             }
+        } else if (ingredient instanceof Map map) {
+            if (map.containsKey("fluid")) {
+                String fluidId = (String) map.get("fluid");
+                int amount = (int) map.getOrDefault("amount", 250);
+                ingredientJson.addProperty("fluid", fluidId);
+                ingredientJson.addProperty("amount", amount);
+
+                if (map.containsKey("nbt") && map.get("nbt") instanceof JsonElement json) {
+                    ingredientJson.add("nbt", json);
+                } else {
+                    ingredientJson.add("nbt", new JsonObject());
+                }
+            }
+            else if (map.containsKey("item")) {
+                ingredientJson.addProperty("item", (String) map.get("item"));
+                if (map.containsKey("nbt") && map.get("nbt") instanceof JsonElement json) {
+                    ingredientJson.add("nbt", json);
+                }
+            }
         } else {
             return null;
         }
-
         return ingredientJson;
     }
+
 
     /**
      * 创建结果JSON对象
@@ -278,6 +303,7 @@ public class RecipeUtil {
         }
 
         if (result.hasTag()) {
+            resultJson.addProperty("type", "forge:nbt");
             resultJson.addProperty("nbt", result.getTag().toString());
         }
 
@@ -308,20 +334,22 @@ public class RecipeUtil {
             if (c >= 'A' && c <= 'Z') {
                 return c;
             } else {
-                return 'A';
+                throw new IllegalArgumentException("符号必须是大写字母A-Z: " + c);
             }
         } else if (obj instanceof String str) {
-            if (str.isEmpty()) {
-                return ' ';
+            if (str.isBlank()) {
+                throw new IllegalArgumentException("符号不能为空");
             }
             char c = str.charAt(0);
             if (c >= 'A' && c <= 'Z') {
                 return c;
             } else {
-                return 'A';
+                if (c == '#')
+                    return c;
+                throw new IllegalArgumentException("符号必须是大写字母A-Z: " + c);
             }
         }
-        return ' ';
+        throw new IllegalArgumentException("无效的符号类型: " + obj);
     }
 
     /**

@@ -2,7 +2,6 @@ package com.wzz.registerhelper.init;
 
 import com.wzz.registerhelper.RecipeHelper;
 import com.wzz.registerhelper.network.CreateRecipeJsonPacket;
-import com.wzz.registerhelper.network.CreateRecipePacket;
 import com.wzz.registerhelper.network.OpenGUIPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkRegistry;
@@ -22,8 +21,6 @@ public class ModNetwork {
                 .decoder(OpenGUIPacket::decode)
                 .consumerMainThread(OpenGUIPacket::handle)
                 .add();
-        CHANNEL.registerMessage(id++, CreateRecipePacket.class,
-                CreateRecipePacket::toBytes, CreateRecipePacket::fromBytes, CreateRecipePacket::handle);
         CHANNEL.registerMessage(
                 id++,
                 CreateRecipeJsonPacket.class,

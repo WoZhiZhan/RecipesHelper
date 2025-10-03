@@ -2,6 +2,10 @@ package com.wzz.registerhelper.gui.recipe.layout;
 
 import com.wzz.registerhelper.gui.recipe.layout.integration.botania.*;
 import com.wzz.registerhelper.gui.recipe.layout.integration.builtin.*;
+import com.wzz.registerhelper.gui.recipe.layout.integration.create.CompactingLayout;
+import com.wzz.registerhelper.gui.recipe.layout.integration.create.EmptyingLayout;
+import com.wzz.registerhelper.gui.recipe.layout.integration.create.FillingLayout;
+import com.wzz.registerhelper.gui.recipe.layout.integration.create.PressingLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.farmersdelight.CookingLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.farmersdelight.CuttingLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.immersive_engineering.ArcFurnaceLayout;
@@ -24,7 +28,8 @@ public class LayoutManager {
         registerLayout("rectangular_1x1", new RectangularLayout(1, 1));
         registerLayout("rectangular_2x2", new RectangularLayout(2, 2));
         registerLayout("rectangular_5x5", new RectangularLayout(5, 5));
-        
+        registerLayout("rectangular_11x11", new RectangularLayout(11, 11));
+
         // Minecraft 内置布局
         registerLayout("minecraft_brewing", new MinecraftBrewingLayout());
         registerLayout("stonecutting", new StonecuttingLayout());
@@ -37,6 +42,11 @@ public class LayoutManager {
         registerLayout("reprocessor", new ReprocessorLayout());
         registerLayout("cutting", new CuttingLayout());
         registerLayout("cooking", new CookingLayout());
+        registerLayout("emptying", new EmptyingLayout());
+        registerLayout("create_cutting", new com.wzz.registerhelper.gui.recipe.layout.integration.create.CuttingLayout());
+        registerLayout("compacting", new CompactingLayout());
+        registerLayout("filling", new FillingLayout());
+        registerLayout("pressing", new PressingLayout());
     }
     
     /**

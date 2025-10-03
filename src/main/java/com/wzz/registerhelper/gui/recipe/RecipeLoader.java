@@ -43,11 +43,11 @@ public class RecipeLoader {
         public final RecipeType recipeType;
         public final CraftingMode craftingMode;
         public final CookingType cookingType;
-        public final int avaritiaTeir;
+        public int avaritiaTeir;
         public final ItemStack resultItem;
         public final List<ItemStack> ingredients;
         public final String message;
-        public final String originalRecipeTypeId; // 添加这个字段
+        public final String originalRecipeTypeId;
         public ResourceLocation recipeId;
 
         public LoadResult(boolean success, String message) {
@@ -88,10 +88,21 @@ public class RecipeLoader {
             if (recipe == null) {
                 return new LoadResult(false, "找不到配方: " + recipeId);
             }
+            String originalRecipeTypeId;
+            try {
+                ResourceLocation serializerId = net.minecraftforge.registries.ForgeRegistries.RECIPE_SERIALIZERS
+                        .getKey(recipe.getSerializer());
+                originalRecipeTypeId = serializerId != null ? serializerId.toString() : null;
+            } catch (Exception e) {
+                LOGGER.warn("无法通过序列化器获取配方类型，使用RecipeType作为备选", e);
+                originalRecipeTypeId = null;
+            }
 
-            // 获取原始配方类型ID
-            ResourceLocation recipeTypeRL = net.minecraftforge.registries.ForgeRegistries.RECIPE_TYPES.getKey(recipe.getType());
-            String originalRecipeTypeId = recipeTypeRL != null ? recipeTypeRL.toString() : recipe.getType().toString();
+            if (originalRecipeTypeId == null) {
+                ResourceLocation recipeTypeRL = net.minecraftforge.registries.ForgeRegistries.RECIPE_TYPES
+                        .getKey(recipe.getType());
+                originalRecipeTypeId = recipeTypeRL != null ? recipeTypeRL.toString() : recipe.getType().toString();
+            }
 
             // 获取结果物品
             ItemStack resultItem = recipe.getResultItem(minecraft.level.registryAccess()).copy();
