@@ -36,7 +36,7 @@ public class RecipeManagerMixin implements IRecipeManager {
     @Unique
     private static final Gson registerhelper$GSON = new Gson();
     @Unique
-    private static final String RECIPES_DIR = "config/registerhelper/recipes";
+    private static final String RECIPES_DIR = getCustomRecipeDir();
 
     @Shadow
     @Mutable
@@ -239,6 +239,14 @@ public class RecipeManagerMixin implements IRecipeManager {
         } catch (Exception e) {
             registerhelper$LOGGER.error("获取服务器实例失败", e);
         }
+    }
+
+    @Unique
+    private static String getCustomRecipeDir() {
+        return net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get()
+                .resolve("registerhelper/recipes")
+                .toAbsolutePath()
+                .toString();
     }
 
     @Override

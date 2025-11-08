@@ -27,7 +27,7 @@ public class TagLoaderMixin {
     @Unique
     private static final Gson registerhelper$GSON = new Gson();
     @Unique
-    private static final String CUSTOM_TAGS_DIR = "config/registerhelper/custom_tags";
+    private static final String CUSTOM_TAGS_DIR = getCustomTagsDir();
 
     /**
      * 在标签加载完成后注入自定义标签
@@ -192,6 +192,14 @@ public class TagLoaderMixin {
         }
 
         return new TagLoader.EntryWithSource(entry, source);
+    }
+
+    @Unique
+    private static String getCustomTagsDir() {
+        return net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get()
+                .resolve("registerhelper/custom_tags")
+                .toAbsolutePath()
+                .toString();
     }
 
     /**
