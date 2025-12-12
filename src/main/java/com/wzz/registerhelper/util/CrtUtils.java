@@ -31,22 +31,22 @@ public class CrtUtils {
         RECIPE_CONVERTERS.put("minecraft:crafting_shaped", CrtUtils::convertVanillaShapedToZS);
         RECIPE_CONVERTERS.put("minecraft:crafting_shapeless", CrtUtils::convertVanillaShapelessToZS);
         
-//        // Extended Crafting 配方
-//        RECIPE_CONVERTERS.put("extendedcrafting:shaped_table", CrtUtils::convertExtendedShapedToZS);
-//        RECIPE_CONVERTERS.put("extendedcrafting:shapeless_table", CrtUtils::convertExtendedShapelessToZS);
-//        RECIPE_CONVERTERS.put("extendedcrafting:combination", CrtUtils::convertExtendedCombinationToZS);
-//
-//        // Thermal 系列
-//        RECIPE_CONVERTERS.put("thermal:smelter", CrtUtils::convertThermalSmelterToZS);
-//        RECIPE_CONVERTERS.put("thermal:pulverizer", CrtUtils::convertThermalPulverizerToZS);
-//
-//        // Mekanism 配方
-//        RECIPE_CONVERTERS.put("mekanism:crushing", CrtUtils::convertMekanismCrushingToZS);
-//        RECIPE_CONVERTERS.put("mekanism:enriching", CrtUtils::convertMekanismEnrichingToZS);
-//
-//        // Create 配方
-//        RECIPE_CONVERTERS.put("create:mixing", CrtUtils::convertCreateMixingToZS);
-//        RECIPE_CONVERTERS.put("create:cutting", CrtUtils::convertCreateCuttingToZS);
+        // Extended Crafting 配方
+        RECIPE_CONVERTERS.put("extendedcrafting:shaped_table", CrtUtils::convertExtendedShapedToZS);
+        RECIPE_CONVERTERS.put("extendedcrafting:shapeless_table", CrtUtils::convertExtendedShapelessToZS);
+        RECIPE_CONVERTERS.put("extendedcrafting:combination", CrtUtils::convertExtendedCombinationToZS);
+
+        // Thermal 系列
+        RECIPE_CONVERTERS.put("thermal:smelter", CrtUtils::convertThermalSmelterToZS);
+        RECIPE_CONVERTERS.put("thermal:pulverizer", CrtUtils::convertThermalPulverizerToZS);
+
+        // Mekanism 配方
+        RECIPE_CONVERTERS.put("mekanism:crushing", CrtUtils::convertMekanismCrushingToZS);
+        RECIPE_CONVERTERS.put("mekanism:enriching", CrtUtils::convertMekanismEnrichingToZS);
+
+        // Create 配方
+        RECIPE_CONVERTERS.put("create:mixing", CrtUtils::convertCreateMixingToZS);
+        RECIPE_CONVERTERS.put("create:cutting", CrtUtils::convertCreateCuttingToZS);
     }
     
     @FunctionalInterface
