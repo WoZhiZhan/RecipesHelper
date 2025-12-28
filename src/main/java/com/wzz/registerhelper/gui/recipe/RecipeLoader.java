@@ -2,6 +2,7 @@ package com.wzz.registerhelper.gui.recipe;
 
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Recipe;
@@ -78,11 +79,12 @@ public class RecipeLoader {
      */
     public LoadResult loadRecipe(ResourceLocation recipeId) {
         try {
-            if (minecraft.level == null) {
-                return new LoadResult(false, "无法获取配方数据");
-            }
+            RecipeManager recipeManager = getRecipeManager();
+            RegistryAccess registryAccess = getRegistryAccess();
 
-            var recipeManager = minecraft.level.getRecipeManager();
+            if (recipeManager == null || registryAccess == null) {
+                return new LoadResult(false, "无法获取配方数据（服务器未启动或未连接）");
+            }
             var recipe = recipeManager.byKey(recipeId).orElse(null);
 
             if (recipe == null) {
@@ -132,6 +134,10 @@ public class RecipeLoader {
                 CraftingMode mode = recipeTypeName.contains("shaped") || recipeClassName.contains("shaped") ?
                         CraftingMode.SHAPED : CraftingMode.SHAPELESS;
                 return loadAvaritiaRecipe(recipe, resultItem, mode, originalRecipeTypeId);
+            }
+            // 检查锻造台配方
+            else if (isSmithingRecipe(recipeTypeName, recipeClassName)) {
+                return loadSmithingRecipe(recipe, resultItem, originalRecipeTypeId);
             }
             // 对于未知类型的配方，尝试通用加载
             else {
@@ -294,6 +300,42 @@ public class RecipeLoader {
         return AvaritiaConfig.getTierFromIngredientCount(ingredientCount);
     }
 
+    /**
+     * 加载锻造台配方
+     */
+    private LoadResult loadSmithingRecipe(Recipe<?> recipe, ItemStack resultItem, String originalRecipeTypeId) {
+        try {
+            var recipeIngredients = recipe.getIngredients();
+            List<ItemStack> ingredients = new ArrayList<>();
+
+            // 锻造台配方有3个槽位：模板、基础物品、添加材料
+            for (int i = 0; i < 3; i++) {
+                ingredients.add(ItemStack.EMPTY);
+            }
+
+            // 加载配方材料
+            for (int i = 0; i < Math.min(recipeIngredients.size(), 3); i++) {
+                var ingredient = recipeIngredients.get(i);
+                if (ingredient != null && !ingredient.isEmpty()) {
+                    var items = ingredient.getItems();
+                    if (items != null && items.length > 0) {
+                        ingredients.set(i, items[0].copy());
+                    }
+                }
+            }
+
+            LOGGER.info("成功加载锻造台配方: {}, 材料数: {}", recipe.getId(), ingredients.size());
+
+            // 使用null作为recipeType，让系统根据originalRecipeTypeId自动识别
+            return new LoadResult(true, null, null, null, 1,
+                    resultItem, ingredients, "成功载入锻造台配方", originalRecipeTypeId);
+
+        } catch (Exception e) {
+            LOGGER.warn("解析锻造台配方失败", e);
+            return new LoadResult(false, "解析锻造台配方失败: " + e.getMessage());
+        }
+    }
+
     // 配方类型识别辅助方法
     private boolean isShapedCraftingRecipe(String typeName, String className) {
         return typeName.contains("crafting_shaped") ||
@@ -341,8 +383,16 @@ public class RecipeLoader {
                 className.contains("avaritia");
     }
 
+    private boolean isSmithingRecipe(String typeName, String className) {
+        return typeName.contains("smithing") ||
+                className.contains("smithing") ||
+                typeName.contains("minecraft:smithing_transform") ||
+                typeName.contains("minecraft:smithing_trim");
+    }
+
     /**
      * 获取可编辑的配方列表
+     * 支持单人游戏（直接获取）和远程服务器（从缓存获取）
      */
     public List<UnifiedRecipeInfo> getEditableRecipes() {
         List<UnifiedRecipeInfo> recipes = new ArrayList<>();
@@ -350,6 +400,20 @@ public class RecipeLoader {
         try {
             MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
             if (server == null) {
+                // 远程服务器，从缓存获取
+                List<UnifiedRecipeInfo> cached = com.wzz.registerhelper.network.RecipeClientCache.getCachedRecipes();
+                if (cached.isEmpty()) {
+                    // 缓存为空，触发加载
+                    LOGGER.info("配方缓存为空，正在请求服务器数据...");
+                    com.wzz.registerhelper.network.RequestRecipeListPacket.sendToServer(1); // 1=可编辑配方
+                    return recipes;
+                }
+                // 过滤掉黑名单配方
+                for (UnifiedRecipeInfo info : cached) {
+                    if (!info.isBlacklisted) {
+                        recipes.add(info);
+                    }
+                }
                 return recipes;
             }
 
@@ -386,6 +450,7 @@ public class RecipeLoader {
 
     /**
      * 获取所有配方列表（包括被禁用的）
+     * 支持单人游戏（直接获取）和远程服务器（从缓存获取）
      */
     public List<UnifiedRecipeInfo> getAllRecipes() {
         List<UnifiedRecipeInfo> recipes = new ArrayList<>();
@@ -393,7 +458,15 @@ public class RecipeLoader {
         try {
             MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
             if (server == null) {
-                return recipes;
+                // 远程服务器，从缓存获取
+                List<UnifiedRecipeInfo> cached = com.wzz.registerhelper.network.RecipeClientCache.getCachedRecipes();
+                if (cached.isEmpty()) {
+                    // 缓存为空，触发加载
+                    LOGGER.info("配方缓存为空，正在请求服务器数据...");
+                    com.wzz.registerhelper.network.RequestRecipeListPacket.sendToServer(0); // 0=所有配方
+                    return recipes;
+                }
+                return new ArrayList<>(cached);
             }
 
             ServerLevel level = server.overworld();
@@ -426,6 +499,57 @@ public class RecipeLoader {
         }
 
         return recipes;
+    }
+
+    /**
+     * 检查是否为远程服务器（没有本地服务器实例）
+     */
+    public static boolean isRemoteServer() {
+        return ServerLifecycleHooks.getCurrentServer() == null;
+    }
+
+    /**
+     * 请求服务器刷新配方缓存
+     */
+    public void requestServerRecipes() {
+        if (isRemoteServer()) {
+            com.wzz.registerhelper.network.RecipeClientCache.clearCache();
+            com.wzz.registerhelper.network.RequestRecipeListPacket.sendToServer(0);
+        }
+    }
+
+    /**
+     * 获取 RecipeManager（兼容客户端和服务器）
+     */
+    private RecipeManager getRecipeManager() {
+        // 优先尝试从服务器获取
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null) {
+            return server.getRecipeManager();
+        }
+
+        // 如果是客户端连接到远程服务器，从客户端level获取
+        if (minecraft.level != null) {
+            return minecraft.level.getRecipeManager();
+        }
+
+        return null;
+    }
+
+    /**
+     * 获取 RegistryAccess
+     */
+    private RegistryAccess getRegistryAccess() {
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null) {
+            return server.registryAccess();
+        }
+
+        if (minecraft.level != null) {
+            return minecraft.level.registryAccess();
+        }
+
+        return null;
     }
 
     /**

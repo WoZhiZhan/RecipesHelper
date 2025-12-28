@@ -266,6 +266,18 @@ public class DynamicRecipeTypeConfig {
                 .property("layout", "stonecutting")
                 .processor(minecraftProcessor)
                 .build());
+
+        // 锻造台配方 (1.20+ smithing_transform)
+        registerRecipeType(new RecipeTypeDefinition.Builder("smithing", "锻造台")
+                .modId("minecraft")
+                .maxInputs(3)
+                .gridSize(3, 1)
+                .supportsFillMode(false)
+                .supportsCookingSettings(false)
+                .property("category", "smithing")
+                .property("layout", "smithing")
+                .processor(minecraftProcessor)
+                .build());
     }
 
     /**

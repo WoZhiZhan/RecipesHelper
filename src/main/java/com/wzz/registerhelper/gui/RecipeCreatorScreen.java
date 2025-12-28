@@ -8,6 +8,7 @@ import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
+import com.wzz.registerhelper.network.BlacklistClientHelper;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
@@ -947,6 +948,38 @@ public class RecipeCreatorScreen extends Screen {
 
     private void openRecipeSelector() {
         if (minecraft != null) {
+            // 检查是否为远程服务器且缓存为空
+            if (RecipeLoader.isRemoteServer()) {
+                if (!com.wzz.registerhelper.network.RecipeClientCache.isLoaded()) {
+                    displayInfo("正在从服务器加载配方列表，请稍候...");
+                    recipeLoader.requestServerRecipes();
+                    // 添加回调，数据加载完成后重新打开选择器
+                    com.wzz.registerhelper.network.RecipeClientCache.addLoadCallback(recipes -> {
+                        if (minecraft != null) {
+                            minecraft.execute(() -> {
+                                if (!recipes.isEmpty()) {
+                                    List<UnifiedRecipeInfo> editableRecipes = new ArrayList<>();
+                                    for (UnifiedRecipeInfo info : recipes) {
+                                        if (!info.isBlacklisted) {
+                                            editableRecipes.add(info);
+                                        }
+                                    }
+                                    if (!editableRecipes.isEmpty()) {
+                                        minecraft.setScreen(new RecipeSelectorScreen(this, this::loadSelectedRecipe,
+                                                editableRecipes, "选择要编辑的配方"));
+                                    } else {
+                                        displayError("没有找到可编辑的配方");
+                                    }
+                                } else {
+                                    displayError("没有找到可编辑的配方");
+                                }
+                            });
+                        }
+                    });
+                    return;
+                }
+            }
+
             List<UnifiedRecipeInfo> editableRecipes = recipeLoader.getEditableRecipes();
             if (editableRecipes.isEmpty()) {
                 displayError("没有找到可编辑的配方");
@@ -959,6 +992,28 @@ public class RecipeCreatorScreen extends Screen {
 
     private void openRecipeOperationSelector() {
         if (minecraft != null) {
+            // 检查是否为远程服务器且缓存为空
+            if (RecipeLoader.isRemoteServer()) {
+                if (!com.wzz.registerhelper.network.RecipeClientCache.isLoaded()) {
+                    displayInfo("正在从服务器加载配方列表，请稍候...");
+                    recipeLoader.requestServerRecipes();
+                    // 添加回调，数据加载完成后重新打开选择器
+                    com.wzz.registerhelper.network.RecipeClientCache.addLoadCallback(recipes -> {
+                        if (minecraft != null) {
+                            minecraft.execute(() -> {
+                                if (!recipes.isEmpty()) {
+                                    minecraft.setScreen(new RecipeSelectorScreen(this, this::handleRecipeOperation,
+                                            new ArrayList<>(recipes), "选择要操作的配方"));
+                                } else {
+                                    displayError("没有找到任何配方");
+                                }
+                            });
+                        }
+                    });
+                    return;
+                }
+            }
+
             List<UnifiedRecipeInfo> allRecipes = recipeLoader.getAllRecipes();
             if (allRecipes.isEmpty()) {
                 displayError("没有找到任何配方");
@@ -1050,14 +1105,16 @@ public class RecipeCreatorScreen extends Screen {
             String resultMessage = "";
 
             if (info.isBlacklisted) {
-                success = RecipeBlacklistManager.removeFromBlacklist(recipeId);
-                resultMessage = success ? "配方已恢复" : "恢复配方失败";
+                // 使用网络包辅助类
+                success = BlacklistClientHelper.removeFromBlacklist(recipeId);
+                resultMessage = success ? "正在恢复配方" : "恢复配方失败";
             } else if (info.hasOverride) {
                 success = UnifiedRecipeOverrideManager.removeOverride(recipeId);
                 resultMessage = success ? "覆盖已移除" : "移除覆盖失败";
             } else {
-                success = RecipeBlacklistManager.addToBlacklist(recipeId);
-                resultMessage = success ? "配方已禁用" : "禁用配方失败";
+                // 使用网络包辅助类
+                success = BlacklistClientHelper.addToBlacklist(recipeId);
+                resultMessage = success ? "正在禁用配方" : "禁用配方失败";
             }
 
             if (success) {

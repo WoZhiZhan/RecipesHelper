@@ -6,6 +6,7 @@ import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.network.OpenGUIPacket;
 import com.wzz.registerhelper.util.CrtUtils;
 import com.wzz.registerhelper.util.KubeJsUtils;
+import com.wzz.registerhelper.util.RecipeReloadHelper;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -24,6 +25,8 @@ public class RecipeCommand {
                 .requires(source -> source.hasPermission(2))
                 .then(Commands.literal("openGUI")
                         .executes(RecipeCommand::openGUI))
+                .then(Commands.literal("reload")
+                        .executes(RecipeCommand::reloadRecipes))
                 .then(Commands.literal("export")
                         .then(Commands.literal("kubejs")
                                 .then(Commands.literal("single")
@@ -35,6 +38,30 @@ public class RecipeCommand {
                                         .executes(RecipeCommand::exportAllToCraftTweakerSingle))
                                 .then(Commands.literal("multiple")
                                         .executes(RecipeCommand::exportAllToCraftTweakerMultiple)))));
+    }
+
+    /**
+     * 重载配方（OP可用，以服务器身份执行 /reload）
+     */
+    private static int reloadRecipes(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        try {
+            // 直接调用，服务器会自己发送 "Reloading!" 消息
+            boolean success = RecipeReloadHelper.reloadRecipesOnly(source);
+
+            if (success) {
+                LOGGER.info("玩家 {} 触发了配方重载",
+                        source.getEntity() != null ? source.getEntity().getName().getString() : "Console");
+                return 1;
+            } else {
+                return 0;
+            }
+
+        } catch (Exception e) {
+            source.sendFailure(Component.literal("§c重载失败: " + e.getMessage()));
+            LOGGER.error("配方重载失败", e);
+            return 0;
+        }
     }
 
     private static int exportAllToKubeJSSingle(CommandContext<CommandSourceStack> context) {

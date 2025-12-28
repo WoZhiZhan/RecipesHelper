@@ -12,7 +12,6 @@ import com.wzz.registerhelper.recipe.RecipeJsonBuilder;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import com.wzz.registerhelper.tags.CustomTagManager;
-import com.wzz.registerhelper.util.ModLogger;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.registries.ForgeRegistries;

@@ -3,6 +3,9 @@ package com.wzz.registerhelper.gui;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
+import com.wzz.registerhelper.network.RecipeClientCache;
+import com.wzz.registerhelper.network.RequestRecipeListPacket;
+import com.wzz.registerhelper.network.SyncRecipeListPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -10,12 +13,14 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeManager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
+import net.minecraftforge.server.ServerLifecycleHooks;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 
@@ -111,7 +116,38 @@ public class RecipeSelectorScreen extends Screen {
                 LOGGER.error("Game level is null");
                 return;
             }
-            RecipeManager recipeManager = minecraft.level.getRecipeManager();
+
+            // 优先尝试从服务器直接获取（单人游戏或集成服务器）
+            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+            RecipeManager recipeManager;
+
+            if (server != null) {
+                // 单人游戏或局域网主机，直接从服务器获取
+                recipeManager = server.getRecipeManager();
+                LOGGER.info("从集成服务器加载配方");
+            } else {
+                // 远程服务器，使用网络包请求
+                LOGGER.info("检测到远程服务器，使用网络包获取配方列表");
+                loadError = "正在从服务器加载配方...";
+
+                // 清除旧缓存
+                RecipeClientCache.clearCache();
+
+                // 发送请求
+                RequestRecipeListPacket.sendToServer();
+
+                // 添加回调，当数据返回时更新列表
+                RecipeClientCache.addLoadCallback(recipes -> {
+                    // 在主线程更新UI
+                    minecraft.execute(() -> {
+                        loadError = null;
+                        processRecipesFromCache(recipes);
+                    });
+                });
+
+                return; // 异步加载，直接返回
+            }
+
             if (recipeManager == null) {
                 loadError = "配方管理器为空";
                 LOGGER.error("Recipe manager is null");
@@ -157,6 +193,74 @@ public class RecipeSelectorScreen extends Screen {
         }
         allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
         filteredRecipes = new ArrayList<>(allRecipes);
+    }
+
+    /**
+     * 从网络缓存处理配方数据（用于远程服务器）
+     */
+    private void processRecipesFromCache(List<UnifiedRecipeInfo> recipes) {
+        allRecipes.clear();
+
+        if (recipes.isEmpty()) {
+            loadError = RecipeClientCache.getErrorMessage();
+            if (loadError == null) {
+                loadError = "服务器返回了空的配方列表";
+            }
+            filteredRecipes = new ArrayList<>();
+            updateButtons();
+            return;
+        }
+
+        // 将 UnifiedRecipeInfo 转换为 RecipeEntry
+        RecipeManager clientRecipeManager = minecraft.level != null ?
+                minecraft.level.getRecipeManager() : null;
+
+        for (UnifiedRecipeInfo info : recipes) {
+            try {
+                // 尝试从客户端获取配方详情（用于显示）
+                Recipe<?> recipe = null;
+                ItemStack resultItem = ItemStack.EMPTY;
+
+                if (clientRecipeManager != null) {
+                    recipe = clientRecipeManager.byKey(info.id).orElse(null);
+                    if (recipe != null) {
+                        try {
+                            resultItem = recipe.getResultItem(minecraft.level.registryAccess());
+                        } catch (Exception e) {
+                            // 忽略
+                        }
+                    }
+                }
+
+                // 从描述中提取类型
+                String recipeType = info.description.contains("->") ?
+                        info.description.split("->")[0].trim() : "未知类型";
+
+                // 应用过滤器
+                if (useRecipeFilter && !allowedRecipeIds.isEmpty()) {
+                    if (!allowedRecipeIds.contains(info.id)) {
+                        continue;
+                    }
+                }
+
+                allRecipes.add(new RecipeEntry(info.id, resultItem, recipeType, recipe));
+
+            } catch (Exception e) {
+                LOGGER.warn("处理配方 {} 时出错: {}", info.id, e.getMessage());
+            }
+        }
+
+        LOGGER.info("从服务器加载了 {} 个配方", allRecipes.size());
+
+        allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
+        filteredRecipes = new ArrayList<>(allRecipes);
+
+        // 重新应用搜索过滤
+        if (searchBox != null && !searchBox.getValue().isEmpty()) {
+            onSearchTextChanged(searchBox.getValue());
+        }
+
+        updateButtons();
     }
 
     private String classifyRecipeType(Recipe<?> recipe) {
@@ -340,10 +444,26 @@ public class RecipeSelectorScreen extends Screen {
         int listAreaX = leftPos + RECIPE_DETAIL_WIDTH + 20;
 
         if (loadError != null) {
-            guiGraphics.drawCenteredString(this.font, "§c错误: " + loadError,
-                    listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 30, 0xFFAAAA);
-            guiGraphics.drawCenteredString(this.font, "§e点击刷新按钮重试",
-                    listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 105, 0xFFCC66);
+            // 检查是否正在加载
+            if (loadError.contains("正在从服务器加载") || RecipeClientCache.isLoading()) {
+                float progress = SyncRecipeListPacket.getProgress();
+                String progressText = String.format("正在从服务器加载配方... %.0f%%", progress * 100);
+                guiGraphics.drawCenteredString(this.font, "§e" + progressText,
+                        listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 30, 0xFFCC66);
+
+                // 绘制进度条
+                int barX = listAreaX;
+                int barY = topPos + 50;
+                int barWidth = contentWidth - RECIPE_DETAIL_WIDTH - 60;
+                int barHeight = 10;
+                guiGraphics.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF000000);
+                guiGraphics.fill(barX + 1, barY + 1, barX + (int)((barWidth - 2) * progress), barY + barHeight - 1, 0xFF00AA00);
+            } else {
+                guiGraphics.drawCenteredString(this.font, "§c错误: " + loadError,
+                        listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 30, 0xFFAAAA);
+                guiGraphics.drawCenteredString(this.font, "§e点击刷新按钮重试",
+                        listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 105, 0xFFCC66);
+            }
         } else {
             String countText = String.format("显示 %d/%d 个配方", filteredRecipes.size(), allRecipes.size());
             guiGraphics.drawString(this.font, countText, listAreaX, topPos + 30, 0xCCCCCC, false);
@@ -848,31 +968,15 @@ public class RecipeSelectorScreen extends Screen {
         if (ingredientCount <= 9) return 3;
         if (ingredientCount <= 25) return 5;
         if (ingredientCount <= 49) return 7;
-        return 9; // 修复：确保返回9而不是其他值
+        return 9;
     }
 
-    private static class RecipeEntry {
-        public final ResourceLocation recipeId;
-        public final ItemStack resultItem;
-        public final String recipeType;
-        public final Recipe<?> recipe; // 添加原始配方引用
-
-        public RecipeEntry(ResourceLocation recipeId, ItemStack resultItem, String recipeType, Recipe<?> recipe) {
-            this.recipeId = recipeId;
-            this.resultItem = resultItem;
-            this.recipeType = recipeType;
-            this.recipe = recipe;
-        }
+    /**
+     * @param recipe 添加原始配方引用
+     */
+    private record RecipeEntry(ResourceLocation recipeId, ItemStack resultItem, String recipeType, Recipe<?> recipe) {
     }
 
-    private static class SlotInfo {
-        public final int x, y;
-        public final ItemStack item;
-
-        public SlotInfo(int x, int y, ItemStack item) {
-            this.x = x;
-            this.y = y;
-            this.item = item;
-        }
+    private record SlotInfo(int x, int y, ItemStack item) {
     }
 }
