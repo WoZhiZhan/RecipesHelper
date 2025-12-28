@@ -1,9 +1,6 @@
 package com.wzz.registerhelper.network;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.google.gson.*;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
 import net.minecraft.network.FriendlyByteBuf;
@@ -87,13 +84,12 @@ public class CreateRecipeJsonPacket {
                         LOGGER.warn("配方覆盖失败: {}", packet.recipeId);
                     }
                 } else {
-                    SaveResult result = saveRecipeFile(recipeIdLoc, recipeObj);
+                    success = saveRecipeFile(recipeIdLoc, recipeObj);
 
-                    if (result.success) {
+                    if (success) {
                         context.getSender().sendSystemMessage(
-                                Component.literal("§a配方创建成功: " + result.fileName + " 使用 /reload 刷新配方")
+                                Component.literal("§a配方创建成功: " + packet.recipeId + " 使用 /reload 刷新配方")
                         );
-                        LOGGER.info("配方创建成功: {} (保存为: {})", packet.recipeId, result.fileName);
                     } else {
                         context.getSender().sendSystemMessage(Component.literal("§c配方创建失败"));
                         LOGGER.warn("配方创建失败: {}", packet.recipeId);
@@ -113,68 +109,33 @@ public class CreateRecipeJsonPacket {
     }
 
     /**
-     * 保存结果类
-     */
-    private static class SaveResult {
-        final boolean success;
-        final String fileName;  // 实际保存的文件名
-        final Path filePath;    // 完整路径（可选）
-
-        SaveResult(boolean success, String fileName, Path filePath) {
-            this.success = success;
-            this.fileName = fileName;
-            this.filePath = filePath;
-        }
-    }
-
-    /**
      * 保存配方文件到服务器（创建模式）
-     * @return SaveResult 包含成功状态和实际文件名
      */
-    private static SaveResult saveRecipeFile(ResourceLocation recipeId, JsonObject recipeJson) {
+    private static boolean saveRecipeFile(ResourceLocation recipeId, JsonObject recipeJson) {
         try {
             String namespace = recipeId.getNamespace();
             String path = recipeId.getPath();
-
-            // 生成简化的文件名，保留custom前缀
             String fileName = generateOptimizedFileName(path, recipeJson);
-
             // 保存到 recipes 目录
-            Path recipePath = FMLPaths.GAMEDIR.get()
-                    .resolve("config/registerhelper/recipes")
+            Path recipePath = FMLPaths.CONFIGDIR.get()
+                    .resolve("registerhelper/recipes")
                     .resolve(namespace)
                     .resolve(fileName + ".json");
 
-            // 如果文件已存在，添加序号
-            int counter = 1;
-            Path finalPath = recipePath;
-            String finalFileName = fileName;
-            while (Files.exists(finalPath)) {
-                finalFileName = fileName + "_" + counter;
-                finalPath = FMLPaths.GAMEDIR.get()
-                        .resolve("config/registerhelper/recipes")
-                        .resolve(namespace)
-                        .resolve(finalFileName + ".json");
-                counter++;
-            }
-
             // 创建目录
-            Files.createDirectories(finalPath.getParent());
+            Files.createDirectories(recipePath.getParent());
 
             // 写入JSON文件
-            try (FileWriter writer = new FileWriter(finalPath.toFile())) {
+            try (FileWriter writer = new FileWriter(recipePath.toFile())) {
                 GSON.toJson(recipeJson, writer);
             }
 
-            LOGGER.info("配方已保存: {} -> {}", recipeId, finalPath);
-
-            // 返回带namespace的完整文件名
-            String fullFileName = namespace + ":" + finalFileName;
-            return new SaveResult(true, fullFileName, finalPath);
+            LOGGER.info("配方已保存: {} -> {}", recipeId, recipePath);
+            return true;
 
         } catch (Exception e) {
             LOGGER.error("保存配方文件失败: {}", recipeId, e);
-            return new SaveResult(false, null, null);
+            return false;
         }
     }
 
@@ -183,7 +144,7 @@ public class CreateRecipeJsonPacket {
      * 格式: custom_<类型简写>_<结果物品>
      * 例如: custom_av_shaped_diamond_sword
      */
-    private static String generateOptimizedFileName(String path, JsonObject recipeJson) {
+    public static String generateOptimizedFileName(String path, JsonObject recipeJson) {
         StringBuilder fileName = new StringBuilder("custom");
 
         // 添加简化的配方类型
@@ -289,28 +250,57 @@ public class CreateRecipeJsonPacket {
      */
     private static String extractResultItemName(JsonObject recipeJson) {
         try {
+            // ---------- 单 result ----------
             if (recipeJson.has("result")) {
-                JsonObject result = recipeJson.getAsJsonObject("result");
-                if (result.has("item")) {
-                    String itemId = result.get("item").getAsString();
-                    return simplifyItemName(itemId);
+                String id = extractIdFromResultElement(recipeJson.get("result"));
+                if (id != null) {
+                    return simplifyItemName(id);
                 }
             }
+
+            // ---------- 多 results ----------
             if (recipeJson.has("results")) {
                 var results = recipeJson.getAsJsonArray("results");
-                if (results.size() > 0) {
-                    JsonObject firstResult = results.get(0).getAsJsonObject();
-                    if (firstResult.has("item")) {
-                        String itemId = firstResult.get("item").getAsString();
-                        return simplifyItemName(itemId);
+                if (!results.isEmpty()) {
+                    String id = extractIdFromResultElement(results.get(0));
+                    if (id != null) {
+                        return simplifyItemName(id);
                     }
                 }
             }
         } catch (Exception e) {
             LOGGER.warn("提取结果物品名称失败", e);
         }
-
         return "";
+    }
+
+    private static String extractIdFromResultElement(JsonElement element) {
+        // 简写形式："minecraft:stone"
+        if (element.isJsonPrimitive()) {
+            return element.getAsString();
+        }
+
+        // 标准对象形式
+        if (element.isJsonObject()) {
+            JsonObject obj = element.getAsJsonObject();
+
+            // 1.21 新标准
+            if (obj.has("id")) {
+                return obj.get("id").getAsString();
+            }
+            // 旧兼容
+            if (obj.has("item")) {
+                return obj.get("item").getAsString();
+            }
+            if (obj.has("block")) {
+                return obj.get("block").getAsString();
+            }
+            if (obj.has("name")) { // 某些模组（如 Botania）
+                return obj.get("name").getAsString();
+            }
+        }
+
+        return null;
     }
 
     /**

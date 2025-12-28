@@ -7,6 +7,7 @@ import com.mojang.logging.LogUtils;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.packs.repository.Pack;
+import net.minecraftforge.fml.loading.FMLPaths;
 import net.minecraftforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 
@@ -26,7 +27,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RecipeBlacklistManager {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final String BLACKLIST_FILE = "config/registerhelper/recipe_blacklist.json";
+    private static final String BLACKLIST_FILE = FMLPaths.CONFIGDIR.get()
+            .resolve("registerhelper/recipe_blacklist.json").toAbsolutePath().normalize().toString();
 
     private static final Set<ResourceLocation> blacklistedRecipes = ConcurrentHashMap.newKeySet();
     private static boolean initialized = false;

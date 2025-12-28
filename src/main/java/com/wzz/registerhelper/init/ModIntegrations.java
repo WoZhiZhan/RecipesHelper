@@ -12,6 +12,8 @@ public class ModIntegrations {
                 "无尽贪婪:合成", new AvaritiaRecipeProcessor(), 9, true);
         RegisterHelper.registerRecipeType("eternisstarrysky", "vanilla_workbench_s",
                 "星空永恒:有序合成", new EternisStarrySkyProcessor(), 9, true);
+        RegisterHelper.registerRecipeType("forever_love_sword", "starshine_oath_table",
+                "永爱之刃:星辉誓约台", new ForeverLoveSwordProcessor(), 9, true);
         RegisterHelper.registerRecipeTypeWithLayout("mysticalagriculture", "infusion",
                 "神秘农业:注魔", new MysticalAgricultureProcessor(), "infusion");
         RegisterHelper.registerRecipeTypeWithLayout("mysticalagriculture", "awakening",

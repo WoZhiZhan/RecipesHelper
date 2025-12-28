@@ -4,6 +4,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraftforge.fml.loading.FMLPaths;
 
 import java.io.IOException;
@@ -26,26 +30,26 @@ public class KubeJsUtils {
         RECIPE_CONVERTERS.put("minecraft:crafting_shaped", KubeJsUtils::convertVanillaShapedToJS);
         RECIPE_CONVERTERS.put("minecraft:crafting_shapeless", KubeJsUtils::convertVanillaShapelessToJS);
         
-        // Extended Crafting 配方
-        RECIPE_CONVERTERS.put("extendedcrafting:shaped_table", KubeJsUtils::convertExtendedShapedToJS);
-        RECIPE_CONVERTERS.put("extendedcrafting:shapeless_table", KubeJsUtils::convertExtendedShapelessToJS);
-        RECIPE_CONVERTERS.put("extendedcrafting:combination", KubeJsUtils::convertExtendedCombinationToJS);
-
-        // Thermal 系列配方
-        RECIPE_CONVERTERS.put("thermal:smelter", KubeJsUtils::convertThermalSmelterToJS);
-        RECIPE_CONVERTERS.put("thermal:pulverizer", KubeJsUtils::convertThermalPulverizerToJS);
-        RECIPE_CONVERTERS.put("thermal:centrifuge", KubeJsUtils::convertThermalCentrifugeToJS);
-
-        // Mekanism 配方
-        RECIPE_CONVERTERS.put("mekanism:crushing", KubeJsUtils::convertMekanismCrushingToJS);
-        RECIPE_CONVERTERS.put("mekanism:enriching", KubeJsUtils::convertMekanismEnrichingToJS);
-        RECIPE_CONVERTERS.put("mekanism:smelting", KubeJsUtils::convertMekanismSmeltingToJS);
-
-        // Create 配方
-        RECIPE_CONVERTERS.put("create:mixing", KubeJsUtils::convertCreateMixingToJS);
-        RECIPE_CONVERTERS.put("create:cutting", KubeJsUtils::convertCreateCuttingToJS);
-        RECIPE_CONVERTERS.put("create:pressing", KubeJsUtils::convertCreatePressingToJS);
-        RECIPE_CONVERTERS.put("create:crushing", KubeJsUtils::convertCreateCrushingToJS);
+//        // Extended Crafting 配方
+//        RECIPE_CONVERTERS.put("extendedcrafting:shaped_table", KubeJsUtils::convertExtendedShapedToJS);
+//        RECIPE_CONVERTERS.put("extendedcrafting:shapeless_table", KubeJsUtils::convertExtendedShapelessToJS);
+//        RECIPE_CONVERTERS.put("extendedcrafting:combination", KubeJsUtils::convertExtendedCombinationToJS);
+//
+//        // Thermal 系列配方
+//        RECIPE_CONVERTERS.put("thermal:smelter", KubeJsUtils::convertThermalSmelterToJS);
+//        RECIPE_CONVERTERS.put("thermal:pulverizer", KubeJsUtils::convertThermalPulverizerToJS);
+//        RECIPE_CONVERTERS.put("thermal:centrifuge", KubeJsUtils::convertThermalCentrifugeToJS);
+//
+//        // Mekanism 配方
+//        RECIPE_CONVERTERS.put("mekanism:crushing", KubeJsUtils::convertMekanismCrushingToJS);
+//        RECIPE_CONVERTERS.put("mekanism:enriching", KubeJsUtils::convertMekanismEnrichingToJS);
+//        RECIPE_CONVERTERS.put("mekanism:smelting", KubeJsUtils::convertMekanismSmeltingToJS);
+//
+//        // Create 配方
+//        RECIPE_CONVERTERS.put("create:mixing", KubeJsUtils::convertCreateMixingToJS);
+//        RECIPE_CONVERTERS.put("create:cutting", KubeJsUtils::convertCreateCuttingToJS);
+//        RECIPE_CONVERTERS.put("create:pressing", KubeJsUtils::convertCreatePressingToJS);
+//        RECIPE_CONVERTERS.put("create:crushing", KubeJsUtils::convertCreateCrushingToJS);
     }
     
     @FunctionalInterface
@@ -453,7 +457,7 @@ public class KubeJsUtils {
     public static List<Path> getAllJsonRecipeFiles() {
         List<Path> jsonFiles = new ArrayList<>();
         try {
-            Path recipesDir = FMLPaths.GAMEDIR.get().resolve("config/registerhelper/recipes");
+            Path recipesDir = FMLPaths.CONFIGDIR.get().resolve("registerhelper/recipes");
             
             if (Files.exists(recipesDir)) {
                 try (Stream<Path> paths = Files.walk(recipesDir)) {
@@ -470,7 +474,7 @@ public class KubeJsUtils {
     
     public static void exportAllJsonRecipesToJS(boolean singleFile) {
         List<Path> jsonFiles = getAllJsonRecipeFiles();
-        Path recipesBaseDir = FMLPaths.GAMEDIR.get().resolve("config/registerhelper/recipes");
+        Path recipesBaseDir = FMLPaths.CONFIGDIR.get().resolve("registerhelper/recipes");
 
         if (singleFile) {
             // 按配方类型分组

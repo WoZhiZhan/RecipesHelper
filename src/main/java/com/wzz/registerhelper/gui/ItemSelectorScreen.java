@@ -7,6 +7,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
@@ -74,7 +75,7 @@ public class ItemSelectorScreen extends Screen {
         this.searchHelper = new PinyinSearchHelper<>(
                 item -> item.getItem().getDescription().getString(),
                 item -> {
-                    ResourceLocation id = ForgeRegistries.ITEMS.getKey(item.getItem());
+                    ResourceLocation id = BuiltInRegistries.ITEM.getKey(item.getItem());
                     return id != null ? id.toString() : "";
                 }
         );
@@ -100,7 +101,7 @@ public class ItemSelectorScreen extends Screen {
 
         allItems.addAll(commonItems);
 
-        for (Item item : ForgeRegistries.ITEMS.getValues()) {
+        for (Item item : BuiltInRegistries.ITEM) {
             ItemStack stack = item.getDefaultInstance();
             if (!allItems.contains(stack) && item != Items.AIR) {
                 allItems.add(stack);
@@ -140,12 +141,7 @@ public class ItemSelectorScreen extends Screen {
     private String getItemIdentifier(ItemStack stack) {
         ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
         String baseId = id != null ? id.toString() : "unknown";
-
-        // 如果有NBT，加入NBT的哈希值以区分
-        if (stack.hasTag()) {
-            return baseId + "#" + stack.getTag().hashCode();
-        }
-        return baseId;
+        return stack.hasTag() ? baseId + "#" + stack.getTag().hashCode() : baseId;
     }
 
     private void updateFilteredItems(String searchText) {
@@ -217,7 +213,7 @@ public class ItemSelectorScreen extends Screen {
         cancelButton = addRenderableWidget(Button.builder(
                         Component.literal("取消"),
                         button -> onClose())
-                .bounds(leftPos + (GUI_WIDTH - 48) / 2, topPos + GUI_HEIGHT - 24, 48, 20)
+                .bounds(leftPos + (GUI_WIDTH - 48) / 2, topPos + GUI_HEIGHT - 20, 48, 20)
                 .build());
 
         updateButtons();
@@ -335,7 +331,7 @@ public class ItemSelectorScreen extends Screen {
 
                 tooltip.add(item.getHoverName());
 
-                ResourceLocation itemId = ForgeRegistries.ITEMS.getKey(item.getItem());
+                ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(item.getItem());
                 if (itemId != null) {
                     tooltip.add(Component.literal("§7ID: " + itemId));
                     tooltip.add(Component.literal("§9From: " + itemId.getNamespace()));

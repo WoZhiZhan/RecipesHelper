@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static com.wzz.registerhelper.gui.recipe.RecipeTypeConfig.AvaritiaConfig.getGridSizeForTier;
+import static com.wzz.registerhelper.network.CreateRecipeJsonPacket.generateOptimizedFileName;
 
 /**
  * 动态配方构建器
@@ -49,7 +50,7 @@ public class DynamicRecipeBuilder {
         public final int customTier;
         public final ItemStack resultItem;
         public final List<ItemStack> ingredients; // 保留用于兼容
-        public final List<IngredientData> ingredientsData; // 新增：完整的材料数据
+        public final List<IngredientData> ingredientsData;
         public final float cookingTime;
         public final float cookingExp;
         public final ResourceLocation editingRecipeId;
@@ -96,7 +97,7 @@ public class DynamicRecipeBuilder {
             saveCustomTags(params);
 
             String recipeId = params.isEditing && params.editingRecipeId != null ?
-                    params.editingRecipeId.toString() : generateRecipeIdPath(params);
+                    params.editingRecipeId.toString() : generateOptimizedRecipeId(params, recipeJson);
 
             boolean isOverride = isOverrideMode(params);
 
@@ -247,16 +248,15 @@ public class DynamicRecipeBuilder {
         return result;
     }
 
-    /**
-     * 创建配方请求
-     */
     private RecipeRequest createRecipeRequest(BuildParams params) {
         String category = params.recipeType.getProperty("category", String.class);
+
+        JsonObject recipeJson = generateRecipeJson(params);
+
         String recipeId = params.editingRecipeId != null ?
                 params.editingRecipeId.toString() :
-                generateRecipeIdPath(params);
+                generateOptimizedRecipeId(params, recipeJson);
 
-        // 根据配方类型创建相应的请求
         if ("cooking".equals(category) || params.recipeType.supportsCookingSettings()) {
             return createCookingRequest(params, recipeId);
         } else if ("crafting".equals(category)) {
@@ -270,6 +270,19 @@ public class DynamicRecipeBuilder {
             }
             return request;
         }
+    }
+
+    /**
+     * 使用优化的方法生成recipeId
+     */
+    private String generateOptimizedRecipeId(BuildParams params, JsonObject recipeJson) {
+        // 构建原始路径用于推断
+        String itemName = ForgeRegistries.ITEMS.getKey(params.resultItem.getItem()).getPath();
+        String typeName = params.recipeType.getId().replace(":", "_");
+        String originalPath = "custom_" + typeName + "_" + itemName;
+
+        // 调用优化方法
+        return generateOptimizedFileName(originalPath, recipeJson);
     }
 
     /**
@@ -620,15 +633,6 @@ public class DynamicRecipeBuilder {
      */
     private int getAvaritiaGridSize(int tier) {
         return getGridSizeForTier(tier);
-    }
-
-    /**
-     * 生成配方ID路径
-     */
-    private String generateRecipeIdPath(BuildParams params) {
-        String itemName = ForgeRegistries.ITEMS.getKey(params.resultItem.getItem()).getPath();
-        String typeName = params.recipeType.getId().replace(":", "_");
-        return "custom_" + typeName + "_" + itemName + "_" + System.currentTimeMillis();
     }
 
     /**

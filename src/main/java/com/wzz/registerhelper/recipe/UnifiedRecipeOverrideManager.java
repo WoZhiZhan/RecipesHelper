@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraftforge.fml.loading.FMLPaths;
 import org.slf4j.Logger;
 
 import java.io.File;
@@ -25,28 +26,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class UnifiedRecipeOverrideManager {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final String OVERRIDES_FILE = "config/registerhelper/recipe_overrides.json";
+    private static final String OVERRIDES_FILE = FMLPaths.CONFIGDIR.get()
+            .resolve("registerhelper/recipe_overrides.json").toAbsolutePath().normalize().toString();
     
     // 内存中的覆盖映射：原配方ID -> 覆盖JSON
     private static final Map<ResourceLocation, JsonObject> recipeOverrides = new ConcurrentHashMap<>();
     private static boolean initialized = false;
-    
-    /**
-     * 覆盖数据类
-     */
-    public static class OverrideData {
-        public final ResourceLocation originalId;
-        public final JsonObject overrideJson;
-        public final long timestamp;
-        public final String description;
-        
-        public OverrideData(ResourceLocation originalId, JsonObject overrideJson, String description) {
-            this.originalId = originalId;
-            this.overrideJson = overrideJson;
-            this.timestamp = System.currentTimeMillis();
-            this.description = description;
-        }
-    }
     
     /**
      * 初始化覆盖管理器

@@ -370,7 +370,7 @@ public class CrtUtils {
     public static List<Path> getAllJsonRecipeFiles() {
         List<Path> jsonFiles = new ArrayList<>();
         try {
-            Path recipesDir = FMLPaths.GAMEDIR.get().resolve("config/registerhelper/recipes");
+            Path recipesDir = FMLPaths.CONFIGDIR.get().resolve("registerhelper/recipes");
 
             if (Files.exists(recipesDir)) {
                 try (Stream<Path> paths = Files.walk(recipesDir)) {
@@ -387,7 +387,7 @@ public class CrtUtils {
     
     public static void exportAllJsonRecipesToZS(boolean singleFile) {
         List<Path> jsonFiles = getAllJsonRecipeFiles();
-        Path recipesBaseDir = FMLPaths.GAMEDIR.get().resolve("config/registerhelper/recipes");
+        Path recipesBaseDir = FMLPaths.CONFIGDIR.get().resolve("registerhelper/recipes");
 
         if (singleFile) {
             Map<String, List<String>> recipesByMod = new LinkedHashMap<>();
