@@ -86,7 +86,11 @@ public class DynamicRecipeBuilder {
         }
 
         try {
-            JsonObject recipeJson = generateRecipeJson(params);
+            RecipeRequest request = createRecipeRequest(params);
+
+            JsonObject recipeJson = params.recipeType
+                    .getProcessor()
+                    .createRecipeJson(request);
 
             if (recipeJson == null) {
                 showError("无法生成配方JSON");
@@ -95,14 +99,16 @@ public class DynamicRecipeBuilder {
 
             saveCustomTags(params);
 
-            String recipeId = params.isEditing && params.editingRecipeId != null ?
-                    params.editingRecipeId.toString() : generateOptimizedRecipeId(params, recipeJson);
+            String recipeId = params.isEditing && params.editingRecipeId != null
+                    ? params.editingRecipeId.toString()
+                    : generateOptimizedRecipeId(params, recipeJson);
 
             boolean isOverride = isOverrideMode(params);
 
-            Gson GSON = new Gson();
-            String jsonString = GSON.toJson(recipeJson);
-            CreateRecipeJsonPacket packet = new CreateRecipeJsonPacket(recipeId, jsonString, isOverride);
+            Gson gson = new Gson();
+            String jsonString = gson.toJson(recipeJson);
+            CreateRecipeJsonPacket packet =
+                    new CreateRecipeJsonPacket(recipeId, jsonString, isOverride);
             ModNetwork.CHANNEL.sendToServer(packet);
 
             String action = params.isEditing ? "更新" : "创建";
@@ -250,11 +256,9 @@ public class DynamicRecipeBuilder {
     private RecipeRequest createRecipeRequest(BuildParams params) {
         String category = params.recipeType.getProperty("category", String.class);
 
-        JsonObject recipeJson = generateRecipeJson(params);
-
-        String recipeId = params.editingRecipeId != null ?
-                params.editingRecipeId.toString() :
-                generateOptimizedRecipeId(params, recipeJson);
+        String recipeId = params.editingRecipeId != null
+                ? params.editingRecipeId.toString()
+                : "temp";
 
         if ("cooking".equals(category) || params.recipeType.supportsCookingSettings()) {
             return createCookingRequest(params, recipeId);
