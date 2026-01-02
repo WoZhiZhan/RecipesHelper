@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui.recipe;
 
 import com.mojang.logging.LogUtils;
+import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceLocation;
@@ -268,8 +269,8 @@ public class RecipeLoader {
             int ingredientCount = recipeIngredients.size();
 
             // 正确计算tier
-            int tier = calculateAvaritiaTeir(ingredientCount);
-            int gridSize = AvaritiaConfig.getGridSizeForTier(tier);
+            int tier = DynamicRecipeBuilder.getTierFromIngredientCount(ingredientCount);
+            int gridSize = DynamicRecipeBuilder.getGridSizeForTier(tier);
             int maxSlots = gridSize * gridSize;
             List<ItemStack> ingredients = new ArrayList<>();
             for (int i = 0; i < maxSlots; i++) {
@@ -294,10 +295,6 @@ public class RecipeLoader {
             LOGGER.warn("解析Avaritia配方失败", e);
             return new LoadResult(false, "解析Avaritia配方失败: " + e.getMessage());
         }
-    }
-
-    private int calculateAvaritiaTeir(int ingredientCount) {
-        return AvaritiaConfig.getTierFromIngredientCount(ingredientCount);
     }
 
     /**

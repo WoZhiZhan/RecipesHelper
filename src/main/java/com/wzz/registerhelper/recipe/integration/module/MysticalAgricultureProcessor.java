@@ -26,9 +26,15 @@ public class MysticalAgricultureProcessor implements ModRecipeProcessor {
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {
         JsonObject recipe = new JsonObject();
-        recipe.addProperty("type", request.recipeType);
+        String type = request.recipeType;
 
-        switch (request.recipeType) {
+        // 如果不包含modid，添加modid前缀
+        if (!type.contains(":")) {
+            type = "mysticalagriculture:" + type;
+        }
+
+        recipe.addProperty("type", type);
+        switch (type) {
             case "mysticalagriculture:infusion" -> createInfusionRecipe(recipe, request);
             case "mysticalagriculture:awakening" -> createAwakeningRecipe(recipe, request);
             case "mysticalagriculture:reprocessor" -> createReprocessorRecipe(recipe, request);

@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_8",
   "refmap": "mixins.registerhelper.refmap.json",
   "mixins": [
+    "PotionBrewingMixin",
     "RecipeManagerMixin",
     "TagLoaderMixin"
   ],

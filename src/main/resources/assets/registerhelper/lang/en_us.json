@@ -1,0 +1,7 @@
+{
+  "registerhelper.jei.brewing": "Custom Brewing",
+  "registerhelper.jei.anvil": "Custom Anvil",
+  "registerhelper.jei.anvil.cost": "Cost: %d Levels",
+  "registerhelper.jei.anvil.material": "Consumes %d materials",
+  "registerhelper.jei.brewing.steps": "Steps: %s"
+}

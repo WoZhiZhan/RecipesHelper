@@ -11,8 +11,14 @@ import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 public class RecipeUtil {
+    // 优先级：大写字母 → 小写字母 → 特殊符号
+    public static final String SYMBOL_CHARS =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +           // 大写字母 (26个)
+                    "abcdefghijklmnopqrstuvwxyz" +           // 小写字母 (26个)
+                    "!@#$%^&*()_{}[];:'/.,`";                // 特殊符号 (26个，总共78个)
 
     public static JsonObject createShapedTableRecipe(String type, RecipeRequest request) {
         JsonObject recipe = new JsonObject();
@@ -36,30 +42,35 @@ public class RecipeUtil {
         if (request.ingredients != null) {
             JsonObject key = new JsonObject();
             Map<Character, JsonObject> keyMapping = new HashMap<>();
+            Map<String, Character> ingredientToChar = new HashMap<>();  // 去重
 
-            // 修复：使用自动字符映射，而不是从原料数组中读取符号
-            char currentChar = 'A';
+            int charIndex = 0;  // 改用索引而不是currentChar
+
             for (Object ingredient : request.ingredients) {
-                // 跳过null或空物品
                 if (ingredient == null) continue;
 
                 if (ingredient instanceof ItemStack stack && stack.isEmpty()) {
                     continue;
                 }
 
-                // 为每个有效原料分配一个字符
                 JsonObject ingredientJson = createIngredientJson(ingredient);
                 if (ingredientJson != null) {
-                    // 找到可用的字符
-                    while (currentChar <= 'Z' && keyMapping.containsKey(currentChar)) {
-                        currentChar++;
-                    }
-                    if (currentChar > 'Z') {
-                        throw new IllegalArgumentException("合成表原料过多，超过26个字符限制");
-                    }
+                    String ingredientKey = ingredientJson.toString();
 
-                    keyMapping.put(currentChar, ingredientJson);
-                    currentChar++;
+                    // 检查是否已存在相同材料
+                    if (!ingredientToChar.containsKey(ingredientKey)) {
+                        // 使用扩展字符表
+                        if (charIndex >= SYMBOL_CHARS.length()) {
+                            throw new IllegalArgumentException(
+                                    String.format("合成表原料过多，超过%d个符号限制", SYMBOL_CHARS.length())
+                            );
+                        }
+
+                        char symbol = SYMBOL_CHARS.charAt(charIndex);
+                        ingredientToChar.put(ingredientKey, symbol);
+                        keyMapping.put(symbol, ingredientJson);
+                        charIndex++;
+                    }
                 }
             }
 
@@ -73,7 +84,6 @@ public class RecipeUtil {
 
         return recipe;
     }
-
 
     public static JsonObject createShapelessTableRecipe(String type, RecipeRequest request) {
         JsonObject recipe = new JsonObject();
@@ -311,45 +321,62 @@ public class RecipeUtil {
     }
 
     /**
-     * 创建工具要求JSON对象
-     */
-    public static JsonObject createToolJson(String toolTag) {
-        JsonObject tool = new JsonObject();
-
-        if (toolTag.startsWith("#")) {
-            tool.addProperty("tag", toolTag.substring(1));
-        } else {
-            tool.addProperty("tag", toolTag);
-        }
-
-        return tool;
-    }
-
-    /**
      * 从对象中获取字符
      */
     public static char getCharFromObject(Object obj) {
-        if (obj instanceof Character) {
-            char c = (Character) obj;
-            if (c >= 'A' && c <= 'Z') {
+        if (obj instanceof Character c) {
+            if (SYMBOL_CHARS.indexOf(c) >= 0) {
                 return c;
             } else {
-                throw new IllegalArgumentException("符号必须是大写字母A-Z: " + c);
+                throw new IllegalArgumentException("符号必须是允许的字符: " + c);
             }
         } else if (obj instanceof String str) {
             if (str.isBlank()) {
                 throw new IllegalArgumentException("符号不能为空");
             }
             char c = str.charAt(0);
-            if (c >= 'A' && c <= 'Z') {
+
+            if (c == '#') {
+                return c;
+            }
+
+            if (SYMBOL_CHARS.indexOf(c) >= 0) {
                 return c;
             } else {
-                if (c == '#')
-                    return c;
-                throw new IllegalArgumentException("符号必须是大写字母A-Z: " + c);
+                throw new IllegalArgumentException("符号必须是允许的字符: " + c);
             }
         }
         throw new IllegalArgumentException("无效的符号类型: " + obj);
+    }
+
+    /**
+     * 获取下一个可用的符号
+     * @param usedSymbols 已使用的符号集合
+     * @return 下一个可用符号，如果没有则返回null
+     */
+    public static Character getNextAvailableSymbol(Set<Character> usedSymbols) {
+        for (int i = 0; i < SYMBOL_CHARS.length(); i++) {
+            char symbol = SYMBOL_CHARS.charAt(i);
+            if (!usedSymbols.contains(symbol)) {
+                return symbol;
+            }
+        }
+        return null;  // 所有符号都用完了
+    }
+
+    /**
+     * 获取符号的优先级描述（用于日志）
+     */
+    public static String getSymbolType(char symbol) {
+        if (symbol >= 'A' && symbol <= 'Z') {
+            return "大写字母";
+        } else if (symbol >= 'a' && symbol <= 'z') {
+            return "小写字母";
+        } else if (SYMBOL_CHARS.indexOf(symbol) >= 0) {
+            return "特殊符号";
+        } else {
+            return "未知符号";
+        }
     }
 
     /**

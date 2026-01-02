@@ -206,6 +206,7 @@ public class DynamicRecipeTypeConfig {
                 .gridSize(3, 3)
                 .property("category", "crafting")
                 .property("mode", "shaped")
+                .processor(minecraftProcessor)
                 .build());
         registerRecipeType(new RecipeTypeDefinition.Builder("crafting_shapeless", "原版合成无序")
                 .modId("minecraft")
@@ -213,8 +214,9 @@ public class DynamicRecipeTypeConfig {
                 .property("category", "crafting")
                 .property("mode", "shaped")
                 .displayable(false)
+                .processor(minecraftProcessor)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("smelting", "熔炉")
+        registerRecipeType(new RecipeTypeDefinition.Builder("smelting", "原版烹饪")
                 .modId("minecraft")
                 .gridSize(1, 1)
                 .supportsCookingSettings(true)
@@ -222,6 +224,7 @@ public class DynamicRecipeTypeConfig {
                 .property("category", "cooking")
                 .property("defaultTime", "200")
                 .property("defaultExp", "0.7")
+                .processor(minecraftProcessor)
                 .build());
         registerRecipeType(new RecipeTypeDefinition.Builder("blasting", "高炉")
                 .modId("minecraft")
@@ -231,6 +234,8 @@ public class DynamicRecipeTypeConfig {
                 .property("category", "cooking")
                 .property("defaultTime", "100")
                 .property("defaultExp", "0.7")
+                .displayable(false)
+                .processor(minecraftProcessor)
                 .build());
         registerRecipeType(new RecipeTypeDefinition.Builder("smoking", "烟熏炉")
                 .modId("minecraft")
@@ -240,6 +245,8 @@ public class DynamicRecipeTypeConfig {
                 .property("category", "cooking")
                 .property("defaultTime", "100")
                 .property("defaultExp", "0.35")
+                .processor(minecraftProcessor)
+                .displayable(false)
                 .build());
         registerRecipeType(new RecipeTypeDefinition.Builder("campfire_cooking", "营火")
                 .modId("minecraft")
@@ -249,6 +256,8 @@ public class DynamicRecipeTypeConfig {
                 .property("category", "cooking")
                 .property("defaultTime", "600")
                 .property("defaultExp", "0.35")
+                .processor(minecraftProcessor)
+                .displayable(false)
                 .build());
         registerRecipeType(new RecipeTypeDefinition.Builder("brew", "酿造台")
                 .modId("minecraft")
@@ -256,6 +265,7 @@ public class DynamicRecipeTypeConfig {
                 .supportsFillMode(false)
                 .property("category", "brew")
                 .property("layout", "minecraft_brewing")
+                .property("custom_json", true)  // 标记为自定义JSON类型
                 .processor(minecraftProcessor)
                 .build());
         registerRecipeType(new RecipeTypeDefinition.Builder("stonecutting", "切石机")
@@ -266,7 +276,15 @@ public class DynamicRecipeTypeConfig {
                 .property("layout", "stonecutting")
                 .processor(minecraftProcessor)
                 .build());
-
+        registerRecipeType(new RecipeTypeDefinition.Builder("anvil", "铁砧")
+                .modId("minecraft")
+                .gridSize(2, 1)
+                .supportsFillMode(false)
+                .property("category", "anvil")
+                .property("layout", "anvil")
+                .property("custom_json", true)  // 标记为自定义JSON类型
+                .processor(minecraftProcessor)
+                .build());
         // 锻造台配方 (1.20+ smithing_transform)
         registerRecipeType(new RecipeTypeDefinition.Builder("smithing", "锻造台")
                 .modId("minecraft")
@@ -278,17 +296,6 @@ public class DynamicRecipeTypeConfig {
                 .property("layout", "smithing")
                 .processor(minecraftProcessor)
                 .build());
-    }
-
-    /**
-     * 检查mod是否已加载
-     */
-    private static boolean isModLoaded(String modId) {
-        try {
-            return net.minecraftforge.fml.ModList.get().isLoaded(modId);
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     /**

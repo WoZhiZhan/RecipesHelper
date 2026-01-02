@@ -63,20 +63,17 @@ minecraft {
     }
 }
 
-repositories {
-    maven {
-        url "https://cursemaven.com"
-        content {
-            includeGroup "curse.maven"
-        }
-    }
-}
-
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
     maven {
         url 'https://maven.aliyun.com/repository/public'
+    }
+    maven {
+        url "https://cursemaven.com"
+        content {
+            includeGroup "curse.maven"
+        }
     }
     mavenCentral()
 }
@@ -90,6 +87,7 @@ dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
     implementation fg.deobf("curse.maven:crafttweaker-239197:6914010")
+    implementation fg.deobf("curse.maven:jei-238222:7391695")
 }
 
 tasks.named('processResources', ProcessResources).configure {

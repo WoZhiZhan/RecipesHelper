@@ -28,10 +28,14 @@ public class AvaritiaRecipeProcessor implements ModRecipeProcessor {
     
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {
-        return switch (request.recipeType.toLowerCase()) {
-            case "avaritia:shaped_table" -> createShapedTableRecipe(request);
-            case "avaritia:shapeless_table" -> createShapelessTableRecipe(request);
-            case "avaritia:compressor" -> createCompressorRecipe(request);
+        String type = request.recipeType.toLowerCase();
+        if (type.contains(":")) {
+            type = type.substring(type.indexOf(":") + 1);
+        }
+        return switch (type) {
+            case "shaped_table", "shaped" -> createShapedTableRecipe(request);
+            case "shapeless_table", "shapeless" -> createShapelessTableRecipe(request);
+            case "compressor" -> createCompressorRecipe(request);
             default -> null;
         };
     }

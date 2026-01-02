@@ -142,6 +142,8 @@ public class RecipeSelectorScreen extends Screen {
                     minecraft.execute(() -> {
                         loadError = null;
                         processRecipesFromCache(recipes);
+                        // 也加载自定义配方
+                        loadCustomRecipes();
                     });
                 });
 
@@ -181,18 +183,119 @@ public class RecipeSelectorScreen extends Screen {
                     LOGGER.warn("处理配方时出错: {}", e.getMessage());
                 }
             }
-            if (validRecipeCount == 0) {
+
+            // 加载自定义配方（酿造台、铁砧等）
+            loadCustomRecipes();
+
+            if (validRecipeCount == 0 && allRecipes.isEmpty()) {
                 loadError = "没有可用的配方数据";
             }
+
+            // 应用配方过滤器（但保留自定义配方）
             if (useRecipeFilter && !allowedRecipeIds.isEmpty()) {
-                allRecipes.removeIf(entry -> !allowedRecipeIds.contains(entry.recipeId));
+                allRecipes.removeIf(entry -> {
+                    // 保留自定义配方（registerhelper命名空间）
+                    if (entry.recipeId.getNamespace().equals("registerhelper")) {
+                        return false;
+                    }
+                    // 过滤其他不在白名单中的配方
+                    return !allowedRecipeIds.contains(entry.recipeId);
+                });
             }
         } catch (Exception e) {
             loadError = "加载配方时出错: " + e.getMessage();
             LOGGER.error("Error loading recipes", e);
         }
+
         allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
         filteredRecipes = new ArrayList<>(allRecipes);
+    }
+
+    /**
+     * 加载自定义配方（酿造台、铁砧等）
+     * 从config/registerhelper/custom_recipes/目录扫描JSON文件
+     */
+    private void loadCustomRecipes() {
+        try {
+            java.nio.file.Path customRecipesDir = net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get()
+                    .resolve("registerhelper/custom_recipes");
+
+            if (!java.nio.file.Files.exists(customRecipesDir)) {
+                LOGGER.warn("自定义配方目录不存在: {}", customRecipesDir);
+                return;
+            }
+
+            // 扫描酿造台配方
+            loadCustomRecipesFromDirectory(customRecipesDir.resolve("brewing"), "自定义酿造台");
+
+            // 扫描铁砧配方
+            loadCustomRecipesFromDirectory(customRecipesDir.resolve("anvil"), "自定义铁砧");
+        } catch (Exception e) {
+            LOGGER.error("加载自定义配方时出错", e);
+        }
+    }
+
+    /**
+     * 从指定目录加载自定义配方JSON文件
+     * @return 加载的配方数量
+     */
+    private int loadCustomRecipesFromDirectory(java.nio.file.Path dir, String recipeType) {
+        if (!java.nio.file.Files.exists(dir)) {
+            LOGGER.debug("目录不存在: {}", dir);
+            return 0;
+        }
+
+        final int[] count = {0};
+
+        try (java.util.stream.Stream<java.nio.file.Path> paths = java.nio.file.Files.walk(dir, 1)) {
+            paths.filter(java.nio.file.Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".json"))
+                    .forEach(jsonFile -> {
+                        try {
+
+                            // 读取JSON获取输出物品
+                            String content = java.nio.file.Files.readString(jsonFile);
+                            com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(content).getAsJsonObject();
+
+                            // 解析输出物品
+                            ItemStack outputStack = ItemStack.EMPTY;
+                            if (json.has("output")) {
+                                com.google.gson.JsonElement outputElement = json.get("output");
+                                if (outputElement.isJsonObject()) {
+                                    com.google.gson.JsonObject outputObj = outputElement.getAsJsonObject();
+                                    if (outputObj.has("item")) {
+                                        String itemId = outputObj.get("item").getAsString();
+                                        net.minecraft.world.item.Item item = net.minecraftforge.registries.ForgeRegistries.ITEMS
+                                                .getValue(new ResourceLocation(itemId));
+                                        if (item != null) {
+                                            int itemCount = outputObj.has("count") ? outputObj.get("count").getAsInt() : 1;
+                                            outputStack = new ItemStack(item, itemCount);
+                                        } else {
+                                            LOGGER.warn("未找到物品: {}", itemId);
+                                        }
+                                    }
+                                }
+                            } else {
+                                LOGGER.warn("JSON中没有output字段: {}", jsonFile);
+                            }
+
+                            // 创建RecipeEntry，使用文件路径作为ID
+                            String fileName = jsonFile.getFileName().toString().replace(".json", "");
+                            String category = dir.getFileName().toString(); // brewing 或 anvil
+                            ResourceLocation id = new ResourceLocation("registerhelper", "custom_" + category + "/" + fileName);
+
+                            RecipeEntry entry = new RecipeEntry(id, outputStack, recipeType, null);
+                            allRecipes.add(entry);
+                            count[0]++;
+                        } catch (Exception e) {
+                            LOGGER.error("加载自定义配方文件失败: {}", jsonFile, e);
+                        }
+                    });
+        } catch (Exception e) {
+            LOGGER.error("扫描自定义配方目录失败: {}", dir, e);
+        }
+
+        return count[0];
     }
 
     /**
@@ -249,9 +352,6 @@ public class RecipeSelectorScreen extends Screen {
                 LOGGER.warn("处理配方 {} 时出错: {}", info.id, e.getMessage());
             }
         }
-
-        LOGGER.info("从服务器加载了 {} 个配方", allRecipes.size());
-
         allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
         filteredRecipes = new ArrayList<>(allRecipes);
 
@@ -359,11 +459,46 @@ public class RecipeSelectorScreen extends Screen {
             filteredRecipes = new ArrayList<>(allRecipes);
         } else {
             String lowerSearch = searchText.toLowerCase();
+
             filteredRecipes = allRecipes.stream()
                     .filter(entry -> {
-                        if (entry.recipeId.toString().toLowerCase().contains(lowerSearch)) {
+                        // 1. 匹配配方ID
+                        String recipeIdStr = entry.recipeId.toString().toLowerCase();
+                        if (recipeIdStr.contains(lowerSearch)) {
                             return true;
                         }
+
+                        // 2. 匹配配方类型
+                        String recipeTypeLower = entry.recipeType.toLowerCase();
+                        if (recipeTypeLower.contains(lowerSearch)) {
+                            return true;
+                        }
+
+                        // 3. 特殊支持：搜索"自定义"时匹配所有自定义配方
+                        if (lowerSearch.contains("自定义") || lowerSearch.contains("custom")) {
+                            if (entry.recipeId.getNamespace().equals("registerhelper") &&
+                                    entry.recipeId.getPath().startsWith("custom_")) {
+                                return true;
+                            }
+                        }
+
+                        // 4. 特殊支持：搜索"酿造"或"brewing"匹配酿造台配方
+                        if (lowerSearch.contains("酿造") || lowerSearch.contains("brew")) {
+                            if (recipeTypeLower.contains("酿造台") ||
+                                    entry.recipeId.getPath().contains("brewing")) {
+                                return true;
+                            }
+                        }
+
+                        // 5. 特殊支持：搜索"铁砧"或"anvil"匹配铁砧配方
+                        if (lowerSearch.contains("铁砧") || lowerSearch.contains("anvil")) {
+                            if (recipeTypeLower.contains("铁砧") ||
+                                    entry.recipeId.getPath().contains("anvil")) {
+                                return true;
+                            }
+                        }
+
+                        // 6. 匹配输出物品名称
                         try {
                             if (!entry.resultItem.isEmpty()) {
                                 String itemName = entry.resultItem.getHoverName().getString().toLowerCase();
@@ -372,8 +507,10 @@ public class RecipeSelectorScreen extends Screen {
                                 }
                             }
                         } catch (Exception e) {
+                            // 忽略异常，继续其他匹配
                         }
-                        return entry.recipeType.toLowerCase().contains(lowerSearch);
+
+                        return false;
                     })
                     .collect(Collectors.toList());
         }
@@ -413,6 +550,22 @@ public class RecipeSelectorScreen extends Screen {
     private void selectRecipe() {
         if (selectedRecipeIndex >= 0 && selectedRecipeIndex < filteredRecipes.size()) {
             RecipeEntry selected = filteredRecipes.get(selectedRecipeIndex);
+
+            // 检查是否是自定义配方
+            if (selected.recipeId.getNamespace().equals("registerhelper") &&
+                    selected.recipeId.getPath().startsWith("custom_")) {
+                // 自定义配方不支持GUI编辑，需要手动编辑JSON
+                if (minecraft.player != null) {
+                    minecraft.player.sendSystemMessage(Component.literal(
+                            "§e自定义配方暂不支持GUI编辑，请手动编辑JSON文件：\n" +
+                                    "§fconfig/registerhelper/custom_recipes/" +
+                                    (selected.recipeId.getPath().contains("brewing") ? "brewing/" : "anvil/") +
+                                    selected.recipeId.getPath().substring(selected.recipeId.getPath().lastIndexOf('/') + 1) + ".json"
+                    ));
+                }
+                return;
+            }
+
             onRecipeSelected.accept(selected.recipeId);
             minecraft.setScreen(parentScreen);
         }
@@ -770,6 +923,13 @@ public class RecipeSelectorScreen extends Screen {
         RecipeEntry entry = filteredRecipes.get(selectedRecipeIndex);
         Recipe<?> recipe = entry.recipe;
 
+        // 检查是否是自定义配方（registerhelper命名空间且recipe为null）
+        if (recipe == null && entry.recipeId.getNamespace().equals("registerhelper")) {
+            // 处理自定义配方的预览
+            parseCustomRecipe(entry);
+            return;
+        }
+
         if (recipe == null) {
             return;
         }
@@ -806,6 +966,118 @@ public class RecipeSelectorScreen extends Screen {
             LOGGER.warn("解析配方失败: {}", e.getMessage());
             currentRecipeTypeDisplay = "解析失败";
         }
+    }
+
+    /**
+     * 解析自定义配方（酿造台、铁砧等）
+     */
+    private void parseCustomRecipe(RecipeEntry entry) {
+        try {
+            currentRecipeTypeDisplay = entry.recipeType;
+
+            int detailX = leftPos + 10;
+            int detailY = topPos + 60;
+
+            // 设置结果槽位
+            currentResultSlot = new SlotInfo(detailX + RECIPE_DETAIL_WIDTH - 50, detailY + 20, entry.resultItem.copy());
+
+            // 读取JSON文件获取输入材料
+            java.nio.file.Path jsonFile = getCustomRecipeJsonPath(entry.recipeId);
+
+            if (jsonFile != null && java.nio.file.Files.exists(jsonFile)) {
+                String content = java.nio.file.Files.readString(jsonFile);
+                com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(content).getAsJsonObject();
+
+                if (entry.recipeId.getPath().contains("brewing")) {
+                    // 酿造台配方：input + ingredient
+                    parseCustomBrewingRecipe(json, detailX, detailY);
+                } else if (entry.recipeId.getPath().contains("anvil")) {
+                    // 铁砧配方：left + right
+                    parseCustomAnvilRecipe(json, detailX, detailY);
+                }
+            } else {
+                // 无法找到JSON文件，只显示输出
+                LOGGER.warn("自定义配方JSON文件不存在: {}", jsonFile);
+            }
+
+        } catch (Exception e) {
+            LOGGER.warn("解析自定义配方失败: {}", entry.recipeId, e);
+            currentRecipeTypeDisplay = entry.recipeType + " (无法加载详情)";
+        }
+    }
+
+    /**
+     * 获取自定义配方的JSON文件路径
+     */
+    private java.nio.file.Path getCustomRecipeJsonPath(ResourceLocation recipeId) {
+        // registerhelper:custom_brewing/custom_brew → custom_recipes/brewing/custom_brew.json
+        String path = recipeId.getPath(); // custom_brewing/custom_brew
+        if (path.startsWith("custom_")) {
+            String[] parts = path.split("/", 2);
+            if (parts.length == 2) {
+                String category = parts[0].replace("custom_", ""); // brewing or anvil
+                String filename = parts[1] + ".json"; // custom_brew.json
+
+                return net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get()
+                        .resolve("registerhelper/custom_recipes")
+                        .resolve(category)
+                        .resolve(filename);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 解析自定义酿造台配方
+     */
+    private void parseCustomBrewingRecipe(com.google.gson.JsonObject json, int detailX, int detailY) throws Exception {
+        // 输入药水（底部左侧）
+        if (json.has("input")) {
+            ItemStack inputStack = parseJsonItemStack(json.get("input"));
+            currentRecipeSlots.add(new SlotInfo(detailX + 20, detailY + 120, inputStack));
+        }
+
+        // 酿造材料（顶部中间）
+        if (json.has("ingredient")) {
+            ItemStack ingredientStack = parseJsonItemStack(json.get("ingredient"));
+            currentRecipeSlots.add(new SlotInfo(detailX + 60, detailY + 80, ingredientStack));
+        }
+    }
+
+    /**
+     * 解析自定义铁砧配方
+     */
+    private void parseCustomAnvilRecipe(com.google.gson.JsonObject json, int detailX, int detailY) throws Exception {
+        // 左侧物品
+        if (json.has("left")) {
+            ItemStack leftStack = parseJsonItemStack(json.get("left"));
+            currentRecipeSlots.add(new SlotInfo(detailX + 20, detailY + 100, leftStack));
+        }
+
+        // 右侧物品
+        if (json.has("right")) {
+            ItemStack rightStack = parseJsonItemStack(json.get("right"));
+            currentRecipeSlots.add(new SlotInfo(detailX + 80, detailY + 100, rightStack));
+        }
+    }
+
+    /**
+     * 从JSON解析ItemStack
+     */
+    private ItemStack parseJsonItemStack(com.google.gson.JsonElement element) throws Exception {
+        if (element.isJsonObject()) {
+            com.google.gson.JsonObject obj = element.getAsJsonObject();
+            if (obj.has("item")) {
+                String itemId = obj.get("item").getAsString();
+                net.minecraft.world.item.Item item = net.minecraftforge.registries.ForgeRegistries.ITEMS
+                        .getValue(new ResourceLocation(itemId));
+                if (item != null) {
+                    int count = obj.has("count") ? obj.get("count").getAsInt() : 1;
+                    return new ItemStack(item, count);
+                }
+            }
+        }
+        return ItemStack.EMPTY;
     }
 
     /**

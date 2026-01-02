@@ -115,15 +115,39 @@ public class CreateRecipeJsonPacket {
         try {
             String namespace = recipeId.getNamespace();
             String path = recipeId.getPath();
-            String fileName = generateOptimizedFileName(path, recipeJson);
-            // 保存到 recipes 目录
-            Path recipePath = FMLPaths.CONFIGDIR.get()
-                    .resolve("registerhelper/recipes")
-                    .resolve(namespace)
-                    .resolve(fileName + ".json");
+            String baseFileName = generateOptimizedFileName(path, recipeJson);
+
+            // 检查是否是自定义配方类型（酿造台、铁砧等）
+            String recipeType = recipeJson.has("type") ? recipeJson.get("type").getAsString() : "";
+            boolean isCustomType = isCustomRecipeType(recipeType);
+
+            Path baseDir;
+            if (isCustomType) {
+                // 自定义配方保存到 custom_recipes 目录
+                String customCategory = getCustomRecipeCategory(recipeType);
+                baseDir = FMLPaths.CONFIGDIR.get()
+                        .resolve("registerhelper/custom_recipes")
+                        .resolve(customCategory);
+            } else {
+                // 普通配方保存到 recipes 目录
+                baseDir = FMLPaths.CONFIGDIR.get()
+                        .resolve("registerhelper/recipes")
+                        .resolve(namespace);
+            }
 
             // 创建目录
-            Files.createDirectories(recipePath.getParent());
+            Files.createDirectories(baseDir);
+
+            // 检查文件是否存在，如果存在则追加数字后缀
+            String fileName = baseFileName;
+            Path recipePath = baseDir.resolve(fileName + ".json");
+            int counter = 1;
+
+            while (Files.exists(recipePath)) {
+                fileName = baseFileName + "_" + counter;
+                recipePath = baseDir.resolve(fileName + ".json");
+                counter++;
+            }
 
             // 写入JSON文件
             try (FileWriter writer = new FileWriter(recipePath.toFile())) {
@@ -137,6 +161,26 @@ public class CreateRecipeJsonPacket {
             LOGGER.error("保存配方文件失败: {}", recipeId, e);
             return false;
         }
+    }
+
+    /**
+     * 检查是否是自定义配方类型
+     */
+    private static boolean isCustomRecipeType(String type) {
+        return type.contains("brewing") || type.contains("anvil") ||
+                type.equals("registerhelper:brewing") || type.equals("registerhelper:anvil");
+    }
+
+    /**
+     * 获取自定义配方的分类目录
+     */
+    private static String getCustomRecipeCategory(String type) {
+        if (type.contains("brewing")) {
+            return "brewing";
+        } else if (type.contains("anvil")) {
+            return "anvil";
+        }
+        return "other";
     }
 
     /**

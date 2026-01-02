@@ -36,6 +36,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
             case "campfire_cooking" -> createCookingRecipe(request, "minecraft:campfire_cooking");
             case "stonecutting" -> createStonecuttingRecipe(request);
             case "smithing", "smithing_transform" -> createSmithingRecipe(request);
+            case "brew", "brewing" -> createBrewingRecipe(request);
+            case "anvil" -> createAnvilRecipe(request);
             default -> {
                 ModLogger.getLogger().error("Unsupported recipe type: {}", request.recipeType);
                 yield null;
@@ -48,7 +50,7 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
         return new String[]{
                 "shaped", "shapeless",
                 "smelting", "blasting", "smoking", "campfire_cooking",
-                "brew", "stonecutting", "smithing"
+                "brew", "stonecutting", "smithing", "anvil"
         };
     }
 
@@ -128,9 +130,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
             }
         }
 
-        // 添加结果物品ID（烹饪配方的result是字符串）
-        ResourceLocation resultId = getItemResourceLocation(request.result.getItem());
-        recipe.addProperty("result", resultId.toString());
+        // 添加结果（使用对象格式以支持count）
+        recipe.add("result", createResultJson(request.result, request.resultCount));
 
         // 添加经验和时间
         Float experience = (Float) request.properties.get("experience");
@@ -158,10 +159,9 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
             }
         }
 
-        // 结果物品ID（切石机的result是字符串）
-        ResourceLocation resultId = getItemResourceLocation(request.result.getItem());
-        recipe.addProperty("result", resultId.toString());
-        recipe.addProperty("count", Math.max(1, request.resultCount));
+        // 结果（使用对象格式以支持count）
+        recipe.add("result", createResultJson(request.result, request.resultCount));
+
         return recipe;
     }
 
@@ -195,6 +195,80 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 结果
         recipe.add("result", createResultJson(request.result, request.resultCount));
+
+        return recipe;
+    }
+
+    /**
+     * 创建酿造台配方（自定义JSON）
+     */
+    private JsonObject createBrewingRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "registerhelper:brewing");
+
+        // 输入（通常是药水）
+        if (request.ingredients != null && request.ingredients.length > 0) {
+            JsonObject input = createIngredientJson(request.ingredients[0]);
+            if (input != null) {
+                recipe.add("input", input);
+            }
+        }
+
+        // 酿造材料（第二个材料）
+        if (request.ingredients != null && request.ingredients.length > 1) {
+            JsonObject ingredient = createIngredientJson(request.ingredients[1]);
+            if (ingredient != null) {
+                recipe.add("ingredient", ingredient);
+            }
+        }
+
+        // 输出
+        recipe.add("output", createResultJson(request.result, request.resultCount));
+
+        return recipe;
+    }
+
+    /**
+     * 创建铁砧配方（自定义JSON）
+     */
+    private JsonObject createAnvilRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "registerhelper:anvil");
+
+        // 左侧物品
+        if (request.ingredients != null && request.ingredients.length > 0) {
+            JsonObject left = createIngredientJson(request.ingredients[0]);
+            if (left != null) {
+                recipe.add("left", left);
+            }
+        }
+
+        // 右侧物品（材料）
+        if (request.ingredients != null && request.ingredients.length > 1) {
+            JsonObject right = createIngredientJson(request.ingredients[1]);
+            if (right != null) {
+                recipe.add("right", right);
+            }
+        }
+
+        // 输出
+        recipe.add("output", createResultJson(request.result, request.resultCount));
+
+        // 经验消耗（从properties中获取）
+        Integer cost = (Integer) request.properties.get("cost");
+        if (cost != null) {
+            recipe.addProperty("cost", cost);
+        } else {
+            recipe.addProperty("cost", 1);  // 默认1级
+        }
+
+        // 材料消耗数量
+        Integer materialCost = (Integer) request.properties.get("material_cost");
+        if (materialCost != null) {
+            recipe.addProperty("material_cost", materialCost);
+        } else {
+            recipe.addProperty("material_cost", 1);  // 默认消耗1个
+        }
 
         return recipe;
     }

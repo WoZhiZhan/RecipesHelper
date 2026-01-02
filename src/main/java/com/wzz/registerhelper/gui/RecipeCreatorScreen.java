@@ -305,7 +305,7 @@ public class RecipeCreatorScreen extends Screen {
         if (!Boolean.TRUE.equals(recipeType.getProperty("supportsTiers", Boolean.class))) {
             return 1;
         }
-        return RecipeTypeConfig.AvaritiaConfig.getTierFromIngredientCount(ingredientCount);
+        return DynamicRecipeBuilder.getTierFromIngredientCount(ingredientCount);
     }
 
     /**
@@ -1382,12 +1382,8 @@ public class RecipeCreatorScreen extends Screen {
                     switch (data.getType()) {
                         case ITEM -> {
                             ItemStack stack = data.getItemStack();
-                            tooltip.add(stack.getHoverName());
-
-                            if (data.hasNBT()) {
-                                tooltip.add(Component.literal("§b✦ 包含NBT数据"));
-                                tooltip.add(Component.literal("§8将保留附魔、名称等数据"));
-                            }
+                            guiGraphics.renderTooltip(this.font, stack, mouseX, mouseY);
+                            return;
                         }
                         case TAG -> {
                             tooltip.add(Component.literal("§6§l[标签材料]"));

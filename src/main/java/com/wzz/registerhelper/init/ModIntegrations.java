@@ -37,5 +37,39 @@ public class ModIntegrations {
                 "机械动力:混合搅拌", createRecipeProcessor, "compacting");
         RegisterHelper.registerRecipeTypeWithLayout("create", "filling",
                 "机械动力:注液", createRecipeProcessor, "filling");
+        // ExtendedCrafting Table配方
+        ExtendedCraftingProcessor extendedCraftingProcessor = new ExtendedCraftingProcessor();
+
+        // 3x3 Shaped Table (Basic Table, Tier 1)
+        RegisterHelper.registerRecipeType("extendedcrafting", "shaped_table",
+                "EC（合成拓展）有序合成", extendedCraftingProcessor, 3, true);
+
+        // 5x5 Shaped Table (Advanced Table, Tier 2)
+        RegisterHelper.registerRecipeType("extendedcrafting", "shaped_table_5x5",
+                "EC工作台(5x5)", extendedCraftingProcessor, 5, true, false);
+
+        // 7x7 Shaped Table (Elite Table, Tier 3)
+        RegisterHelper.registerRecipeType("extendedcrafting", "shaped_table_7x7",
+                "EC工作台(7x7)", extendedCraftingProcessor, 7, true, false);
+
+        // 9x9 Shaped Table (Ultimate Table, Tier 4)
+        RegisterHelper.registerRecipeType("extendedcrafting", "shaped_table_9x9",
+                "EC工作台(9x9)", extendedCraftingProcessor, 9, true, false);
+
+        // 3x3 Shapeless Table
+        RegisterHelper.registerRecipeType("extendedcrafting", "shapeless_table",
+                "EC（合成拓展）无序合成", extendedCraftingProcessor, 3, true, true);
+
+        // 5x5 Shapeless Table
+        RegisterHelper.registerRecipeType("extendedcrafting", "shapeless_table_5x5",
+                "EC工作台无序(5x5)", extendedCraftingProcessor, 5, true, false);
+
+        // 7x7 Shapeless Table
+        RegisterHelper.registerRecipeType("extendedcrafting", "shapeless_table_7x7",
+                "EC工作台无序(7x7)", extendedCraftingProcessor, 7, true, false);
+
+        // 9x9 Shapeless Table
+        RegisterHelper.registerRecipeType("extendedcrafting", "shapeless_table_9x9",
+                "EC工作台无序(9x9)", extendedCraftingProcessor, 9, true, false);
     }
 }

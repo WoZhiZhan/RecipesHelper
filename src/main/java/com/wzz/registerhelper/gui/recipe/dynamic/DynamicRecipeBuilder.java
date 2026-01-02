@@ -8,7 +8,6 @@ import com.wzz.registerhelper.gui.recipe.component.ComponentDataManager;
 import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.network.CreateRecipeJsonPacket;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
-import com.wzz.registerhelper.recipe.RecipeJsonBuilder;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import com.wzz.registerhelper.tags.CustomTagManager;
@@ -21,8 +20,8 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import static com.wzz.registerhelper.gui.recipe.RecipeTypeConfig.AvaritiaConfig.getGridSizeForTier;
 import static com.wzz.registerhelper.network.CreateRecipeJsonPacket.generateOptimizedFileName;
+import static com.wzz.registerhelper.util.RecipeUtil.SYMBOL_CHARS;
 
 /**
  * 动态配方构建器
@@ -30,7 +29,7 @@ import static com.wzz.registerhelper.network.CreateRecipeJsonPacket.generateOpti
  */
 public class DynamicRecipeBuilder {
     private static final Logger LOGGER = LogUtils.getLogger();
-    
+
     private final Consumer<String> successCallback;
     private final Consumer<String> errorCallback;
 
@@ -136,106 +135,6 @@ public class DynamicRecipeBuilder {
                 }
             }
         }
-    }
-
-    /**
-     * 生成配方JSON（核心方法，支持标签和NBT）
-     */
-    private JsonObject generateRecipeJson(BuildParams params) {
-        // 获取IngredientData列表
-        List<IngredientData> dataList = params.ingredientsData != null ?
-                params.ingredientsData : convertItemStacksToIngredientData(params.ingredients);
-
-        String category = params.recipeType.getProperty("category", String.class);
-
-        if ("crafting".equals(category)) {
-            // 工作台配方
-            if ("shaped".equals(params.craftingMode)) {
-                return RecipeJsonBuilder.createShapedRecipe(
-                        dataList, params.resultItem, 3, 3);
-            } else {
-                return RecipeJsonBuilder.createShapelessRecipe(
-                        dataList, params.resultItem);
-            }
-        } else if ("avaritia".equals(category)) {
-            // Avaritia配方
-            return RecipeJsonBuilder.createAvaritiaRecipe(
-                    params.craftingMode, dataList, params.resultItem, params.customTier);
-        } else if ("cooking".equals(category) || params.recipeType.supportsCookingSettings()) {
-            // 烹饪配方
-            IngredientData ingredient = dataList.stream()
-                    .filter(data -> !data.isEmpty())
-                    .findFirst()
-                    .orElse(null);
-
-            if (ingredient != null) {
-                return RecipeJsonBuilder.createCookingRecipe(
-                        params.cookingType, ingredient, params.resultItem,
-                        params.cookingExp, (int) params.cookingTime);
-            }
-        } else if ("stonecutting".equals(category)) {
-            // 切石机配方
-            IngredientData ingredient = dataList.stream()
-                    .filter(data -> !data.isEmpty())
-                    .findFirst()
-                    .orElse(null);
-
-            if (ingredient != null) {
-                JsonObject recipe = new JsonObject();
-                recipe.addProperty("type", "minecraft:stonecutting");
-                recipe.add("ingredient", createIngredientJsonObject(ingredient));
-                recipe.addProperty("result",
-                        ForgeRegistries.ITEMS.getKey(params.resultItem.getItem()).toString());
-                recipe.addProperty("count", params.resultItem.getCount());
-                return recipe;
-            }
-        } else if ("smithing".equals(category) || "smithing_transform".equals(category)) {
-            // 锻造台配方
-            if (dataList.size() >= 3) {
-                JsonObject recipe = new JsonObject();
-                recipe.addProperty("type", "minecraft:smithing_transform");
-                recipe.add("template", createIngredientJsonObject(dataList.get(0)));
-                recipe.add("base", createIngredientJsonObject(dataList.get(1)));
-                recipe.add("addition", createIngredientJsonObject(dataList.get(2)));
-
-                JsonObject resultObj = new JsonObject();
-                resultObj.addProperty("item",
-                        ForgeRegistries.ITEMS.getKey(params.resultItem.getItem()).toString());
-                recipe.add("result", resultObj);
-                return recipe;
-            }
-        }
-        RecipeRequest request = createRecipeRequest(params);
-        return params.recipeType.getProcessor().createRecipeJson(request);
-    }
-
-    /**
-     * 创建材料JSON对象（关键：支持标签）
-     */
-    private JsonObject createIngredientJsonObject(IngredientData data) {
-        JsonObject ingredient = new JsonObject();
-
-        switch (data.getType()) {
-            case ITEM -> {
-                ItemStack stack = data.getItemStack();
-                ingredient.addProperty("item",
-                        ForgeRegistries.ITEMS.getKey(stack.getItem()).toString());
-
-                if (stack.hasTag()) {
-                    ingredient.addProperty("type", "forge:nbt");
-                    ingredient.addProperty("nbt", stack.getTag().toString());
-                }
-
-                if (stack.getCount() > 1) {
-                    ingredient.addProperty("count", stack.getCount());
-                }
-            }
-            case TAG, CUSTOM_TAG -> {
-                ingredient.addProperty("tag", data.getTagId().toString());
-            }
-        }
-
-        return ingredient;
     }
 
     /**
@@ -451,6 +350,11 @@ public class DynamicRecipeBuilder {
         if (isShaped) {
             int gridWidth = params.recipeType.getMaxGridWidth();
             int gridHeight = params.recipeType.getMaxGridHeight();
+            if (Boolean.TRUE.equals(params.recipeType.getProperty("supportsTiers", Boolean.class))) {
+                int dynamicSize = getGridSizeForTier(params.customTier);
+                gridWidth = dynamicSize;
+                gridHeight = dynamicSize;
+            }
             Map<Character, Object> symbolMapping = new HashMap<>();
             request.pattern = generateCustomPatternWithMapping(
                     params, gridWidth, gridHeight, symbolMapping);
@@ -485,6 +389,28 @@ public class DynamicRecipeBuilder {
     }
 
     /**
+     * 根据tier获取网格大小
+     */
+    public static int getGridSizeForTier(int tier) {
+        return switch (tier) {
+            case 1 -> 3;
+            case 2 -> 5;
+            case 3 -> 7;
+            case 4 -> 9;
+            case 5 -> 11;
+            default -> 3;
+        };
+    }
+
+    public static int getTierFromIngredientCount(int count) {
+        if (count <= 9) return 1;
+        if (count <= 25) return 2;
+        if (count <= 49) return 3;
+        if (count <= 81) return 4;
+        return 5;
+    }
+
+    /**
      * 从组件数据管理器提取数据到 RecipeRequest
      */
     private void extractComponentData(Map<String, Object> allData, RecipeRequest request) {
@@ -508,7 +434,8 @@ public class DynamicRecipeBuilder {
     private String[] generateCustomPatternWithMapping(BuildParams params, int gridWidth,
                                                       int gridHeight, Map<Character, Object> symbolMapping) {
         String[] pattern = new String[gridHeight];
-        AtomicReference<Character> currentChar = new AtomicReference<>('A');
+
+        int charIndex = 0;
         Map<String, Character> itemToChar = new HashMap<>();
 
         List<IngredientData> dataList = params.ingredientsData;
@@ -524,14 +451,19 @@ public class DynamicRecipeBuilder {
                     IngredientData data = dataList.get(index);
                     String key = getIngredientKey(data);
 
-                    // 获取或创建符号
-                    char symbol = itemToChar.computeIfAbsent(key,
-                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
-
-                    if (!symbolMapping.containsKey(symbol)) {
+                    if (!itemToChar.containsKey(key)) {
+                        if (charIndex >= SYMBOL_CHARS.length()) {
+                            throw new IllegalArgumentException(
+                                    String.format("合成表原料过多，超过%d个符号限制", SYMBOL_CHARS.length())
+                            );
+                        }
+                        char symbol = SYMBOL_CHARS.charAt(charIndex);
+                        itemToChar.put(key, symbol);
                         symbolMapping.put(symbol, convertIngredientDataToObject(data));
+                        charIndex++;
                     }
 
+                    char symbol = itemToChar.get(key);
                     rowPattern.append(symbol);
                 } else {
                     rowPattern.append(' ');
@@ -583,9 +515,9 @@ public class DynamicRecipeBuilder {
             case ITEM -> {
                 ItemStack stack = data.getItemStack();
                 String key = ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
-                if (stack.hasTag()) {
-                    // 带NBT的物品需要包含NBT的哈希值以区分
-                    key += "_nbt_" + stack.getTag().hashCode();
+                if (stack.hasTag() && !stack.getTag().isEmpty()) {
+                    // 使用NBT的字符串表示，确保内容相同的NBT得到相同的key
+                    key += "_nbt_" + stack.getTag().toString();
                 }
                 yield key;
             }
@@ -597,14 +529,14 @@ public class DynamicRecipeBuilder {
      * 生成Avaritia配方模式
      */
     private String[] generateAvaritiaPattern(BuildParams params, int tier) {
-        int gridSize = getAvaritiaGridSize(tier);
+        int gridSize = getGridSizeForTier(tier);
         String[] pattern = new String[gridSize];
-        AtomicReference<Character> currentChar = new AtomicReference<>('A');
+
+        int charIndex = 0;
         Map<String, Character> itemToChar = new HashMap<>();
 
         List<IngredientData> dataList = params.ingredientsData;
         if (dataList == null || dataList.isEmpty()) {
-            // 兼容旧版本
             dataList = new ArrayList<>();
             for (ItemStack stack : params.ingredients) {
                 dataList.add(stack.isEmpty() ? IngredientData.empty() : IngredientData.fromItem(stack));
@@ -618,8 +550,20 @@ public class DynamicRecipeBuilder {
                 if (index < dataList.size() && !dataList.get(index).isEmpty()) {
                     IngredientData data = dataList.get(index);
                     String key = getIngredientKey(data);
-                    char symbol = itemToChar.computeIfAbsent(key,
-                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
+
+                    // 获取或创建符号
+                    if (!itemToChar.containsKey(key)) {
+                        if (charIndex >= SYMBOL_CHARS.length()) {
+                            throw new IllegalArgumentException(
+                                    String.format("合成表原料过多，超过%d个符号限制", SYMBOL_CHARS.length())
+                            );
+                        }
+                        char symbol = SYMBOL_CHARS.charAt(charIndex);
+                        itemToChar.put(key, symbol);
+                        charIndex++;
+                    }
+
+                    char symbol = itemToChar.get(key);
                     rowPattern.append(symbol);
                 } else {
                     rowPattern.append(' ');
@@ -629,13 +573,6 @@ public class DynamicRecipeBuilder {
         }
 
         return pattern;
-    }
-
-    /**
-     * 获取Avaritia网格大小
-     */
-    private int getAvaritiaGridSize(int tier) {
-        return getGridSizeForTier(tier);
     }
 
     /**

@@ -5,6 +5,7 @@ import com.wzz.registerhelper.command.RecipeCommand;
 import com.wzz.registerhelper.init.ModIntegrations;
 import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.init.ProcessorLoader;
+import com.wzz.registerhelper.recipe.CustomRecipeLoader;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -30,6 +31,7 @@ public class RecipeHelper {
 
     private void commonSetup(final FMLCommonSetupEvent event) {
         ProcessorLoader.loadProcessors(event);
+        CustomRecipeLoader.loadCustomRecipes();
     }
 
     @SubscribeEvent

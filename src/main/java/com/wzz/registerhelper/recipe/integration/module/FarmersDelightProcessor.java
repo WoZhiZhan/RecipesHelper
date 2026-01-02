@@ -27,9 +27,11 @@ public class FarmersDelightProcessor implements ModRecipeProcessor {
 
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {
-        String recipeType = request.recipeType;
-        ModLogger.getLogger().info("Type {}", recipeType);
-        return switch (recipeType) {
+        String type = request.recipeType.toLowerCase();
+        if (type.contains(":")) {
+            type = type.substring(type.indexOf(":") + 1);
+        }
+        return switch (type) {
             case "farmersdelight:cooking" -> createCookingRecipe(request);
             default -> createCuttingRecipe(request);
         };

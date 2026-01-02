@@ -29,12 +29,14 @@ public class LayoutManager {
         registerLayout("rectangular_2x2", new RectangularLayout(2, 2));
         registerLayout("rectangular_5x5", new RectangularLayout(5, 5));
         registerLayout("rectangular_11x11", new RectangularLayout(11, 11));
+        registerLayout("rectangular_7x7", new RectangularLayout(7, 7));
 
         // Minecraft 内置布局
         registerLayout("minecraft_brewing", new MinecraftBrewingLayout());
         registerLayout("stonecutting", new StonecuttingLayout());
         registerLayout("smithing", new SmithingLayout());
-        
+        registerLayout("anvil", new AnvilLayout());
+
         // Mod 集成布局
         registerLayout("runic_altar", new RunicAltarLayout());
         registerLayout("arc_furnace", new ArcFurnaceLayout());

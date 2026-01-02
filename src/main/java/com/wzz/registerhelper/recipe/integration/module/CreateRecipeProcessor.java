@@ -19,7 +19,11 @@ public class CreateRecipeProcessor implements ModRecipeProcessor {
 
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {
-        return switch (request.recipeType.toLowerCase()) {
+        String type = request.recipeType.toLowerCase();
+        if (type.contains(":")) {
+            type = type.substring(type.indexOf(":") + 1);
+        }
+        return switch (type) {
             case "create:emptying" -> createEmptyingRecipe(request);
             case "create:cutting" -> createCuttingRecipe(request);
             case "create:compacting" -> createCompactingRecipe(request);

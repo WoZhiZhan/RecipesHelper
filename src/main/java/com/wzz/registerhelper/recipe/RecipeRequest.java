@@ -17,7 +17,7 @@ public class RecipeRequest {
     public String[] pattern;       // 有形状配方的模式
     public Object[] ingredients;   // 材料列表
     public Map<String, Object> properties = new HashMap<>(); // 额外属性
-    
+
     // 便捷构造方法
     public static RecipeRequest shaped(String modId, String recipeId, ItemStack result, String[] pattern, Object... ingredients) {
         RecipeRequest request = new RecipeRequest();
@@ -25,33 +25,36 @@ public class RecipeRequest {
         request.recipeType = "shaped";
         request.recipeId = recipeId;
         request.result = result;
+        request.resultCount = result.getCount();
         request.pattern = pattern;
         request.ingredients = ingredients;
         return request;
     }
-    
+
     public static RecipeRequest shapeless(String modId, String recipeId, ItemStack result, Object... ingredients) {
         RecipeRequest request = new RecipeRequest();
         request.modId = modId;
         request.recipeType = "shapeless";
         request.recipeId = recipeId;
         request.result = result;
+        request.resultCount = result.getCount();
         request.ingredients = ingredients;
         return request;
     }
-    
+
     public static RecipeRequest cooking(String modId, String cookingType, String recipeId, ItemStack result, Object ingredient, float experience, int cookingTime) {
         RecipeRequest request = new RecipeRequest();
         request.modId = modId;
         request.recipeType = cookingType;
         request.recipeId = recipeId;
         request.result = result;
+        request.resultCount = result.getCount();
         request.ingredients = new Object[]{ingredient};
         request.properties.put("experience", experience);
         request.properties.put("cookingTime", cookingTime);
         return request;
     }
-    
+
     public RecipeRequest withProperty(String key, Object value) {
         this.properties.put(key, value);
         return this;
