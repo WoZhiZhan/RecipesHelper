@@ -16,4 +16,4 @@ This project is actively developed and released under an open-source license.
 - Extensible recipe processor system based on JSON configuration
 
 ## License
-MIT License
+Apache2.0 License
