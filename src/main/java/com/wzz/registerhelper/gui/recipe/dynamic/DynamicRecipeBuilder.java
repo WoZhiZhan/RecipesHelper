@@ -169,6 +169,8 @@ public class DynamicRecipeBuilder {
             RecipeRequest request = createCustomRequest(params, recipeId);
             if (params.extraProperties != null) {
                 params.extraProperties.forEach(request::withProperty);
+                Boolean includeNBT = (Boolean) params.extraProperties.getOrDefault("includeNBT", true);
+                request.properties.put("includeNBT", includeNBT);
             }
             return request;
         }

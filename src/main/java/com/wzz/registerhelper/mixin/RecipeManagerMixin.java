@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.mixinaccess.IRecipeManager;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
+import com.wzz.registerhelper.recipe.RecipeTracker;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
 import net.minecraft.network.protocol.game.ClientboundUpdateRecipesPacket;
 import net.minecraft.resources.ResourceLocation;
@@ -58,10 +59,17 @@ public class RecipeManagerMixin implements IRecipeManager {
                                                   ProfilerFiller profiler,
                                                   CallbackInfo ci) {
         try {
+            // 清空旧的配方追踪
+            RecipeTracker.clearTrackedRecipes();
+            
             Map<ResourceLocation, JsonElement> customRecipes = loadCustomRecipes();
             if (!customRecipes.isEmpty()) {
                 registerhelper$LOGGER.info("注入 {} 个自定义配方到游戏中", customRecipes.size());
                 originalRecipes.putAll(customRecipes);
+                
+                // 追踪所有自定义配方
+                RecipeTracker.trackRecipes(customRecipes.keySet());
+                registerhelper$LOGGER.info("已追踪 {} 个自定义配方用于NBT模糊匹配", customRecipes.size());
             }
             UnifiedRecipeOverrideManager.applyOverridesToRecipeMap(originalRecipes);
             applyRecipeDeletions(originalRecipes);

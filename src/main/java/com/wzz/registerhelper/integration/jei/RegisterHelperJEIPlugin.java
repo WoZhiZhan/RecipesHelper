@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.integration.jei;
 
 import com.wzz.registerhelper.recipe.CustomRecipeLoader;
+import com.wzz.registerhelper.util.ResourceUtil;
 import mezz.jei.api.IModPlugin;
 import mezz.jei.api.JeiPlugin;
 import mezz.jei.api.registration.IRecipeCategoryRegistration;
@@ -15,7 +16,7 @@ import org.jetbrains.annotations.NotNull;
 @JeiPlugin
 public class RegisterHelperJEIPlugin implements IModPlugin {
     
-    private static final ResourceLocation PLUGIN_ID = new ResourceLocation("registerhelper", "jei_plugin");
+    private static final ResourceLocation PLUGIN_ID = ResourceUtil.createInstance("jei_plugin");
     
     @Override
     @NotNull

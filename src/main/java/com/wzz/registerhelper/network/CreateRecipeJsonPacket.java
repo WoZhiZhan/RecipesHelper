@@ -330,12 +330,30 @@ public class CreateRecipeJsonPacket {
 
             // 1.21 新标准
             if (obj.has("id")) {
-                return obj.get("id").getAsString();
+                JsonElement idElement = obj.get("id");
+                if (idElement.isJsonPrimitive()) {
+                    return idElement.getAsString();
+                }
             }
-            // 旧兼容
+            
+            // TACZ特殊格式：item是对象 {"item": {"item": "..."}}
             if (obj.has("item")) {
-                return obj.get("item").getAsString();
+                JsonElement itemElement = obj.get("item");
+                if (itemElement.isJsonPrimitive()) {
+                    // 旧兼容 - item是字符串
+                    return itemElement.getAsString();
+                } else if (itemElement.isJsonObject()) {
+                    // TACZ格式 - item是对象
+                    JsonObject itemObj = itemElement.getAsJsonObject();
+                    if (itemObj.has("item")) {
+                        return itemObj.get("item").getAsString();
+                    }
+                    if (itemObj.has("tag")) {
+                        return "#" + itemObj.get("tag").getAsString();
+                    }
+                }
             }
+            
             if (obj.has("block")) {
                 return obj.get("block").getAsString();
             }

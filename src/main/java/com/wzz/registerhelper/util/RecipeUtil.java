@@ -99,7 +99,8 @@ public class RecipeUtil {
         if (request.ingredients != null) {
             JsonArray ingredientsArray = new JsonArray();
             for (Object ingredient : request.ingredients) {
-                JsonObject ingredientJson = createIngredientJson(ingredient);
+                JsonObject ingredientJson = createIngredientJson(ingredient,
+                        (Boolean) request.properties.getOrDefault("includeNBT", true));
                 if (ingredientJson != null) {
                     ingredientsArray.add(ingredientJson);
                 }
@@ -249,8 +250,17 @@ public class RecipeUtil {
     /**
      * 创建材料JSON对象
      */
-    @SuppressWarnings("unchecked")
     public static JsonObject createIngredientJson(Object ingredient) {
+        return createIngredientJson(ingredient, true);
+    }
+
+    /**
+     * 创建材料JSON对象（带NBT控制）
+     * @param ingredient 材料对象
+     * @param includeNBT 是否包含NBT数据
+     */
+    @SuppressWarnings("unchecked")
+    public static JsonObject createIngredientJson(Object ingredient, boolean includeNBT) {
         JsonObject ingredientJson = new JsonObject();
 
         if (ingredient instanceof ItemStack stack) {
@@ -260,7 +270,8 @@ public class RecipeUtil {
             if (stack.getCount() > 1) {
                 ingredientJson.addProperty("count", stack.getCount());
             }
-            if (stack.hasTag()) {
+            // 根据includeNBT参数决定是否包含NBT
+            if (includeNBT && stack.hasTag()) {
                 ingredientJson.addProperty("type", "forge:nbt");
                 ingredientJson.addProperty("nbt", stack.getTag().toString());
             }
@@ -280,15 +291,15 @@ public class RecipeUtil {
                 ingredientJson.addProperty("fluid", fluidId);
                 ingredientJson.addProperty("amount", amount);
 
-                if (map.containsKey("nbt") && map.get("nbt") instanceof JsonElement json) {
+                if (includeNBT && map.containsKey("nbt") && map.get("nbt") instanceof JsonElement json) {
                     ingredientJson.add("nbt", json);
-                } else {
+                } else if (includeNBT) {
                     ingredientJson.add("nbt", new JsonObject());
                 }
             }
             else if (map.containsKey("item")) {
                 ingredientJson.addProperty("item", (String) map.get("item"));
-                if (map.containsKey("nbt") && map.get("nbt") instanceof JsonElement json) {
+                if (includeNBT && map.containsKey("nbt") && map.get("nbt") instanceof JsonElement json) {
                     ingredientJson.add("nbt", json);
                 }
             }

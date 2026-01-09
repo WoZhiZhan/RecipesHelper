@@ -2,6 +2,7 @@ package com.wzz.registerhelper;
 
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.command.RecipeCommand;
+import com.wzz.registerhelper.init.ModConfig;
 import com.wzz.registerhelper.init.ModIntegrations;
 import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.init.ProcessorLoader;
@@ -27,6 +28,7 @@ public class RecipeHelper {
         MinecraftForge.EVENT_BUS.register(this);
         ModNetwork.register();
         ModIntegrations.registerAll();
+        ModConfig.register();
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {

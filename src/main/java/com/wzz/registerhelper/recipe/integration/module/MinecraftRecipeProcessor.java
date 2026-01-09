@@ -77,7 +77,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
                     char symbol = getCharFromObject(request.ingredients[i]);
                     Object ingredient = request.ingredients[i + 1];
 
-                    JsonObject ingredientJson = createIngredientJson(ingredient);
+                    JsonObject ingredientJson = createIngredientJson(ingredient,
+                            (Boolean) request.properties.getOrDefault("includeNBT", true));
                     if (ingredientJson != null) {
                         keyMapping.put(symbol, ingredientJson);
                     }
@@ -104,7 +105,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
         if (request.ingredients != null) {
             JsonArray ingredientsArray = new JsonArray();
             for (Object ingredient : request.ingredients) {
-                JsonObject ingredientJson = createIngredientJson(ingredient);
+                JsonObject ingredientJson = createIngredientJson(ingredient,
+                        (Boolean) request.properties.getOrDefault("includeNBT", true));
                 if (ingredientJson != null) {
                     ingredientsArray.add(ingredientJson);
                 }
@@ -124,7 +126,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 添加ingredient
         if (request.ingredients != null && request.ingredients.length > 0) {
-            JsonObject ingredientJson = createIngredientJson(request.ingredients[0]);
+            JsonObject ingredientJson = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (ingredientJson != null) {
                 recipe.add("ingredient", ingredientJson);
             }
@@ -153,7 +156,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 输入材料
         if (request.ingredients != null && request.ingredients.length > 0) {
-            JsonObject ingredient = createIngredientJson(request.ingredients[0]);
+            JsonObject ingredient = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (ingredient != null) {
                 recipe.add("ingredient", ingredient);
             }
@@ -171,7 +175,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 模板（第一个材料）
         if (request.ingredients != null && request.ingredients.length > 0) {
-            JsonObject template = createIngredientJson(request.ingredients[0]);
+            JsonObject template = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (template != null) {
                 recipe.add("template", template);
             }
@@ -179,7 +184,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 基础物品（第二个材料）
         if (request.ingredients != null && request.ingredients.length > 1) {
-            JsonObject base = createIngredientJson(request.ingredients[1]);
+            JsonObject base = createIngredientJson(request.ingredients[1],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (base != null) {
                 recipe.add("base", base);
             }
@@ -187,7 +193,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 添加材料（第三个材料）
         if (request.ingredients != null && request.ingredients.length > 2) {
-            JsonObject addition = createIngredientJson(request.ingredients[2]);
+            JsonObject addition = createIngredientJson(request.ingredients[2],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (addition != null) {
                 recipe.add("addition", addition);
             }
@@ -208,7 +215,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 输入（通常是药水）
         if (request.ingredients != null && request.ingredients.length > 0) {
-            JsonObject input = createIngredientJson(request.ingredients[0]);
+            JsonObject input = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (input != null) {
                 recipe.add("input", input);
             }
@@ -216,7 +224,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 酿造材料（第二个材料）
         if (request.ingredients != null && request.ingredients.length > 1) {
-            JsonObject ingredient = createIngredientJson(request.ingredients[1]);
+            JsonObject ingredient = createIngredientJson(request.ingredients[1],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (ingredient != null) {
                 recipe.add("ingredient", ingredient);
             }
@@ -237,7 +246,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 左侧物品
         if (request.ingredients != null && request.ingredients.length > 0) {
-            JsonObject left = createIngredientJson(request.ingredients[0]);
+            JsonObject left = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (left != null) {
                 recipe.add("left", left);
             }
@@ -245,7 +255,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 右侧物品（材料）
         if (request.ingredients != null && request.ingredients.length > 1) {
-            JsonObject right = createIngredientJson(request.ingredients[1]);
+            JsonObject right = createIngredientJson(request.ingredients[1],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (right != null) {
                 recipe.add("right", right);
             }

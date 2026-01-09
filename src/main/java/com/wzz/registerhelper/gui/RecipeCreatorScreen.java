@@ -8,6 +8,7 @@ import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
+import com.wzz.registerhelper.init.ModConfig;
 import com.wzz.registerhelper.network.BlacklistClientHelper;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
@@ -70,6 +71,8 @@ public class RecipeCreatorScreen extends Screen {
     private Button blacklistManagerButton;
     private Button overrideManagerButton;
     private ComponentRenderManager componentRenderManager;
+    private CycleButton<Boolean> includeNBTButton;  // NBT复选框
+    private boolean includeNBT = ModConfig.getDefaultIncludeNBT();  // 从配置读取默认值
 
     // 构造函数
     public RecipeCreatorScreen() {
@@ -688,6 +691,16 @@ public class RecipeCreatorScreen extends Screen {
                         button -> clearAllIngredients())
                 .bounds(rightPanelX, rightPanelStartY + 150, 80, 20)
                 .build());
+        includeNBTButton = addRenderableWidget(CycleButton.<Boolean>builder(
+                        enabled -> Component.literal(enabled ? "§a包含NBT" : "§7不含NBT"))
+                .withValues(true, false)
+                .withInitialValue(includeNBT)
+                .displayOnlyValue()
+                .create(rightPanelX, rightPanelStartY + 120, 80, 20,
+                        Component.literal("NBT"), (button, value) -> {
+                            includeNBT = value;
+                            displayInfo(value ? "输入物品将包含NBT" : "输入物品将不包含NBT");
+                        }));
     }
 
     /**
@@ -1179,7 +1192,7 @@ public class RecipeCreatorScreen extends Screen {
         }
 
         List<IngredientData> ingredientsData = slotManager.getIngredientsData();
-
+        componentData.put("includeNBT", includeNBT);
         List<ItemStack> ingredients = slotManager.getIngredients();
         DynamicRecipeBuilder.BuildParams buildParams = new DynamicRecipeBuilder.BuildParams(
                 currentRecipeType,
