@@ -580,18 +580,23 @@ public class RecipeSelectorScreen extends Screen {
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(guiGraphics);
 
-        // 绘制主界面背景
-        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + contentHeight, 0xFF404040);
-        guiGraphics.fill(leftPos + 1, topPos + 1, leftPos + contentWidth - 1, topPos + contentHeight - 1, 0xFF606060);
-
-        // 绘制标题
-        guiGraphics.drawCenteredString(this.font, this.title, leftPos + contentWidth / 2, topPos + 15, 0xFFFFFF);
+        // ── 外框 ──
+        guiGraphics.fill(leftPos - 1, topPos - 1, leftPos + contentWidth + 1, topPos + contentHeight + 1, 0xFF0A0A0A);
+        // ── 主背景 ──
+        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + contentHeight, 0xFF252525);
+        // ── 标题栏 ──
+        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + 28, 0xFF1A3A6A);
+        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + 1, 0xFF4A7ACF);
+        guiGraphics.fill(leftPos, topPos + 27, leftPos + contentWidth, topPos + 28, 0xFF223B80);
+        // ── 标题文字 ──
+        guiGraphics.drawCenteredString(this.font, "§b" + this.title.getString(), leftPos + contentWidth / 2, topPos + 10, 0xFFFFFF);
 
         // 渲染配方详情区域
         renderRecipeDetail(guiGraphics);
 
-        // 分割线
-        guiGraphics.fill(leftPos + RECIPE_DETAIL_WIDTH + 5, topPos + 30, leftPos + RECIPE_DETAIL_WIDTH + 7, topPos + contentHeight - 10, 0xFF808080);
+        // 分割线（双线带阴影）
+        guiGraphics.fill(leftPos + RECIPE_DETAIL_WIDTH + 5, topPos + 30, leftPos + RECIPE_DETAIL_WIDTH + 6, topPos + contentHeight - 10, 0xFF111111);
+        guiGraphics.fill(leftPos + RECIPE_DETAIL_WIDTH + 6, topPos + 30, leftPos + RECIPE_DETAIL_WIDTH + 7, topPos + contentHeight - 10, 0xFF3A3A3A);
 
         // 右侧列表区域
         int listAreaX = leftPos + RECIPE_DETAIL_WIDTH + 20;
@@ -627,8 +632,8 @@ public class RecipeSelectorScreen extends Screen {
         int listRight = leftPos + contentWidth - 50;
 
         // 配方列表背景
-        guiGraphics.fill(listAreaX - 10, listTop, listRight, listBottom, 0xFF000000);
-        guiGraphics.fill(listAreaX - 9, listTop + 1, listRight - 1, listBottom - 1, 0xFF808080);
+        guiGraphics.fill(listAreaX - 11, listTop - 1, listRight + 1, listBottom + 1, 0xFF0A0A0A);
+        guiGraphics.fill(listAreaX - 10, listTop, listRight, listBottom, 0xFF1A1A1A);
 
         if (loadError == null) {
             renderRecipeList(guiGraphics, mouseX, mouseY, listTop, listAreaX, listRight);
@@ -646,10 +651,12 @@ public class RecipeSelectorScreen extends Screen {
         int detailWidth = RECIPE_DETAIL_WIDTH - 10;
         int detailHeight = contentHeight - 40;
 
-        guiGraphics.fill(detailX, detailY, detailX + detailWidth, detailY + detailHeight, 0xFF000000);
-        guiGraphics.fill(detailX + 1, detailY + 1, detailX + detailWidth - 1, detailY + detailHeight - 1, 0xFF505050);
-
-        guiGraphics.drawCenteredString(this.font, "配方预览", detailX + detailWidth / 2, detailY + 10, 0xFFFFFF);
+        guiGraphics.fill(detailX - 1, detailY - 1, detailX + detailWidth + 1, detailY + detailHeight + 1, 0xFF0A0A0A);
+        guiGraphics.fill(detailX, detailY, detailX + detailWidth, detailY + detailHeight, 0xFF1E1E1E);
+        // 详情区标题
+        guiGraphics.fill(detailX, detailY, detailX + detailWidth, detailY + 22, 0xFF1A2A45);
+        guiGraphics.fill(detailX, detailY, detailX + detailWidth, detailY + 1, 0xFF3A6AAF);
+        guiGraphics.drawCenteredString(this.font, "§7配方预览", detailX + detailWidth / 2, detailY + 7, 0xCCCCCC);
 
         if (selectedRecipeIndex >= 0 && selectedRecipeIndex < filteredRecipes.size()) {
             RecipeEntry selected = filteredRecipes.get(selectedRecipeIndex);
@@ -777,9 +784,10 @@ public class RecipeSelectorScreen extends Screen {
             boolean isSelected = recipeIndex == selectedRecipeIndex;
 
             if (isSelected) {
-                guiGraphics.fill(itemX, itemY, listRight, itemY + RECIPE_ITEM_HEIGHT, 0xFF4488CC);
+                guiGraphics.fill(itemX, itemY, listRight, itemY + RECIPE_ITEM_HEIGHT, 0xFF1E4080);
+                guiGraphics.fill(itemX, itemY, itemX + 3, itemY + RECIPE_ITEM_HEIGHT, 0xFF4A90D9); // 左侧选中条
             } else if (isHovered) {
-                guiGraphics.fill(itemX, itemY, listRight, itemY + RECIPE_ITEM_HEIGHT, 0xFF666699);
+                guiGraphics.fill(itemX, itemY, listRight, itemY + RECIPE_ITEM_HEIGHT, 0xFF2A2A3A);
             }
 
             try {

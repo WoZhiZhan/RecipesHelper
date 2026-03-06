@@ -42,7 +42,7 @@ public class DynamicRecipeBuilder {
      * 动态配方构建参数
      */
     public static class BuildParams {
-        public final DynamicRecipeTypeConfig.RecipeTypeDefinition recipeType;
+        public final RecipeTypeDefinition recipeType;
         public final String craftingMode;
         public final String cookingType;
         public final int customTier;
@@ -500,12 +500,18 @@ public class DynamicRecipeBuilder {
      */
     private Object convertIngredientDataToObject(IngredientData data) {
         return switch (data.getType()) {
-            case ITEM ->
-                    data.getItemStack();
-            case TAG -> // 标签：返回 "#namespace:path" 格式
-                    "#" + data.getTagId().toString();
-            case CUSTOM_TAG -> // 自定义标签：返回 "#namespace:path" 格式
-                    "#" + data.getTagId().toString();
+            case ITEM -> {
+                ItemStack stack = data.getItemStack();
+                // 若该槽位关闭了 NBT 匹配，返回去掉 NBT 的副本
+                if (!data.isIncludeNBT() && stack.hasTag()) {
+                    ItemStack stripped = stack.copy();
+                    stripped.setTag(null);
+                    yield stripped;
+                }
+                yield stack;
+            }
+            case TAG ->    "#" + data.getTagId().toString();
+            case CUSTOM_TAG -> "#" + data.getTagId().toString();
         };
     }
 

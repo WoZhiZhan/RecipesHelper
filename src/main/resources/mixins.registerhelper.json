@@ -7,7 +7,6 @@
   "mixins": [
     "PotionBrewingMixin",
     "RecipeManagerMixin",
-    "StrictNBTIngredientMixin",
     "TagLoaderMixin"
   ],
   "injectors": {

@@ -3,7 +3,6 @@ package com.wzz.registerhelper.mixin;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.mojang.logging.LogUtils;
-import com.wzz.registerhelper.mixinaccess.IRecipeManager;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
 import com.wzz.registerhelper.recipe.RecipeTracker;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
@@ -13,14 +12,10 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.util.profiling.ProfilerFiller;
-import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeManager;
-import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraftforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Mutable;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -31,21 +26,13 @@ import java.io.FileReader;
 import java.util.*;
 
 @Mixin(RecipeManager.class)
-public class RecipeManagerMixin implements IRecipeManager {
+public class RecipeManagerMixin {
     @Unique
     private static final Logger registerhelper$LOGGER = LogUtils.getLogger();
     @Unique
     private static final Gson registerhelper$GSON = new Gson();
     @Unique
     private static final String RECIPES_DIR = getCustomRecipeDir();
-
-    @Shadow
-    @Mutable
-    private Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> recipes;
-
-    @Shadow
-    @Mutable
-    private Map<ResourceLocation, Recipe<?>> byName;
 
     /**
      * 在配方加载完成后注入自定义配方、应用覆盖和黑名单规则
@@ -255,34 +242,5 @@ public class RecipeManagerMixin implements IRecipeManager {
                 .resolve("registerhelper/recipes")
                 .toAbsolutePath()
                 .toString();
-    }
-
-    @Override
-    public Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> getRecipes0() {
-        return recipes;
-    }
-
-    @Override
-    public Map<ResourceLocation, Recipe<?>> getByName0() {
-        return byName;
-    }
-
-    @Override
-    public void setByName(Map<ResourceLocation, Recipe<?>> byName) {
-        this.byName = byName;
-    }
-
-    @Override
-    public void setRecipes(Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> recipes) {
-        this.recipes = recipes;
-    }
-
-    @Override
-    public void safeSetRecipes(Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> recipes) {
-        Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> safe = new HashMap<>();
-        for (Map.Entry<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> entry : recipes.entrySet()) {
-            safe.put(entry.getKey(), new HashMap<>(entry.getValue()));
-        }
-        this.setRecipes(safe);
     }
 }

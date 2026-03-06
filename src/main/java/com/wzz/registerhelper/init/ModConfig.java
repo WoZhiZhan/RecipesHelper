@@ -32,26 +32,12 @@ public class ModConfig {
      */
     public static class CommonConfig {
 
-        public final ForgeConfigSpec.BooleanValue enableFuzzyNbtMatching;
+        public final ForgeConfigSpec.BooleanValue enablePerSlotNBT;
         public final ForgeConfigSpec.BooleanValue enableDebugLogging;
         public final ForgeConfigSpec.BooleanValue defaultIncludeNBT;
 
         public CommonConfig(ForgeConfigSpec.Builder builder) {
             builder.push("nbt_matching");
-
-            // NBT模糊匹配总开关
-            enableFuzzyNbtMatching = builder
-                    .comment("启用NBT模糊匹配模式",
-                            "当启用时，本mod添加的所有配方在匹配物品NBT时，只需物品NBT包含配方所需的NBT即可",
-                            "例如：配方需要{display:{Name:\"test\"}}，物品有{display:{Name:\"test\",Lore:[\"额外信息\"]}}也会匹配",
-                            "这适用于本mod创建/修改的所有配方类型（工作台、熔炉、铁砧、酿造台等）",
-                            "",
-                            "Enable fuzzy NBT matching mode",
-                            "When enabled, all recipes added by this mod will use fuzzy NBT matching",
-                            "Items only need to contain the required NBT data to match",
-                            "Example: Recipe requires {display:{Name:\"test\"}}, item with {display:{Name:\"test\",Lore:[\"extra\"]}} will also match",
-                            "This applies to all recipe types created/modified by this mod")
-                    .define("enableFuzzyNbtMatching", true);
 
             // NBT复选框默认状态
             defaultIncludeNBT = builder
@@ -63,6 +49,17 @@ public class ModConfig {
                             "When enabled, input items will include NBT by default",
                             "When disabled, input items will not include NBT by default")
                     .define("defaultIncludeNBT", true);
+
+            // per-slot NBT 控制开关
+            enablePerSlotNBT = builder
+                    .comment("启用配方创建器中每个槽位独立的NBT匹配控制",
+                            "启用后：槽位底部显示颜色条，中键点击可单独开关每个槽位的NBT匹配",
+                            "禁用后：所有槽位统一由 defaultIncludeNBT 决定，不显示颜色条",
+                            "",
+                            "Enable per-slot NBT matching control in recipe creator",
+                            "When enabled: color bar shown at slot bottom, middle-click to toggle per slot",
+                            "When disabled: all slots follow defaultIncludeNBT, no color bar shown")
+                    .define("enablePerSlotNBT", true);
 
             builder.pop();
 
@@ -82,17 +79,17 @@ public class ModConfig {
     }
 
     /**
-     * 检查是否启用了NBT模糊匹配
-     */
-    public static boolean isFuzzyNbtMatchingEnabled() {
-        return COMMON.enableFuzzyNbtMatching.get();
-    }
-
-    /**
      * 检查是否启用调试日志
      */
     public static boolean isDebugLoggingEnabled() {
         return COMMON.enableDebugLogging.get();
+    }
+
+    /**
+     * 检查是否启用了 per-slot NBT 控制
+     */
+    public static boolean isPerSlotNBTEnabled() {
+        return COMMON.enablePerSlotNBT.get();
     }
 
     /**

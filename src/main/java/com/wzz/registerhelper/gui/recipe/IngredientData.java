@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe;
 
+import com.wzz.registerhelper.init.ModConfig;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -34,6 +35,7 @@ public class IngredientData {
     private ItemStack itemStack;           // 物品类型（包含NBT）
     private ResourceLocation tagId;        // 标签ID
     private List<ItemStack> customTagItems; // 自定义标签的物品列表
+    private boolean includeNBT = true;         // 是否在配方JSON中写入NBT匹配（仅对ITEM类型有效）
     
     // 私有构造函数
     private IngredientData(Type type) {
@@ -144,7 +146,7 @@ public class IngredientData {
                 }
                 String name = itemStack.getItem().getDescription().getString();
                 if (itemStack.hasTag()) {
-                    yield name + " §7(带NBT)";
+                    yield name + (includeNBT ? " §d(匹配NBT)" : " §8(忽略NBT)");
                 }
                 yield name;
             }
@@ -182,6 +184,31 @@ public class IngredientData {
     }
     
     /**
+     * 是否在配方中启用 NBT 匹配
+     */
+    public boolean isIncludeNBT() {
+        return includeNBT;
+    }
+
+    /**
+     * 设置是否启用 NBT 匹配
+     */
+    public void setIncludeNBT(boolean value) {
+        this.includeNBT = value;
+    }
+
+    /**
+     * 切换 NBT 匹配开关（仅对带 NBT 的 ITEM 有效）
+     * @return 切换后的新状态
+     */
+    public boolean toggleIncludeNBT() {
+        if (type == Type.ITEM && hasNBT()) {
+            includeNBT = !includeNBT;
+        }
+        return includeNBT;
+    }
+
+    /**
      * 获取NBT数据
      */
     public CompoundTag getNBT() {
@@ -195,11 +222,13 @@ public class IngredientData {
      * 复制数据
      */
     public IngredientData copy() {
-        return switch (type) {
+        IngredientData result = switch (type) {
             case ITEM -> fromItem(getItemStack());
             case TAG -> fromTag(tagId);
             case CUSTOM_TAG -> fromCustomTag(tagId, customTagItems);
         };
+        result.includeNBT = this.includeNBT;
+        return result;
     }
     
     @Override

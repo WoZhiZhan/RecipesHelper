@@ -160,17 +160,30 @@ public class BlacklistManagerScreen extends Screen {
         int listBottom = this.height - 60;
         int listHeight = listBottom - listTop;
 
+        // 深色遮罩
+        guiGraphics.fill(0, 0, this.width, this.height, 0x80000000);
+
+        // 面板外框
+        int px = centerX - 252, py = 5, pw = 504, ph = this.height - 10;
+        guiGraphics.fill(px - 1, py - 1, px + pw + 1, py + ph + 1, 0xFF0A0A0A);
+        guiGraphics.fill(px, py, px + pw, py + ph, 0xFF252525);
+
+        // 标题栏
+        guiGraphics.fill(px, py, px + pw, py + 26, 0xFF5A1A1A);
+        guiGraphics.fill(px, py, px + pw, py + 1, 0xFFCF4A4A);
+        guiGraphics.fill(px, py + 25, px + pw, py + 26, 0xFF802222);
+
         // 标题
-        guiGraphics.drawCenteredString(this.font, "配方黑名单管理器", centerX, 15, 0xFFFFFF);
+        guiGraphics.drawCenteredString(this.font, "§c配方黑名单管理器", centerX, py + 9, 0xFFFFFF);
 
         // 统计信息
-        String statsText = String.format("黑名单配方: %d 个  |  显示: %d 个",
+        String statsText = String.format("§7黑名单配方: §e%d §7个  |  当前显示: §e%d §7个",
                 stats.totalBlacklisted, filteredRecipes.size());
-        guiGraphics.drawCenteredString(this.font, statsText, centerX, 28, 0xAAAAAA);
+        guiGraphics.drawCenteredString(this.font, statsText, centerX, 33, 0xAAAAAA);
 
         // 列表背景
-        guiGraphics.fill(centerX - 250, listTop, centerX + 250, listBottom, 0x88000000);
-        guiGraphics.fill(centerX - 249, listTop + 1, centerX + 249, listBottom - 1, 0xFF2D2D30);
+        guiGraphics.fill(centerX - 251, listTop - 1, centerX + 251, listBottom + 1, 0xFF0A0A0A);
+        guiGraphics.fill(centerX - 250, listTop, centerX + 250, listBottom, 0xFF1A1A1A);
 
         // 渲染配方列表
         renderRecipeList(guiGraphics, mouseX, mouseY, centerX - 240, listTop + 5, 480, listHeight - 10);

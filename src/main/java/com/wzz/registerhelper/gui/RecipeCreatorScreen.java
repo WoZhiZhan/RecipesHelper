@@ -71,8 +71,6 @@ public class RecipeCreatorScreen extends Screen {
     private Button blacklistManagerButton;
     private Button overrideManagerButton;
     private ComponentRenderManager componentRenderManager;
-    private CycleButton<Boolean> includeNBTButton;  // NBT复选框
-    private boolean includeNBT = ModConfig.getDefaultIncludeNBT();  // 从配置读取默认值
 
     // 构造函数
     public RecipeCreatorScreen() {
@@ -169,6 +167,9 @@ public class RecipeCreatorScreen extends Screen {
             ModLogger.getLogger().error("calculateDynamicSize: currentRecipeType为null");
             return;
         }
+
+        // 构造函数里 width/height 尚未初始化，跳过
+        if (this.width == 0 || this.height == 0) return;
 
         // 获取当前配方类型的网格尺寸
         SlotManager.GridDimensions gridDim = getGridDimensions();
@@ -691,16 +692,7 @@ public class RecipeCreatorScreen extends Screen {
                         button -> clearAllIngredients())
                 .bounds(rightPanelX, rightPanelStartY + 150, 80, 20)
                 .build());
-        includeNBTButton = addRenderableWidget(CycleButton.<Boolean>builder(
-                        enabled -> Component.literal(enabled ? "§a包含NBT" : "§7不含NBT"))
-                .withValues(true, false)
-                .withInitialValue(includeNBT)
-                .displayOnlyValue()
-                .create(rightPanelX, rightPanelStartY + 120, 80, 20,
-                        Component.literal("NBT"), (button, value) -> {
-                            includeNBT = value;
-                            displayInfo(value ? "输入物品将包含NBT" : "输入物品将不包含NBT");
-                        }));
+
     }
 
     /**
@@ -737,58 +729,49 @@ public class RecipeCreatorScreen extends Screen {
     }
 
     /**
-     * 初始化底部按钮
+     * 初始化底部按钮（自适应单行/双行）
      */
     private void initializeBottomButtons() {
-        int buttonY = topPos + contentHeight - 30;
+        int sp = 8;
+        // 功能按钮参数
+        String[] r1Labels  = {"黑名单管理", "覆盖管理", "编辑配方", "配方操作"};
+        int[]    r1Widths  = {80, 70, 70, 70};
+        Runnable[] r1Acts  = {this::openBlacklistManager, this::openOverrideManager,
+                              this::openRecipeSelector, this::openRecipeOperationSelector};
+
+        int r1Total = Arrays.stream(r1Widths).sum() + sp * (r1Widths.length - 1);
+        int r2Total = 80 + sp + 60;
         int centerX = leftPos + contentWidth / 2;
-        int buttonSpacing = 10;
 
-        // 计算所有按钮的总宽度
-        int[] buttonWidths = {80, 70, 70, 70, 80, 80, 50}; // 增加一个导出按钮
-        int totalButtonWidth = Arrays.stream(buttonWidths).sum() + buttonSpacing * (buttonWidths.length - 1);
-        int buttonStartX = centerX - totalButtonWidth / 2;
+        boolean single = (r1Total + sp + r2Total) <= contentWidth - 20;
 
-        blacklistManagerButton = addRenderableWidget(Button.builder(
-                        Component.literal("黑名单管理"),
-                        button -> openBlacklistManager())
-                .bounds(buttonStartX, buttonY, buttonWidths[0], 20)
-                .build());
-        buttonStartX += buttonWidths[0] + buttonSpacing;
+        if (single) {
+            int btnY   = topPos + contentHeight - 28;
+            int startX = centerX - (r1Total + sp + r2Total) / 2;
+            blacklistManagerButton  = makeBtn(r1Labels[0], r1Acts[0], startX, btnY, r1Widths[0]); startX += r1Widths[0] + sp;
+            overrideManagerButton   = makeBtn(r1Labels[1], r1Acts[1], startX, btnY, r1Widths[1]); startX += r1Widths[1] + sp;
+            editExistingRecipeButton= makeBtn(r1Labels[2], r1Acts[2], startX, btnY, r1Widths[2]); startX += r1Widths[2] + sp;
+            recipeOperationButton   = makeBtn(r1Labels[3], r1Acts[3], startX, btnY, r1Widths[3]); startX += r1Widths[3] + sp*2;
+            createButton = makeBtn(isEditingExisting ? "更新配方" : "创建配方", this::createRecipe, startX, btnY, 80); startX += 80 + sp;
+            cancelButton = makeBtn("取消", this::onClose, startX, btnY, 60);
+        } else {
+            int btnY1  = topPos + contentHeight - 50;
+            int btnY2  = topPos + contentHeight - 26;
+            int startX = centerX - r1Total / 2;
+            blacklistManagerButton  = makeBtn(r1Labels[0], r1Acts[0], startX, btnY1, r1Widths[0]); startX += r1Widths[0] + sp;
+            overrideManagerButton   = makeBtn(r1Labels[1], r1Acts[1], startX, btnY1, r1Widths[1]); startX += r1Widths[1] + sp;
+            editExistingRecipeButton= makeBtn(r1Labels[2], r1Acts[2], startX, btnY1, r1Widths[2]); startX += r1Widths[2] + sp;
+            recipeOperationButton   = makeBtn(r1Labels[3], r1Acts[3], startX, btnY1, r1Widths[3]);
+            int x2 = centerX - r2Total / 2;
+            createButton = makeBtn(isEditingExisting ? "更新配方" : "创建配方", this::createRecipe, x2, btnY2, 80);
+            cancelButton = makeBtn("取消", this::onClose, x2 + 80 + sp, btnY2, 60);
+        }
+    }
 
-        overrideManagerButton = addRenderableWidget(Button.builder(
-                        Component.literal("覆盖管理"),
-                        button -> openOverrideManager())
-                .bounds(buttonStartX, buttonY, buttonWidths[1], 20)
-                .build());
-        buttonStartX += buttonWidths[1] + buttonSpacing;
-
-        editExistingRecipeButton = addRenderableWidget(Button.builder(
-                        Component.literal("编辑配方"),
-                        button -> openRecipeSelector())
-                .bounds(buttonStartX, buttonY, buttonWidths[2], 20)
-                .build());
-        buttonStartX += buttonWidths[2] + buttonSpacing;
-
-        recipeOperationButton = addRenderableWidget(Button.builder(
-                        Component.literal("配方操作"),
-                        button -> openRecipeOperationSelector())
-                .bounds(buttonStartX, buttonY, buttonWidths[3], 20)
-                .build());
-        buttonStartX += buttonWidths[3] + buttonSpacing;
-
-        createButton = addRenderableWidget(Button.builder(
-                        Component.literal(isEditingExisting ? "更新配方" : "创建配方"),
-                        button -> createRecipe())
-                .bounds(buttonStartX, buttonY, buttonWidths[4], 20)
-                .build());
-        buttonStartX += buttonWidths[4] + buttonSpacing;
-
-        cancelButton = addRenderableWidget(Button.builder(
-                        Component.literal("取消"),
-                        button -> onClose())
-                .bounds(buttonStartX, buttonY, buttonWidths[5], 20)
-                .build());
+    /** 简化按钮创建 */
+    private Button makeBtn(String label, Runnable action, int x, int y, int w) {
+        return addRenderableWidget(Button.builder(Component.literal(label), btn -> action.run())
+                .bounds(x, y, w, 20).build());
     }
 
     /**
@@ -1192,7 +1175,7 @@ public class RecipeCreatorScreen extends Screen {
         }
 
         List<IngredientData> ingredientsData = slotManager.getIngredientsData();
-        componentData.put("includeNBT", includeNBT);
+        // NBT控制已改为 per-slot，由各槽位 IngredientData.isIncludeNBT() 决定
         List<ItemStack> ingredients = slotManager.getIngredients();
         DynamicRecipeBuilder.BuildParams buildParams = new DynamicRecipeBuilder.BuildParams(
                 currentRecipeType,
@@ -1216,20 +1199,40 @@ public class RecipeCreatorScreen extends Screen {
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(guiGraphics);
 
-        // 绘制主背景
-        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + contentHeight, 0xFFC6C6C6);
-        guiGraphics.fill(leftPos + 1, topPos + 1, leftPos + contentWidth - 1, topPos + contentHeight - 1, 0xFF8B8B8B);
+        // ── 外框 ──
+        guiGraphics.fill(leftPos - 1, topPos - 1, leftPos + contentWidth + 1, topPos + contentHeight + 1, 0xFF0A0A0A);
+        // ── 主背景 ──
+        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + contentHeight, 0xFF252525);
 
-        // 绘制标题
+        // ── 标题栏 ──
+        int titleBarH = 30;
+        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + titleBarH, 0xFF1A3A6A);
+        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + 1, 0xFF4A7ACF);          // 顶部高亮线
+        guiGraphics.fill(leftPos, topPos + titleBarH - 1, leftPos + contentWidth, topPos + titleBarH, 0xFF223B80); // 底部线
+
+        // ── 控件区背景 ──
+        guiGraphics.fill(leftPos + 1, topPos + titleBarH, leftPos + contentWidth - 1, topPos + 98, 0xFF202020);
+        guiGraphics.fill(leftPos + 5, topPos + 98, leftPos + contentWidth - 5, topPos + 99, 0xFF333333);
+
+        // ── 主内容区背景 ──
+        guiGraphics.fill(leftPos + 1, topPos + 99, leftPos + contentWidth - 1, topPos + contentHeight - 35, 0xFF1E1E1E);
+
+        // ── 底部按钮区背景 ──
+        guiGraphics.fill(leftPos + 1, topPos + contentHeight - 35, leftPos + contentWidth - 1, topPos + contentHeight - 1, 0xFF202020);
+        guiGraphics.fill(leftPos + 5, topPos + contentHeight - 36, leftPos + contentWidth - 5, topPos + contentHeight - 35, 0xFF333333);
+
+        // ── 右侧面板区域分隔线 ──
+        int rightPanelX = leftPos + contentWidth - 150 + 10;
+        guiGraphics.fill(rightPanelX - 18, topPos + titleBarH + 2, rightPanelX - 16, topPos + contentHeight - 36, 0xFF333333);
+        guiGraphics.fill(rightPanelX - 17, topPos + titleBarH + 2, rightPanelX - 15, topPos + contentHeight - 36, 0xFF444444);
+
+        // ── 标题文字 ──
         String titleText = isEditingExisting ?
-                (editingRecipeId != null ? "配方编辑器 - " + editingRecipeId : "配方编辑器")
-                : "配方创建器";
-        guiGraphics.drawCenteredString(this.font, titleText, leftPos + contentWidth / 2, topPos + 15, 0x404040);
+                (editingRecipeId != null ? "§e配方编辑器  §7- §f" + editingRecipeId : "§e配方编辑器")
+                : "§b配方创建器";
+        guiGraphics.drawCenteredString(this.font, titleText, leftPos + contentWidth / 2, topPos + 11, 0xFFFFFF);
 
         renderLabels(guiGraphics);
-
-        int rightPanelX = leftPos + contentWidth - 150 + 10;
-        guiGraphics.fill(rightPanelX - 20, topPos + 20, rightPanelX - 18, topPos + contentHeight - 60, 0xFF606060);
 
         // 使用组件渲染器渲染
         if (componentRenderManager != null && !slotManager.getComponents().isEmpty()) {
@@ -1253,20 +1256,20 @@ public class RecipeCreatorScreen extends Screen {
         int labelY1 = topPos + 25;
         int labelY2 = topPos + 55;
 
-        guiGraphics.drawString(this.font, "配方类型:", labelStartX, labelY1, 0x404040, false);
+        guiGraphics.drawString(this.font, "§7配方类型:", labelStartX, labelY1, 0xAAAAAA, false);
 
         if (currentRecipeType != null) {
             String category = currentRecipeType.getProperty("category", String.class);
 
             if ("crafting".equals(category) || "avaritia".equals(category)) {
-                guiGraphics.drawString(this.font, "合成模式:", labelStartX + 140, labelY1, 0x404040, false);
-                guiGraphics.drawString(this.font, "填充模式:", labelStartX, labelY2, 0x404040, false);
+                guiGraphics.drawString(this.font, "§7合成模式:", labelStartX + 140, labelY1, 0xAAAAAA, false);
+                guiGraphics.drawString(this.font, "§7填充模式:", labelStartX, labelY2, 0xAAAAAA, false);
             } else if (currentRecipeType.supportsCookingSettings()) {
-                guiGraphics.drawString(this.font, "烹饪类型:", labelStartX + 140, labelY1, 0x404040, false);
+                guiGraphics.drawString(this.font, "§7烹饪类型:", labelStartX + 140, labelY1, 0xAAAAAA, false);
             }
 
             if (currentRecipeType.isAvaritiaType() || Boolean.TRUE.equals(currentRecipeType.getProperty("supportsTiers", Boolean.class))) {
-                guiGraphics.drawString(this.font, "等级:", labelStartX + 220, labelY1, 0x404040, false);
+                guiGraphics.drawString(this.font, "§7等级:", labelStartX + 220, labelY1, 0xAAAAAA, false);
             }
         }
 
@@ -1274,12 +1277,12 @@ public class RecipeCreatorScreen extends Screen {
         int rightPanelX = leftPos + contentWidth - 150 + 10;
         int rightPanelStartY = topPos + 130;
 
-        guiGraphics.drawString(this.font, "结果:", rightPanelX, rightPanelStartY - 20, 0x404040, false);
-        guiGraphics.drawString(this.font, "数量:", rightPanelX, rightPanelStartY + 20, 0x404040, false);
+        guiGraphics.drawString(this.font, "§7结果:", rightPanelX, rightPanelStartY - 20, 0xAAAAAA, false);
+        guiGraphics.drawString(this.font, "§7数量:", rightPanelX, rightPanelStartY + 20, 0xAAAAAA, false);
 
         if (currentRecipeType != null && currentRecipeType.supportsCookingSettings()) {
-            guiGraphics.drawString(this.font, "时间:", rightPanelX, rightPanelStartY + 50, 0x404040, false);
-            guiGraphics.drawString(this.font, "经验:", rightPanelX, rightPanelStartY + 80, 0x404040, false);
+            guiGraphics.drawString(this.font, "§7时间:", rightPanelX, rightPanelStartY + 50, 0xAAAAAA, false);
+            guiGraphics.drawString(this.font, "§7经验:", rightPanelX, rightPanelStartY + 80, 0xAAAAAA, false);
         }
 
         // 底部状态信息
@@ -1289,8 +1292,8 @@ public class RecipeCreatorScreen extends Screen {
 
         // 显示当前配方类型信息
         if (currentRecipeType != null) {
-            String typeInfo = "§7" + currentRecipeType.getModId() + " | " + currentRecipeType.getId();
-            guiGraphics.drawString(this.font, typeInfo, labelStartX + 100, topPos + contentHeight - 45, 0x666666, false);
+            String typeInfo = "§8" + currentRecipeType.getModId() + "§7:§8" + currentRecipeType.getId();
+            guiGraphics.drawString(this.font, typeInfo, labelStartX + 100, topPos + contentHeight - 52, 0x666666, false);
         }
     }
 
@@ -1317,14 +1320,18 @@ public class RecipeCreatorScreen extends Screen {
         boolean isMouseOver = mouseX >= slot.x() && mouseX < slot.x() + 18 &&
                 mouseY >= slot.y() && mouseY < slot.y() + 18;
 
-        int bgColor = isMouseOver ? 0x80FFFFFF : 0xFF373737;
+        int bgColor = isMouseOver ? 0xFF1D3555 : 0xFF141414;
         guiGraphics.fill(slot.x(), slot.y(), slot.x() + 18, slot.y() + 18, bgColor);
 
-        // 边框
-        guiGraphics.fill(slot.x() - 1, slot.y() - 1, slot.x() + 19, slot.y(), 0xFF000000);
-        guiGraphics.fill(slot.x() - 1, slot.y() + 18, slot.x() + 19, slot.y() + 19, 0xFF000000);
-        guiGraphics.fill(slot.x() - 1, slot.y(), slot.x(), slot.y() + 18, 0xFF000000);
-        guiGraphics.fill(slot.x() + 18, slot.y(), slot.x() + 19, slot.y() + 18, 0xFF000000);
+        // 内陷边框（Minecraft 风格：左上暗，右下亮）
+        guiGraphics.fill(slot.x(),      slot.y(),      slot.x() + 18, slot.y() + 1,  0xFF080808); // 顶
+        guiGraphics.fill(slot.x(),      slot.y(),      slot.x() + 1,  slot.y() + 18, 0xFF080808); // 左
+        guiGraphics.fill(slot.x(),      slot.y() + 17, slot.x() + 18, slot.y() + 18, 0xFF3A3A3A); // 底
+        guiGraphics.fill(slot.x() + 17, slot.y(),      slot.x() + 18, slot.y() + 18, 0xFF3A3A3A); // 右
+
+        if (isMouseOver) {
+            guiGraphics.fill(slot.x() + 1, slot.y() + 1, slot.x() + 17, slot.y() + 17, 0x30AACCFF);
+        }
 
         // 获取对应的IngredientData
         int slotIndex = slot.index();
@@ -1358,9 +1365,12 @@ public class RecipeCreatorScreen extends Screen {
                 }
                 case ITEM -> {
                     if (data.hasNBT()) {
-                        // 带NBT：紫色*标记 + 半透明紫色背景
-                        guiGraphics.fill(slot.x() + 10, slot.y() + 1, slot.x() + 18, slot.y() + 9, 0x80FF00FF);
-                        guiGraphics.drawString(this.font, "§d§l*", slot.x() + 12, slot.y() + 1, 0xFFFFFF, true);
+                        // 底部状态条（3px）：紫色 = 匹配NBT，深灰 = 忽略NBT
+                        int barColor = data.isIncludeNBT() ? 0xFFCC44FF : 0xFF555555;
+                        guiGraphics.fill(slot.x() + 1, slot.y() + 15, slot.x() + 17, slot.y() + 17, barColor);
+                        // 底部条上写小字 "N"（5px高字体）
+                        String label = data.isIncludeNBT() ? "§dN" : "§8N";
+                        guiGraphics.drawString(this.font, label, slot.x() + 6, slot.y() + 10, 0xFFFFFF, true);
                     }
                 }
             }
@@ -1395,7 +1405,27 @@ public class RecipeCreatorScreen extends Screen {
                     switch (data.getType()) {
                         case ITEM -> {
                             ItemStack stack = data.getItemStack();
-                            guiGraphics.renderTooltip(this.font, stack, mouseX, mouseY);
+                            // 有NBT时附加操作提示
+                            if (data.hasNBT()) {
+                                List<Component> itemTip = new ArrayList<>();
+                                itemTip.add(stack.getHoverName().copy());
+                                String itemId = net.minecraftforge.registries.ForgeRegistries.ITEMS
+                                        .getKey(stack.getItem()).toString();
+                                itemTip.add(Component.literal("§8" + itemId));
+                                itemTip.add(Component.literal(""));
+                                if (data.isIncludeNBT()) {
+                                    itemTip.add(Component.literal("§d■ 底部紫色条 = 匹配NBT"));
+                                    itemTip.add(Component.literal("§7中键：关闭NBT匹配"));
+                                } else {
+                                    itemTip.add(Component.literal("§8■ 底部灰色条 = 忽略NBT"));
+                                    itemTip.add(Component.literal("§7中键：开启NBT匹配"));
+                                }
+                                itemTip.add(Component.literal("§7左键：修改材料  §7右键：清空"));
+                                guiGraphics.renderTooltip(this.font, itemTip,
+                                        Optional.empty(), mouseX, mouseY);
+                            } else {
+                                guiGraphics.renderTooltip(this.font, stack, mouseX, mouseY);
+                            }
                             return;
                         }
                         case TAG -> {
@@ -1433,7 +1463,16 @@ public class RecipeCreatorScreen extends Screen {
 
                     tooltip.add(Component.literal("")); // 空行
                     tooltip.add(Component.literal("§7左键: 修改材料"));
-                    tooltip.add(Component.literal("§7右键: 清空槽位"));
+                    if (data.getType() == IngredientData.Type.ITEM && data.hasNBT()) {
+                        if (data.isIncludeNBT()) {
+                            tooltip.add(Component.literal("§d■ 底部紫色条 = 匹配NBT（中键切换）"));
+                        } else {
+                            tooltip.add(Component.literal("§8■ 底部灰色条 = 忽略NBT（中键切换）"));
+                        }
+                        tooltip.add(Component.literal("§7右键: 清空槽位"));
+                    } else {
+                        tooltip.add(Component.literal("§7右键: 清空槽位"));
+                    }
 
                     guiGraphics.renderTooltip(this.font, tooltip, Optional.empty(), mouseX, mouseY);
                 } else {
@@ -1466,7 +1505,15 @@ public class RecipeCreatorScreen extends Screen {
                 SlotManager.IngredientSlot slot = slotManager.getIngredientSlots().get(i);
                 if (mouseX >= slot.x() && mouseX < slot.x() + 18 &&
                         mouseY >= slot.y() && mouseY < slot.y() + 18) {
-                    // 使用填充模式处理
+                    IngredientData slotData = slotManager.getIngredientData(i);
+                    // 中键：切换该槽位 NBT 匹配（仅对带NBT的物品有效）
+                    if (button == 2 && slotData.getType() == IngredientData.Type.ITEM
+                            && slotData.hasNBT()) {
+                        boolean nowOn = slotData.toggleIncludeNBT();
+                        displayInfo(nowOn ? "§d[NBT] 该槽位启用 NBT 匹配" : "§8[NBT] 该槽位忽略 NBT");
+                        return true;
+                    }
+                    // 左键/右键：正常填充模式处理（左键选材料，右键清空）
                     fillModeHandler.handleSlotClick(slotManager, i, button == 1);
                     // 同步到渲染器
                     if (componentRenderManager != null) {
