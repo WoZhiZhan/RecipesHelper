@@ -138,7 +138,8 @@ public class RecipeLoader {
     private java.io.File findRecipeFile(net.minecraft.resources.ResourceLocation recipeId) {
         // 搜索根目录列表
         java.nio.file.Path[] searchRoots = {
-                FMLPaths.CONFIGDIR.get().resolve("registerhelper/recipes")
+                FMLPaths.CONFIGDIR.get().resolve("registerhelper/recipes"),
+                FMLPaths.CONFIGDIR.get().resolve("registerhelper/custom_recipes")
         };
         String targetNamespace = recipeId.getNamespace();
         String targetPath      = recipeId.getPath(); // e.g. "custom_shaped_chiseled_sandstone"
