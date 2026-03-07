@@ -3,6 +3,7 @@ package com.wzz.registerhelper;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.command.RecipeCommand;
 import com.wzz.registerhelper.gui.ConfigScreen;
+import com.wzz.registerhelper.ingredient.PartialNbtIngredient;
 import com.wzz.registerhelper.init.ModConfig;
 import com.wzz.registerhelper.init.ModIntegrations;
 import com.wzz.registerhelper.init.ModNetwork;
@@ -10,10 +11,10 @@ import com.wzz.registerhelper.init.ProcessorLoader;
 import com.wzz.registerhelper.recipe.CustomRecipeLoader;
 import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.crafting.CraftingHelper;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModContainer;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
@@ -46,6 +47,12 @@ public class RecipeHelper {
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
+        event.enqueueWork(() -> {
+            CraftingHelper.register(
+                    PartialNbtIngredient.ID,
+                    PartialNbtIngredient.SERIALIZER
+            );
+        });
         ProcessorLoader.loadProcessors(event);
         CustomRecipeLoader.loadCustomRecipes();
     }

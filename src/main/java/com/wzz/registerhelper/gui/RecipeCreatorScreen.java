@@ -8,9 +8,7 @@ import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
-import com.wzz.registerhelper.init.ModConfig;
 import com.wzz.registerhelper.network.BlacklistClientHelper;
-import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import com.wzz.registerhelper.tags.CustomTagManager;
@@ -25,6 +23,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
+import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -71,6 +70,13 @@ public class RecipeCreatorScreen extends Screen {
     private Button blacklistManagerButton;
     private Button overrideManagerButton;
     private ComponentRenderManager componentRenderManager;
+    private boolean menuOpen = false;
+    /** 下拉菜单的屏幕坐标（render 时计算，mouseClicked 时判断） */
+    private int menuBtnX, menuBtnY, menuBtnW = 68;
+
+    /** 下拉菜单三个选项的标签/动作 */
+    private static final String[]   MENU_LABELS  = { "黑名单管理", "覆盖管理", "添加黑名单" };
+    private static final int        MENU_ITEM_H  = 18;
 
     // 构造函数
     public RecipeCreatorScreen() {
@@ -414,7 +420,11 @@ public class RecipeCreatorScreen extends Screen {
         // 设置材料和结果到 slotManager
         if (slotManager != null) {
             // 将ItemStack列表转换为IngredientData列表
-            slotManager.setIngredients(result.ingredients); // 这会自动转换
+            if (result.ingredientsData != null && !result.ingredientsData.isEmpty()) {
+                slotManager.setIngredientsData(result.ingredientsData);
+            } else {
+                slotManager.setIngredients(result.ingredients);          // 回退
+            }
             slotManager.setResultItem(result.resultItem);
         }
         syncDataToRenderer();
@@ -732,39 +742,45 @@ public class RecipeCreatorScreen extends Screen {
      * 初始化底部按钮（自适应单行/双行）
      */
     private void initializeBottomButtons() {
-        int sp = 8;
-        // 功能按钮参数
-        String[] r1Labels  = {"黑名单管理", "覆盖管理", "编辑配方", "配方操作"};
-        int[]    r1Widths  = {80, 70, 70, 70};
-        Runnable[] r1Acts  = {this::openBlacklistManager, this::openOverrideManager,
-                              this::openRecipeSelector, this::openRecipeOperationSelector};
-
-        int r1Total = Arrays.stream(r1Widths).sum() + sp * (r1Widths.length - 1);
-        int r2Total = 80 + sp + 60;
+        int sp      = 6;
+        int btnH    = 20;
+        int btnY    = topPos + contentHeight - 28;
         int centerX = leftPos + contentWidth / 2;
 
-        boolean single = (r1Total + sp + r2Total) <= contentWidth - 20;
+        // ── 主行按钮（4个 + 2个操作）共 6 个，总宽约 462 ─────────────
+        // [⚙管理▾=68] [编辑配方=72] [配方克隆=72] [sp*3] [创建/更新=84] [取消=52]
+        int totalW = menuBtnW + 72 + 72 + sp*4 + 84 + 52;
+        int startX = centerX - totalW / 2;
 
-        if (single) {
-            int btnY   = topPos + contentHeight - 28;
-            int startX = centerX - (r1Total + sp + r2Total) / 2;
-            blacklistManagerButton  = makeBtn(r1Labels[0], r1Acts[0], startX, btnY, r1Widths[0]); startX += r1Widths[0] + sp;
-            overrideManagerButton   = makeBtn(r1Labels[1], r1Acts[1], startX, btnY, r1Widths[1]); startX += r1Widths[1] + sp;
-            editExistingRecipeButton= makeBtn(r1Labels[2], r1Acts[2], startX, btnY, r1Widths[2]); startX += r1Widths[2] + sp;
-            recipeOperationButton   = makeBtn(r1Labels[3], r1Acts[3], startX, btnY, r1Widths[3]); startX += r1Widths[3] + sp*2;
-            createButton = makeBtn(isEditingExisting ? "更新配方" : "创建配方", this::createRecipe, startX, btnY, 80); startX += 80 + sp;
-            cancelButton = makeBtn("取消", this::onClose, startX, btnY, 60);
-        } else {
-            int btnY1  = topPos + contentHeight - 50;
-            int btnY2  = topPos + contentHeight - 26;
-            int startX = centerX - r1Total / 2;
-            blacklistManagerButton  = makeBtn(r1Labels[0], r1Acts[0], startX, btnY1, r1Widths[0]); startX += r1Widths[0] + sp;
-            overrideManagerButton   = makeBtn(r1Labels[1], r1Acts[1], startX, btnY1, r1Widths[1]); startX += r1Widths[1] + sp;
-            editExistingRecipeButton= makeBtn(r1Labels[2], r1Acts[2], startX, btnY1, r1Widths[2]); startX += r1Widths[2] + sp;
-            recipeOperationButton   = makeBtn(r1Labels[3], r1Acts[3], startX, btnY1, r1Widths[3]);
-            int x2 = centerX - r2Total / 2;
-            createButton = makeBtn(isEditingExisting ? "更新配方" : "创建配方", this::createRecipe, x2, btnY2, 80);
-            cancelButton = makeBtn("取消", this::onClose, x2 + 80 + sp, btnY2, 60);
+        // ⚙管理▾（普通按钮，点击切换 menuOpen）
+        menuBtnX = startX;
+        menuBtnY = btnY;
+        addRenderableWidget(Button.builder(
+                Component.literal("§7⚙ 管理 ▾"),
+                btn -> menuOpen = !menuOpen
+        ).bounds(startX, btnY, menuBtnW, btnH).build());
+        startX += menuBtnW + sp;
+
+        // 编辑配方
+        editExistingRecipeButton = makeBtn("编辑配方", this::openRecipeSelector, startX, btnY, 72);
+        startX += 72 + sp;
+
+        // 配方克隆（新）
+        makeBtn("配方克隆", this::openCloneWizard, startX, btnY, 72);
+        startX += 72 + sp * 2;
+
+        // 创建/更新
+        createButton = makeBtn(isEditingExisting ? "更新配方" : "创建配方",
+                this::createRecipe, startX, btnY, 84);
+        startX += 84 + sp;
+
+        // 取消
+        cancelButton = makeBtn("取消", this::onClose, startX, btnY, 52);
+    }
+
+    private void openCloneWizard() {
+        if (minecraft != null) {
+            minecraft.setScreen(new RecipeCloneWizardScreen(this, this::loadSelectedRecipe));
         }
     }
 
@@ -986,20 +1002,19 @@ public class RecipeCreatorScreen extends Screen {
         }
     }
 
-    private void openRecipeOperationSelector() {
+    private void openAddBlacklist() {
         if (minecraft != null) {
-            // 检查是否为远程服务器且缓存为空
             if (RecipeLoader.isRemoteServer()) {
                 if (!com.wzz.registerhelper.network.RecipeClientCache.isLoaded()) {
                     displayInfo("正在从服务器加载配方列表，请稍候...");
                     recipeLoader.requestServerRecipes();
-                    // 添加回调，数据加载完成后重新打开选择器
                     com.wzz.registerhelper.network.RecipeClientCache.addLoadCallback(recipes -> {
                         if (minecraft != null) {
                             minecraft.execute(() -> {
                                 if (!recipes.isEmpty()) {
-                                    minecraft.setScreen(new RecipeSelectorScreen(this, this::handleRecipeOperation,
-                                            new ArrayList<>(recipes), "选择要操作的配方"));
+                                    minecraft.setScreen(new RecipeSelectorScreen(
+                                            this, this::handleRecipeOperation,
+                                            new ArrayList<>(recipes), "添加/移除黑名单"));
                                 } else {
                                     displayError("没有找到任何配方");
                                 }
@@ -1009,14 +1024,10 @@ public class RecipeCreatorScreen extends Screen {
                     return;
                 }
             }
-
             List<UnifiedRecipeInfo> allRecipes = recipeLoader.getAllRecipes();
-            if (allRecipes.isEmpty()) {
-                displayError("没有找到任何配方");
-                return;
-            }
-            minecraft.setScreen(new RecipeSelectorScreen(this, this::handleRecipeOperation,
-                    allRecipes, "选择要操作的配方"));
+            if (allRecipes.isEmpty()) { displayError("没有找到任何配方"); return; }
+            minecraft.setScreen(new RecipeSelectorScreen(
+                    this, this::handleRecipeOperation, allRecipes, "添加/移除黑名单"));
         }
     }
 
@@ -1246,7 +1257,30 @@ public class RecipeCreatorScreen extends Screen {
         if (currentRecipeType != null && currentRecipeType.supportsFillMode()) {
             renderFillModeHint(guiGraphics);
         }
+        if (menuOpen) {
+            int mx2 = menuBtnX;
+            int my2 = menuBtnY - MENU_ITEM_H * MENU_LABELS.length - 2; // 向上弹出
 
+            // 浮层背景
+            guiGraphics.fill(mx2 - 1, my2 - 1,
+                    mx2 + menuBtnW + 1, menuBtnY,
+                    0xFF080808);
+            guiGraphics.fill(mx2, my2,
+                    mx2 + menuBtnW, menuBtnY - 1,
+                    0xFF2A2A3A);
+
+            for (int i = 0; i < MENU_LABELS.length; i++) {
+                int iy = my2 + i * MENU_ITEM_H;
+                boolean hov = mouseX >= mx2 && mouseX < mx2 + menuBtnW
+                        && mouseY >= iy && mouseY < iy + MENU_ITEM_H;
+                if (hov) guiGraphics.fill(mx2, iy, mx2 + menuBtnW, iy + MENU_ITEM_H, 0xFF3A3A5A);
+                // 左侧色条（黑名单=红, 覆盖=紫, 添加黑名单=橙）
+                int[] barColors = { 0xFFAA3333, 0xFF9933AA, 0xFFCC7700 };
+                guiGraphics.fill(mx2, iy, mx2 + 3, iy + MENU_ITEM_H, barColors[i]);
+                guiGraphics.drawString(this.font, MENU_LABELS[i],
+                        mx2 + 6, iy + 5, hov ? 0xFFFFFF : 0xCCCCCC, false);
+            }
+        }
         super.render(guiGraphics, mouseX, mouseY, partialTick);
         renderTooltips(guiGraphics, mouseX, mouseY);
     }
@@ -1365,11 +1399,14 @@ public class RecipeCreatorScreen extends Screen {
                 }
                 case ITEM -> {
                     if (data.hasNBT()) {
-                        // 底部状态条（3px）：紫色 = 匹配NBT，深灰 = 忽略NBT
-                        int barColor = data.isIncludeNBT() ? 0xFFCC44FF : 0xFF555555;
+                        int barColor;
+                        String label;
+                        switch (data.getNbtMode()) {
+                            case "partial" -> { barColor = 0xFFFFAA00; label = "§eN"; } // 橙黄=部分匹配
+                            case "none"    -> { barColor = 0xFF555555; label = "§8N"; } // 灰=忽略
+                            default        -> { barColor = 0xFFCC44FF; label = "§dN"; } // 紫=精确
+                        }
                         guiGraphics.fill(slot.x() + 1, slot.y() + 15, slot.x() + 17, slot.y() + 17, barColor);
-                        // 底部条上写小字 "N"（5px高字体）
-                        String label = data.isIncludeNBT() ? "§dN" : "§8N";
                         guiGraphics.drawString(this.font, label, slot.x() + 6, slot.y() + 10, 0xFFFFFF, true);
                     }
                 }
@@ -1409,20 +1446,29 @@ public class RecipeCreatorScreen extends Screen {
                             if (data.hasNBT()) {
                                 List<Component> itemTip = new ArrayList<>();
                                 itemTip.add(stack.getHoverName().copy());
-                                String itemId = net.minecraftforge.registries.ForgeRegistries.ITEMS
-                                        .getKey(stack.getItem()).toString();
+                                String itemId = ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
                                 itemTip.add(Component.literal("§8" + itemId));
                                 itemTip.add(Component.literal(""));
-                                if (data.isIncludeNBT()) {
-                                    itemTip.add(Component.literal("§d■ 底部紫色条 = 匹配NBT"));
-                                    itemTip.add(Component.literal("§7中键：关闭NBT匹配"));
-                                } else {
-                                    itemTip.add(Component.literal("§8■ 底部灰色条 = 忽略NBT"));
-                                    itemTip.add(Component.literal("§7中键：开启NBT匹配"));
+                                switch (data.getNbtMode()) {
+                                    case "exact" -> {
+                                        itemTip.add(Component.literal("§d■ 精确匹配 NBT"));
+                                        itemTip.add(Component.literal("§7中键：切换忽略 NBT"));
+                                        itemTip.add(Component.literal("§7Shift+中键：设置忽略 Key（部分匹配）"));
+                                    }
+                                    case "partial" -> {
+                                        itemTip.add(Component.literal("§e■ 部分匹配，忽略: §f" + data.getIgnoreNbtKeys()));
+                                        itemTip.add(Component.literal("§7中键：切换忽略 NBT（会清除忽略 Key）"));
+                                        itemTip.add(Component.literal("§7Shift+中键：重新编辑忽略 Key"));
+                                    }
+                                    case "none" -> {
+                                        itemTip.add(Component.literal("§8■ 忽略 NBT"));
+                                        itemTip.add(Component.literal("§7中键：切换精确匹配"));
+                                        itemTip.add(Component.literal("§7Shift+中键：设置忽略 Key（部分匹配）"));
+                                    }
                                 }
-                                itemTip.add(Component.literal("§7左键：修改材料  §7右键：清空"));
-                                guiGraphics.renderTooltip(this.font, itemTip,
-                                        Optional.empty(), mouseX, mouseY);
+                                itemTip.add(Component.literal("§7左键：修改材料  右键：清除材料"));
+                                guiGraphics.renderTooltip(this.font, itemTip, Optional.empty(), mouseX, mouseY);
+                                return;
                             } else {
                                 guiGraphics.renderTooltip(this.font, stack, mouseX, mouseY);
                             }
@@ -1499,7 +1545,23 @@ public class RecipeCreatorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // 优先处理材料槽的填充模式
+        if (menuOpen) {
+            int mx2 = menuBtnX;
+            int my2 = menuBtnY - MENU_ITEM_H * MENU_LABELS.length - 2;
+            if (mouseX >= mx2 && mouseX < mx2 + menuBtnW
+                    && mouseY >= my2 && mouseY < menuBtnY - 1) {
+                int idx = (int)(mouseY - my2) / MENU_ITEM_H;
+                menuOpen = false;
+                switch (idx) {
+                    case 0 -> openBlacklistManager();
+                    case 1 -> openOverrideManager();
+                    case 2 -> openAddBlacklist();       // 原"配方操作"，改名后的方法
+                }
+                return true;
+            }
+            // 点击菜单外 → 关闭
+            menuOpen = false;
+        }
         if (slotManager != null) {
             for (int i = 0; i < slotManager.getIngredientSlots().size(); i++) {
                 SlotManager.IngredientSlot slot = slotManager.getIngredientSlots().get(i);
@@ -1509,8 +1571,32 @@ public class RecipeCreatorScreen extends Screen {
                     // 中键：切换该槽位 NBT 匹配（仅对带NBT的物品有效）
                     if (button == 2 && slotData.getType() == IngredientData.Type.ITEM
                             && slotData.hasNBT()) {
-                        boolean nowOn = slotData.toggleIncludeNBT();
-                        displayInfo(nowOn ? "§d[NBT] 该槽位启用 NBT 匹配" : "§8[NBT] 该槽位忽略 NBT");
+
+                        boolean shift = hasShiftDown(); // Screen.hasShiftDown()
+
+                        if (shift) {
+                            // Shift+中键：打开独立的 NbtIgnoreEditorScreen
+                            if (minecraft != null) {
+                                minecraft.setScreen(new NbtIgnoreEditorScreen(
+                                        this,          // parent = 当前 RecipeCreatorScreen
+                                        slotData,      // 目标 IngredientData（直接引用，修改立即生效）
+                                        () -> {        // 确认回调：刷新显示
+                                            displayInfo(slotData.getIgnoreNbtKeys().isEmpty()
+                                                    ? "§d[NBT] 已切回精确匹配"
+                                                    : "§e[NBT] 部分匹配，忽略 " + slotData.getIgnoreNbtKeys().size() + " 个 Key");
+                                        }
+                                ));
+                            }
+                            return true;
+                        } else {
+                            // 普通中键：精确 ↔ 忽略（与原逻辑完全一致）
+                            // 若当前是部分匹配，先退出部分匹配再走二档切换
+                            if ("partial".equals(slotData.getNbtMode())) {
+                                slotData.setIgnoreNbtKeys(List.of());
+                            }
+                            boolean nowOn = slotData.toggleIncludeNBT();
+                            displayInfo(nowOn ? "§d[NBT] 精确匹配 NBT" : "§8[NBT] 忽略 NBT");
+                        }
                         return true;
                     }
                     // 左键/右键：正常填充模式处理（左键选材料，右键清空）

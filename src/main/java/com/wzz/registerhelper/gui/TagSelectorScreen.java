@@ -1,15 +1,13 @@
 package com.wzz.registerhelper.gui;
 
-import com.github.promeg.pinyinhelper_fork.Pinyin;
+import com.wzz.registerhelper.util.PinyinSearchHelper;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
@@ -41,6 +39,7 @@ public class TagSelectorScreen extends Screen {
     
     private final List<TagEntry> allTags = new ArrayList<>();
     private final List<TagEntry> filteredTags = new ArrayList<>();
+    private PinyinSearchHelper<TagEntry> searchHelper;
     
     private int currentPage = 0;
     private int maxPage = 0;
@@ -67,7 +66,10 @@ public class TagSelectorScreen extends Screen {
         super(Component.literal("选择标签"));
         this.parentScreen = parentScreen;
         this.onTagSelected = onTagSelected;
-        
+        this.searchHelper = new PinyinSearchHelper<>(
+                tag -> tag.representativeItem.getItem().getDescription().getString(),
+                tag -> tag.tagId.toString()
+        );
         collectAllTags();
         updateFilteredTags("");
     }
@@ -105,6 +107,7 @@ public class TagSelectorScreen extends Screen {
         
         // 按命名空间和路径排序
         allTags.sort(Comparator.comparing(tag -> tag.tagId.toString()));
+        searchHelper.buildCache(allTags);
     }
     
     /**
@@ -131,27 +134,15 @@ public class TagSelectorScreen extends Screen {
      */
     private boolean matchesSearch(TagEntry tag, String searchText) {
         if (searchText.isEmpty()) return true;
-        
+
+        // 标签ID直接匹配
         String tagStr = tag.tagId.toString().toLowerCase();
         if (tagStr.contains(searchText)) {
             return true;
         }
-        
-        // 支持拼音搜索标签的中文名称（如果有）
-        String itemName = tag.representativeItem.getItem().getDescription().getString().toLowerCase();
-        if (itemName.contains(searchText)) {
-            return true;
-        }
-        
-        // 拼音匹配
-        try {
-            String pinyin = Pinyin.toPinyin(itemName, "").toLowerCase();
-            if (pinyin.contains(searchText)) {
-                return true;
-            }
-        } catch (Exception ignored) {}
-        
-        return false;
+
+        // 物品名称 + 拼音搜索（完整拼音、首字母、无空格拼音均支持）
+        return searchHelper.matches(tag, searchText);
     }
     
     @Override

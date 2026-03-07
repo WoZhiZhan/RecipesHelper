@@ -499,19 +499,11 @@ public class DynamicRecipeBuilder {
      * 将单个IngredientData转换为配方对象
      */
     private Object convertIngredientDataToObject(IngredientData data) {
+        // 直接返回 IngredientData 本身，由 RecipeUtil.createIngredientJson 处理
+        //   TAG / CUSTOM_TAG 仍然走字符串路径（RecipeUtil 已支持 "#xxx" 格式）
         return switch (data.getType()) {
-            case ITEM -> {
-                ItemStack stack = data.getItemStack();
-                // 若该槽位关闭了 NBT 匹配，返回去掉 NBT 的副本
-                if (!data.isIncludeNBT() && stack.hasTag()) {
-                    ItemStack stripped = stack.copy();
-                    stripped.setTag(null);
-                    yield stripped;
-                }
-                yield stack;
-            }
-            case TAG ->    "#" + data.getTagId().toString();
-            case CUSTOM_TAG -> "#" + data.getTagId().toString();
+            case TAG, CUSTOM_TAG -> "#" + data.getTagId().toString();
+            case ITEM        -> data;
         };
     }
 

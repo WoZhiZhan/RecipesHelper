@@ -2,6 +2,7 @@ package com.wzz.registerhelper.gui;
 
 import com.wzz.registerhelper.network.BlacklistClientHelper;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
+import com.wzz.registerhelper.util.PinyinSearchHelper;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -24,6 +25,7 @@ public class BlacklistManagerScreen extends Screen {
     private List<ResourceLocation> allBlacklistedRecipes;
     private List<ResourceLocation> filteredRecipes;
     private EditBox searchBox;
+    private PinyinSearchHelper<ResourceLocation> searchHelper;
     private Button removeButton;
     private Button clearAllButton;
     private Button closeButton;
@@ -38,6 +40,10 @@ public class BlacklistManagerScreen extends Screen {
     public BlacklistManagerScreen(Screen parent) {
         super(Component.literal("配方黑名单管理器"));
         this.parent = parent;
+        this.searchHelper = new PinyinSearchHelper<>(
+                rl -> rl.getPath().replace('_', ' ').replace('/', ' '),
+                ResourceLocation::toString
+        );
         refreshData();
     }
 
@@ -48,6 +54,9 @@ public class BlacklistManagerScreen extends Screen {
         this.filteredRecipes = new ArrayList<>(allBlacklistedRecipes);
         this.stats = RecipeBlacklistManager.getStats();
         this.selectedIndex = -1;
+        if (searchHelper != null) {
+            searchHelper.buildCache(allBlacklistedRecipes);
+        }
     }
 
     @Override
@@ -98,7 +107,8 @@ public class BlacklistManagerScreen extends Screen {
             for (ResourceLocation recipe : allBlacklistedRecipes) {
                 if (recipe.toString().toLowerCase().contains(lowerSearch) ||
                         recipe.getNamespace().toLowerCase().contains(lowerSearch) ||
-                        recipe.getPath().toLowerCase().contains(lowerSearch)) {
+                        recipe.getPath().toLowerCase().contains(lowerSearch) ||
+                        searchHelper.matches(recipe, searchText)) {
                     filteredRecipes.add(recipe);
                 }
             }

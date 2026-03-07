@@ -8,7 +8,7 @@ import java.util.Set;
 
 /**
  * 配方追踪器
- * 用于追踪由本mod添加或修改的配方，以便应用NBT模糊匹配
+ * 用于追踪由本mod添加或修改的配方
  */
 public class RecipeTracker {
     
@@ -34,7 +34,7 @@ public class RecipeTracker {
     }
     
     /**
-     * 检查配方是否由本mod追踪（即是否应用模糊匹配）
+     * 检查配方是否由本mod追踪
      * @param recipeId 配方的ResourceLocation
      * @return 如果是本mod的配方返回true
      */

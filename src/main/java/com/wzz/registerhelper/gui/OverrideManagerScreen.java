@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui;
 
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
+import com.wzz.registerhelper.util.PinyinSearchHelper;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -22,6 +23,7 @@ public class OverrideManagerScreen extends Screen {
     private List<ResourceLocation> allOverrideRecipes;
     private List<ResourceLocation> filteredRecipes;
     private EditBox searchBox;
+    private PinyinSearchHelper<ResourceLocation> searchHelper;
     private Button removeButton;
     private Button clearAllButton;
     private Button reloadButton;
@@ -37,6 +39,10 @@ public class OverrideManagerScreen extends Screen {
     public OverrideManagerScreen(Screen parent) {
         super(Component.literal("配方覆盖管理器"));
         this.parent = parent;
+        this.searchHelper = new PinyinSearchHelper<>(
+                rl -> rl.getPath().replace('_', ' ').replace('/', ' '),
+                ResourceLocation::toString
+        );
         refreshData();
     }
     
@@ -47,6 +53,9 @@ public class OverrideManagerScreen extends Screen {
         this.filteredRecipes = new ArrayList<>(allOverrideRecipes);
         this.stats = UnifiedRecipeOverrideManager.getStats();
         this.selectedIndex = -1;
+        if (searchHelper != null) {
+            searchHelper.buildCache(allOverrideRecipes);
+        }
     }
     
     @Override
@@ -103,7 +112,8 @@ public class OverrideManagerScreen extends Screen {
             for (ResourceLocation recipe : allOverrideRecipes) {
                 if (recipe.toString().toLowerCase().contains(lowerSearch) ||
                     recipe.getNamespace().toLowerCase().contains(lowerSearch) ||
-                    recipe.getPath().toLowerCase().contains(lowerSearch)) {
+                    recipe.getPath().toLowerCase().contains(lowerSearch) ||
+                    searchHelper.matches(recipe, searchText)) {
                     filteredRecipes.add(recipe);
                 }
             }

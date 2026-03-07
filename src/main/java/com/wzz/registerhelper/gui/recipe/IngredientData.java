@@ -31,11 +31,21 @@ public class IngredientData {
         }
     }
     
-    private Type type;
+    private final Type type;
     private ItemStack itemStack;           // 物品类型（包含NBT）
     private ResourceLocation tagId;        // 标签ID
     private List<ItemStack> customTagItems; // 自定义标签的物品列表
-    private boolean includeNBT = true;         // 是否在配方JSON中写入NBT匹配（仅对ITEM类型有效）
+    private boolean includeNBT = true;     // 是否在配方JSON中写入NBT匹配（仅对ITEM类型有效）
+
+    /**
+     * 匹配时从物品 NBT 中忽略的 key 列表。
+     * <p>仅当 {@code includeNBT=true} 且物品有 NBT 时生效。
+     * 非空时会使用 {@code registerhelper:partial_nbt} 而非 {@code forge:nbt}，
+     * 从而实现"忽略动态 key（如 lastUsed）"的部分匹配。
+     *
+     * <p>典型值：{@code ["lastUsed", "AttackCount"]}（适用于拔刀剑类物品）
+     */
+    private List<String> ignoreNbtKeys = new ArrayList<>();
     
     // 私有构造函数
     private IngredientData(Type type) {
@@ -127,7 +137,6 @@ public class IngredientData {
     private ItemStack getFirstTagItem() {
         if (tagId == null) return ItemStack.EMPTY;
         
-        // 尝试从注册表中查找带有此标签的物品
         return ForgeRegistries.ITEMS.getValues().stream()
                 .filter(item -> item.builtInRegistryHolder().is(tagId))
                 .findFirst()
@@ -136,7 +145,12 @@ public class IngredientData {
     }
     
     /**
-     * 获取显示文本
+     * 获取显示文本。
+     * <ul>
+     *   <li>紫色 §d(匹配NBT)：forge:nbt 精确匹配</li>
+     *   <li>黄色 §e(部分匹配)：registerhelper:partial_nbt，忽略指定 key</li>
+     *   <li>灰色 §8(忽略NBT)：不写入 NBT</li>
+     * </ul>
      */
     public String getDisplayText() {
         return switch (type) {
@@ -146,7 +160,13 @@ public class IngredientData {
                 }
                 String name = itemStack.getItem().getDescription().getString();
                 if (itemStack.hasTag()) {
-                    yield name + (includeNBT ? " §d(匹配NBT)" : " §8(忽略NBT)");
+                    if (!includeNBT) {
+                        yield name + " §8(忽略NBT)";
+                    } else if (!ignoreNbtKeys.isEmpty()) {
+                        yield name + " §e(部分匹配)";
+                    } else {
+                        yield name + " §d(匹配NBT)";
+                    }
                 }
                 yield name;
             }
@@ -164,11 +184,9 @@ public class IngredientData {
                 if (itemStack.isEmpty()) {
                     yield null;
                 }
-                // 如果有NBT，返回完整的ItemStack信息
                 if (itemStack.hasTag()) {
-                    yield itemStack; // 返回ItemStack，由构建器处理NBT
+                    yield itemStack; // 由 RecipeUtil 处理 NBT / partial_nbt 逻辑
                 }
-                // 否则返回物品ID字符串
                 yield ForgeRegistries.ITEMS.getKey(itemStack.getItem()).toString();
             }
             case TAG -> tagId != null ? "#" + tagId : null;
@@ -199,13 +217,102 @@ public class IngredientData {
 
     /**
      * 切换 NBT 匹配开关（仅对带 NBT 的 ITEM 有效）
-     * @return 切换后的新状态
+     *
+     * <p>循环顺序：
+     * <pre>
+     *   精确匹配(forge:nbt)  →  部分匹配(registerhelper:partial_nbt，保留已有 ignoreKeys)
+     *                        →  忽略 NBT
+     *                        →  精确匹配 ...
+     * </pre>
+     * 若 ignoreKeys 为空则跳过"部分匹配"状态，直接在精确/忽略之间切换。
+     *
+     * @return 切换后的新状态描述
+     */
+    public String cycleNbtMode() {
+        if (type != Type.ITEM || !hasNBT()) return "无NBT";
+
+        if (includeNBT && ignoreNbtKeys.isEmpty()) {
+            // 精确 → 忽略
+            includeNBT = false;
+            return "忽略NBT";
+        } else if (!includeNBT) {
+            // 忽略 → 精确
+            includeNBT = true;
+            return "匹配NBT";
+        }
+        // 部分匹配 → 忽略（保留 ignoreKeys，方便再切回来）
+        includeNBT = false;
+        return "忽略NBT";
+    }
+
+    /**
+     * 旧接口兼容：切换精确匹配 / 忽略 NBT（不涉及部分匹配状态）。
      */
     public boolean toggleIncludeNBT() {
         if (type == Type.ITEM && hasNBT()) {
             includeNBT = !includeNBT;
         }
         return includeNBT;
+    }
+
+    /**
+     * 获取 NBT 匹配模式：
+     * <ul>
+     *   <li>{@code "exact"}    - forge:nbt 精确匹配</li>
+     *   <li>{@code "partial"}  - registerhelper:partial_nbt 部分匹配</li>
+     *   <li>{@code "none"}     - 忽略 NBT</li>
+     * </ul>
+     */
+    public String getNbtMode() {
+        if (!includeNBT) return "none";
+        if (!ignoreNbtKeys.isEmpty()) return "partial";
+        return "exact";
+    }
+
+    // ---- ignoreNbtKeys 相关方法 ----
+
+    /**
+     * 获取忽略的 NBT key 列表（不可变副本）
+     */
+    public List<String> getIgnoreNbtKeys() {
+        return List.copyOf(ignoreNbtKeys);
+    }
+
+    /**
+     * 设置忽略的 NBT key 列表。
+     * <p>调用后会自动将 includeNBT 切换为 true（启用部分匹配）。
+     *
+     * @param keys 要忽略的 key；传空列表则退化为普通 forge:nbt 精确匹配
+     */
+    public void setIgnoreNbtKeys(List<String> keys) {
+        this.ignoreNbtKeys = new ArrayList<>(keys);
+        if (!keys.isEmpty()) {
+            this.includeNBT = true; // 有忽略 key 时自动启用 NBT 匹配
+        }
+    }
+
+    /**
+     * 追加一个忽略 key（不重复）
+     */
+    public void addIgnoreNbtKey(String key) {
+        if (!ignoreNbtKeys.contains(key)) {
+            ignoreNbtKeys.add(key);
+            this.includeNBT = true;
+        }
+    }
+
+    /**
+     * 移除一个忽略 key
+     */
+    public void removeIgnoreNbtKey(String key) {
+        ignoreNbtKeys.remove(key);
+    }
+
+    /**
+     * 是否处于"部分匹配"模式（有 ignoreKeys 且 includeNBT=true）
+     */
+    public boolean isPartialNbtMode() {
+        return includeNBT && !ignoreNbtKeys.isEmpty();
     }
 
     /**
@@ -228,6 +335,7 @@ public class IngredientData {
             case CUSTOM_TAG -> fromCustomTag(tagId, customTagItems);
         };
         result.includeNBT = this.includeNBT;
+        result.ignoreNbtKeys = new ArrayList<>(this.ignoreNbtKeys);
         return result;
     }
     
@@ -236,6 +344,8 @@ public class IngredientData {
         return "IngredientData{" +
                 "type=" + type +
                 ", display=" + getDisplayText() +
+                ", nbtMode=" + getNbtMode() +
+                (ignoreNbtKeys.isEmpty() ? "" : ", ignoreKeys=" + ignoreNbtKeys) +
                 '}';
     }
 }

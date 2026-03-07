@@ -1,10 +1,15 @@
 package com.wzz.registerhelper.gui.recipe;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.RegistryAccess;
+import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Recipe;
 import com.wzz.registerhelper.gui.recipe.RecipeTypeConfig.*;
@@ -14,6 +19,8 @@ import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.crafting.RecipeManager;
+import net.minecraftforge.fml.loading.FMLPaths;
+import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 
@@ -28,7 +35,8 @@ import java.util.function.Consumer;
  */
 public class RecipeLoader {
     private static final Logger LOGGER = LogUtils.getLogger();
-
+    private static final Gson RECIPE_GSON = new Gson();
+    private static final com.google.gson.Gson PATCH_GSON = new com.google.gson.GsonBuilder().create();
     private final Consumer<String> messageCallback;
     private final Minecraft minecraft;
 
@@ -51,6 +59,7 @@ public class RecipeLoader {
         public final String message;
         public final String originalRecipeTypeId;
         public ResourceLocation recipeId;
+        public List<IngredientData> ingredientsData = null;
 
         public LoadResult(boolean success, String message) {
             this(success, null, null, null, 1, ItemStack.EMPTY, Collections.emptyList(), message, null);
@@ -79,6 +88,115 @@ public class RecipeLoader {
      * 加载现有配方
      */
     public LoadResult loadRecipe(ResourceLocation recipeId) {
+        LoadResult result = loadRecipeInternal(recipeId);
+        if (result.success) {
+            result.setRecipeId(recipeId);
+            patchIngredientDataFromJson(result, recipeId); // 补充 ignoreKeys
+        }
+        return result;
+    }
+
+    private void patchIngredientDataFromJson(LoadResult result, ResourceLocation recipeId) {
+        try {
+            // 全目录递归搜索
+            java.io.File jsonFile = findRecipeFile(recipeId);
+            if (jsonFile == null) return; // 不是本mod管理的配方，跳过
+
+            com.google.gson.JsonObject json;
+            try (java.io.FileReader reader = new java.io.FileReader(jsonFile)) {
+                json = PATCH_GSON.fromJson(reader, com.google.gson.JsonObject.class);
+            }
+            if (json == null) return;
+
+            List<com.wzz.registerhelper.gui.recipe.IngredientData> dataList = null;
+            if (json.has("key") && json.has("pattern")) {
+                dataList = patchFromShapedKey(json, result);
+            } else if (json.has("ingredients")) {
+                dataList = patchFromIngredientArray(
+                        json.getAsJsonArray("ingredients"), result);
+            } else if (json.has("ingredient")) {
+                com.wzz.registerhelper.gui.recipe.IngredientData d =
+                        ingredientDataFromJson(json.getAsJsonObject("ingredient"),
+                                result.ingredients.isEmpty()
+                                        ? net.minecraft.world.item.ItemStack.EMPTY
+                                        : result.ingredients.get(0));
+                dataList = new java.util.ArrayList<>();
+                dataList.add(d);
+            }
+            if (dataList != null && !dataList.isEmpty()) {
+                result.ingredientsData = dataList;
+            }
+        } catch (Exception e) {
+            LOGGER.warn("[RegisterHelper] patchIngredientDataFromJson 失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 在 config/registerhelper/ 下递归搜索与 recipeId 对应的 JSON 文件。
+     * 匹配规则：namespace 目录下的文件名（去掉 .json 后下划线替换路径分隔符）== recipeId.getPath()
+     */
+    private java.io.File findRecipeFile(net.minecraft.resources.ResourceLocation recipeId) {
+        // 搜索根目录列表
+        java.nio.file.Path[] searchRoots = {
+                FMLPaths.CONFIGDIR.get().resolve("registerhelper/recipes")
+        };
+        String targetNamespace = recipeId.getNamespace();
+        String targetPath      = recipeId.getPath(); // e.g. "custom_shaped_chiseled_sandstone"
+
+        for (java.nio.file.Path root : searchRoots) {
+            java.io.File rootDir = root.toFile();
+            if (!rootDir.exists()) continue;
+
+            java.io.File found = searchInDir(rootDir, targetNamespace, targetPath);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private java.io.File searchInDir(java.io.File dir, String targetNamespace, String targetPath) {
+        java.io.File[] children = dir.listFiles();
+        if (children == null) return null;
+        for (java.io.File child : children) {
+            if (child.isDirectory()) {
+                // 如果目录名是 namespace，在里面找
+                if (child.getName().equals(targetNamespace)) {
+                    java.io.File found = findInNamespaceDir(child, child, targetPath);
+                    if (found != null) return found;
+                } else {
+                    // 递归进去（处理 custom_recipes/brewing/ 等子目录）
+                    java.io.File found = searchInDir(child, targetNamespace, targetPath);
+                    if (found != null) return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 在 namespaceDir 下递归找文件，文件的相对 path（下划线化）== targetPath
+     */
+    private java.io.File findInNamespaceDir(java.io.File namespaceDir,
+                                            java.io.File currentDir,
+                                            String targetPath) {
+        java.io.File[] files = currentDir.listFiles();
+        if (files == null) return null;
+        for (java.io.File f : files) {
+            if (f.isDirectory()) {
+                java.io.File found = findInNamespaceDir(namespaceDir, f, targetPath);
+                if (found != null) return found;
+            } else if (f.getName().endsWith(".json")) {
+                // 计算相对路径并转成 recipeId path 格式
+                String rel = f.getAbsolutePath()
+                        .substring(namespaceDir.getAbsolutePath().length() + 1);
+                rel = rel.substring(0, rel.length() - 5); // 去掉 .json
+                rel = rel.replace(java.io.File.separatorChar, '_');
+                if (rel.equals(targetPath)) return f;
+            }
+        }
+        return null;
+    }
+
+    private LoadResult loadRecipeInternal(ResourceLocation recipeId) {
         try {
             RecipeManager recipeManager = getRecipeManager();
             RegistryAccess registryAccess = getRegistryAccess();
@@ -385,6 +503,117 @@ public class RecipeLoader {
                 className.contains("smithing") ||
                 typeName.contains("minecraft:smithing_transform") ||
                 typeName.contains("minecraft:smithing_trim");
+    }
+
+    /** 解析 shaped 的 key+pattern，按槽位顺序生成 IngredientData 列表 */
+    private List<IngredientData> patchFromShapedKey(JsonObject json, LoadResult result) {
+        if (!json.has("pattern")) return patchFallback(result);
+
+        JsonArray patternArr = json.getAsJsonArray("pattern");
+        JsonObject keyObj = json.getAsJsonObject("key");
+
+        // 把 pattern 展开成字符列表（与 result.ingredients 顺序对应）
+        List<Character> patternChars = new ArrayList<>();
+        for (var row : patternArr) {
+            String rowStr = row.getAsString();
+            for (char c : rowStr.toCharArray()) {
+                patternChars.add(c);
+            }
+        }
+
+        List<IngredientData> result2 = new ArrayList<>();
+        for (int i = 0; i < result.ingredients.size(); i++) {
+            if (i >= patternChars.size()) {
+                result2.add(IngredientData.fromItem(result.ingredients.get(i)));
+                continue;
+            }
+            char sym = patternChars.get(i);
+            String symStr = String.valueOf(sym);
+            if (sym == ' ' || !keyObj.has(symStr)) {
+                result2.add(IngredientData.empty());
+            } else {
+                JsonObject ingredJson = keyObj.getAsJsonObject(symStr);
+                IngredientData d = ingredientDataFromJson(ingredJson, result.ingredients.get(i));
+                result2.add(d);
+            }
+        }
+        return result2;
+    }
+
+    /** 解析 ingredients 数组（shapeless / 其他） */
+    private List<IngredientData> patchFromIngredientArray(JsonArray arr, LoadResult result) {
+        List<IngredientData> list = new ArrayList<>();
+        for (int i = 0; i < arr.size(); i++) {
+            ItemStack base = i < result.ingredients.size() ? result.ingredients.get(i) : ItemStack.EMPTY;
+            list.add(ingredientDataFromJson(arr.get(i).getAsJsonObject(), base));
+        }
+        return list;
+    }
+
+    /** 回退：无法从 JSON 解析时，直接用 ItemStack 构建（不带 ignoreKeys）*/
+    private List<IngredientData> patchFallback(LoadResult result) {
+        List<IngredientData> list = new ArrayList<>();
+        for (ItemStack s : result.ingredients) {
+            list.add(s.isEmpty() ? IngredientData.empty() : IngredientData.fromItem(s));
+        }
+        return list;
+    }
+
+    /**
+     * 从单个 ingredient JSON 节点构建 IngredientData，
+     * 识别 forge:nbt（includeNBT=true）、registerhelper:partial_nbt（partial）、
+     * 无 nbt（includeNBT=false）三种情况。
+     */
+    private IngredientData ingredientDataFromJson(JsonObject j, ItemStack fallbackStack) {
+        try {
+            // 标签型
+            if (j.has("tag")) {
+                return IngredientData.fromTag(new ResourceLocation(j.get("tag").getAsString()));
+            }
+
+            String type = j.has("type") ? j.get("type").getAsString() : "";
+
+            if ("registerhelper:partial_nbt".equals(type)) {
+                // 解析 item
+                Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(j.get("item").getAsString()));
+                if (item == null) return IngredientData.fromItem(fallbackStack);
+
+                // 解析 nbt
+                net.minecraft.nbt.CompoundTag nbt = null;
+                if (j.has("nbt")) nbt = TagParser.parseTag(j.get("nbt").getAsString());
+                ItemStack stack = new ItemStack(item);
+                if (nbt != null) stack.setTag(nbt);
+
+                IngredientData data = IngredientData.fromItem(stack);
+                data.setIncludeNBT(true);
+
+                // ★ 恢复 ignore_keys
+                if (j.has("ignore_keys")) {
+                    List<String> keys = new ArrayList<>();
+                    j.getAsJsonArray("ignore_keys").forEach(el -> keys.add(el.getAsString()));
+                    data.setIgnoreNbtKeys(keys);
+                }
+                return data;
+
+            } else if ("forge:nbt".equals(type)) {
+                // 精确 NBT 匹配，includeNBT=true（默认），ignoreKeys 为空
+                IngredientData data = IngredientData.fromItem(fallbackStack);
+                data.setIncludeNBT(true);
+                return data;
+
+            } else {
+                // 无 nbt 字段 → ignoreNBT
+                IngredientData data = IngredientData.fromItem(fallbackStack);
+                data.setIncludeNBT(!fallbackStack.hasTag()); // 有 NBT 的物品默认关闭
+                if (fallbackStack.hasTag() && !j.has("nbt")) {
+                    data.setIncludeNBT(false);
+                }
+                return data;
+            }
+        } catch (Exception e) {
+            LOGGER.warn("[RegisterHelper] ingredientDataFromJson 解析失败: {}", e.getMessage());
+            return IngredientData.fromItem(fallbackStack);
+        }
     }
 
     /**

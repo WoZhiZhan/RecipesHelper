@@ -56,7 +56,7 @@ public class RecipeManagerMixin {
                 
                 // 追踪所有自定义配方
                 RecipeTracker.trackRecipes(customRecipes.keySet());
-                registerhelper$LOGGER.info("已追踪 {} 个自定义配方用于NBT模糊匹配", customRecipes.size());
+                registerhelper$LOGGER.info("已追踪 {} 个自定义配方", customRecipes.size());
             }
             UnifiedRecipeOverrideManager.applyOverridesToRecipeMap(originalRecipes);
             applyRecipeDeletions(originalRecipes);

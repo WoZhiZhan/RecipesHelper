@@ -3,6 +3,7 @@ package com.wzz.registerhelper.gui;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
+import com.wzz.registerhelper.util.PinyinSearchHelper;
 import com.wzz.registerhelper.network.RecipeClientCache;
 import com.wzz.registerhelper.network.RequestRecipeListPacket;
 import com.wzz.registerhelper.network.SyncRecipeListPacket;
@@ -58,6 +59,7 @@ public class RecipeSelectorScreen extends Screen {
     private String currentRecipeTypeDisplay = "";
 
     private EditBox searchBox;
+    private PinyinSearchHelper<RecipeEntry> searchHelper;
     private Button selectButton;
     private Button cancelButton;
     private Button scrollUpButton;
@@ -72,6 +74,10 @@ public class RecipeSelectorScreen extends Screen {
         this.parentScreen = parentScreen;
         this.onRecipeSelected = onRecipeSelected;
         this.useRecipeFilter = false;
+        this.searchHelper = new PinyinSearchHelper<>(
+                entry -> entry.resultItem.isEmpty() ? "" : entry.resultItem.getHoverName().getString(),
+                entry -> entry.recipeId.toString()
+        );
         loadRecipes();
     }
 
@@ -82,6 +88,10 @@ public class RecipeSelectorScreen extends Screen {
         this.parentScreen = parentScreen;
         this.onRecipeSelected = onRecipeSelected;
         this.useRecipeFilter = true;
+        this.searchHelper = new PinyinSearchHelper<>(
+                entry -> entry.resultItem.isEmpty() ? "" : entry.resultItem.getHoverName().getString(),
+                entry -> entry.recipeId.toString()
+        );
         for (UnifiedRecipeInfo recipe : allowedRecipes) {
             allowedRecipeIds.add(recipe.getRecipeId());
         }
@@ -209,6 +219,8 @@ public class RecipeSelectorScreen extends Screen {
 
         allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
         filteredRecipes = new ArrayList<>(allRecipes);
+        searchHelper.buildCache(allRecipes);
+        filteredRecipes = new ArrayList<>(allRecipes);
     }
 
     /**
@@ -237,6 +249,7 @@ public class RecipeSelectorScreen extends Screen {
 
     /**
      * 从指定目录加载自定义配方JSON文件
+     *
      * @return 加载的配方数量
      */
     private int loadCustomRecipesFromDirectory(java.nio.file.Path dir, String recipeType) {
@@ -351,16 +364,19 @@ public class RecipeSelectorScreen extends Screen {
             } catch (Exception e) {
                 LOGGER.warn("处理配方 {} 时出错: {}", info.id, e.getMessage());
             }
-        }
-        allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
-        filteredRecipes = new ArrayList<>(allRecipes);
+            allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
+            filteredRecipes = new ArrayList<>(allRecipes);
+            searchHelper.buildCache(allRecipes);
+            allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
+            filteredRecipes = new ArrayList<>(allRecipes);
 
-        // 重新应用搜索过滤
-        if (searchBox != null && !searchBox.getValue().isEmpty()) {
-            onSearchTextChanged(searchBox.getValue());
-        }
+            // 重新应用搜索过滤
+            if (searchBox != null && !searchBox.getValue().isEmpty()) {
+                onSearchTextChanged(searchBox.getValue());
+            }
 
-        updateButtons();
+            updateButtons();
+        }
     }
 
     private String classifyRecipeType(Recipe<?> recipe) {
@@ -379,9 +395,7 @@ public class RecipeSelectorScreen extends Screen {
                 return "烟熏配方";
             } else if (typeName.contains("minecraft:campfire_cooking")) {
                 return "营火烹饪";
-            }
-
-            else if (typeName.contains("avaritia")) {
+            } else if (typeName.contains("avaritia")) {
                 if (typeName.contains("shaped")) {
                     return "Avaritia有形状配方";
                 } else if (typeName.contains("shapeless")) {
@@ -389,9 +403,7 @@ public class RecipeSelectorScreen extends Screen {
                 } else {
                     return "Avaritia配方";
                 }
-            }
-
-            else {
+            } else {
                 return typeName;
             }
 
@@ -462,43 +474,32 @@ public class RecipeSelectorScreen extends Screen {
 
             filteredRecipes = allRecipes.stream()
                     .filter(entry -> {
-                        // 1. 匹配配方ID
                         String recipeIdStr = entry.recipeId.toString().toLowerCase();
                         if (recipeIdStr.contains(lowerSearch)) {
                             return true;
                         }
-
-                        // 2. 匹配配方类型
                         String recipeTypeLower = entry.recipeType.toLowerCase();
                         if (recipeTypeLower.contains(lowerSearch)) {
                             return true;
                         }
-
-                        // 3. 特殊支持：搜索"自定义"时匹配所有自定义配方
                         if (lowerSearch.contains("自定义") || lowerSearch.contains("custom")) {
                             if (entry.recipeId.getNamespace().equals("registerhelper") &&
                                     entry.recipeId.getPath().startsWith("custom_")) {
                                 return true;
                             }
                         }
-
-                        // 4. 特殊支持：搜索"酿造"或"brewing"匹配酿造台配方
                         if (lowerSearch.contains("酿造") || lowerSearch.contains("brew")) {
                             if (recipeTypeLower.contains("酿造台") ||
                                     entry.recipeId.getPath().contains("brewing")) {
                                 return true;
                             }
                         }
-
-                        // 5. 特殊支持：搜索"铁砧"或"anvil"匹配铁砧配方
                         if (lowerSearch.contains("铁砧") || lowerSearch.contains("anvil")) {
                             if (recipeTypeLower.contains("铁砧") ||
                                     entry.recipeId.getPath().contains("anvil")) {
                                 return true;
                             }
                         }
-
-                        // 6. 匹配输出物品名称
                         try {
                             if (!entry.resultItem.isEmpty()) {
                                 String itemName = entry.resultItem.getHoverName().getString().toLowerCase();
@@ -509,8 +510,7 @@ public class RecipeSelectorScreen extends Screen {
                         } catch (Exception e) {
                             // 忽略异常，继续其他匹配
                         }
-
-                        return false;
+                        return searchHelper.matches(entry, searchText);
                     })
                     .collect(Collectors.toList());
         }
@@ -615,7 +615,7 @@ public class RecipeSelectorScreen extends Screen {
                 int barWidth = contentWidth - RECIPE_DETAIL_WIDTH - 60;
                 int barHeight = 10;
                 guiGraphics.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF000000);
-                guiGraphics.fill(barX + 1, barY + 1, barX + (int)((barWidth - 2) * progress), barY + barHeight - 1, 0xFF00AA00);
+                guiGraphics.fill(barX + 1, barY + 1, barX + (int) ((barWidth - 2) * progress), barY + barHeight - 1, 0xFF00AA00);
             } else {
                 guiGraphics.drawCenteredString(this.font, "§c错误: " + loadError,
                         listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 30, 0xFFAAAA);
@@ -857,7 +857,7 @@ public class RecipeSelectorScreen extends Screen {
         if (mouseX >= listAreaX && mouseX < listRight &&
                 mouseY >= listTop && mouseY < listBottom && !filteredRecipes.isEmpty()) {
 
-            int clickedIndex = (int)((mouseY - listTop) / RECIPE_ITEM_HEIGHT) + scrollOffset;
+            int clickedIndex = (int) ((mouseY - listTop) / RECIPE_ITEM_HEIGHT) + scrollOffset;
 
             if (clickedIndex >= 0 && clickedIndex < filteredRecipes.size()) {
                 if (selectedRecipeIndex == clickedIndex && button == 0) {

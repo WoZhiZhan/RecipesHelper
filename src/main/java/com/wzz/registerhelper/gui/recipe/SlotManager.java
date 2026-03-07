@@ -356,9 +356,7 @@ public class SlotManager {
      * 清空所有材料
      */
     public void clearAllIngredients() {
-        for (int i = 0; i < ingredients.size(); i++) {
-            ingredients.set(i, IngredientData.empty());
-        }
+        ingredients.replaceAll(ignored -> IngredientData.empty());
         resultItem = ItemStack.EMPTY;
     }
 
@@ -370,6 +368,20 @@ public class SlotManager {
         for (int i = 0; i < ingredients.size(); i++) {
             if (ingredients.get(i).isEmpty()) {
                 ingredients.set(i, data.copy());
+            }
+        }
+    }
+
+    /**
+     * 用 IngredientData 列表直接设置槽位（保留 ignoreKeys 等信息）
+     */
+    public void setIngredientsData(List<IngredientData> newData) {
+        ingredients.clear();
+        for (int i = 0; i < ingredientSlots.size(); i++) {
+            if (i < newData.size()) {
+                ingredients.add(newData.get(i).copy());
+            } else {
+                ingredients.add(IngredientData.empty());
             }
         }
     }
