@@ -343,6 +343,9 @@ public class ItemSelectorScreen extends Screen {
             }
 
             ItemStack item = filteredItems.get(i);
+            if (item == null || item.isEmpty()) {
+                continue; // 神秘
+            }
             RenderSystem.enableDepthTest();
             g.renderItem(item, sx + 1, sy + 1);
             if (currentMode == SelectionMode.INVENTORY && item.hasTag()) {
