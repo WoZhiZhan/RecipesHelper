@@ -41,40 +41,53 @@ public class RecipeUtil {
 
         if (request.ingredients != null) {
             JsonObject key = new JsonObject();
-            Map<Character, JsonObject> keyMapping = new HashMap<>();
-            Map<String, Character> ingredientToChar = new HashMap<>();
 
-            int charIndex = 0;
+            // request.ingredients 格式为 [符号0, 物品0, 符号1, 物品1, ...]
+            // 必须使用原始符号作为 key，不能重新分配，否则与 pattern 中的字母对不上。
+            boolean hasPairs = request.ingredients.length >= 2
+                    && request.ingredients[0] instanceof Character;
 
-            for (Object ingredient : request.ingredients) {
-                if (ingredient == null) continue;
-
-                if (ingredient instanceof ItemStack stack && stack.isEmpty()) {
-                    continue;
-                }
-
-                JsonObject ingredientJson = createIngredientJson(ingredient);
-                if (ingredientJson != null) {
-                    String ingredientKey = ingredientJson.toString();
-
-                    if (!ingredientToChar.containsKey(ingredientKey)) {
-                        if (charIndex >= SYMBOL_CHARS.length()) {
-                            throw new IllegalArgumentException(
-                                    String.format("合成表原料过多，超过%d个符号限制", SYMBOL_CHARS.length())
-                            );
+            if (hasPairs) {
+                // 新格式：成对迭代，保留原始符号
+                for (int i = 0; i + 1 < request.ingredients.length; i += 2) {
+                    if (request.ingredients[i] instanceof Character symbol) {
+                        JsonObject ingredientJson = createIngredientJson(
+                                request.ingredients[i + 1],
+                                (Boolean) request.properties.getOrDefault("includeNBT", true));
+                        if (ingredientJson != null) {
+                            key.add(String.valueOf(symbol), ingredientJson);
                         }
-
-                        char symbol = SYMBOL_CHARS.charAt(charIndex);
-                        ingredientToChar.put(ingredientKey, symbol);
-                        keyMapping.put(symbol, ingredientJson);
-                        charIndex++;
                     }
                 }
+            } else {
+                // 旧格式兼容：纯物品数组，重新分配符号（MinecraftRecipeProcessor 的调用方式）
+                Map<Character, JsonObject> keyMapping = new HashMap<>();
+                Map<String, Character> ingredientToChar = new HashMap<>();
+                int charIndex = 0;
+                for (Object ingredient : request.ingredients) {
+                    if (ingredient == null) continue;
+                    if (ingredient instanceof ItemStack stack && stack.isEmpty()) continue;
+                    JsonObject ingredientJson = createIngredientJson(ingredient,
+                            (Boolean) request.properties.getOrDefault("includeNBT", true));
+                    if (ingredientJson != null) {
+                        String ingredientKey = ingredientJson.toString();
+                        if (!ingredientToChar.containsKey(ingredientKey)) {
+                            if (charIndex >= SYMBOL_CHARS.length()) {
+                                throw new IllegalArgumentException(
+                                        String.format("合成表原料过多，超过%d个符号限制", SYMBOL_CHARS.length()));
+                            }
+                            char symbol = SYMBOL_CHARS.charAt(charIndex);
+                            ingredientToChar.put(ingredientKey, symbol);
+                            keyMapping.put(symbol, ingredientJson);
+                            charIndex++;
+                        }
+                    }
+                }
+                for (Map.Entry<Character, JsonObject> entry : keyMapping.entrySet()) {
+                    key.add(String.valueOf(entry.getKey()), entry.getValue());
+                }
             }
 
-            for (Map.Entry<Character, JsonObject> entry : keyMapping.entrySet()) {
-                key.add(String.valueOf(entry.getKey()), entry.getValue());
-            }
             recipe.add("key", key);
         }
 

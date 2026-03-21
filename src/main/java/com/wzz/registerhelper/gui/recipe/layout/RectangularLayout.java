@@ -2,7 +2,7 @@ package com.wzz.registerhelper.gui.recipe.layout;
 
 import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
 import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
-import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
+import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -29,8 +29,8 @@ public class RectangularLayout implements RecipeLayout {
     public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
         List<RecipeComponent> components = new ArrayList<>();
         
-        int width = supportsTiers() ? getTierSize(tier) : maxWidth;
-        int height = supportsTiers() ? getTierSize(tier) : maxHeight;
+        int width = supportsTiers() ? DynamicRecipeBuilder.getGridSizeForTier(tier) : maxWidth;
+        int height = supportsTiers() ? DynamicRecipeBuilder.getGridSizeForTier(tier) : maxHeight;
         
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
@@ -51,7 +51,7 @@ public class RectangularLayout implements RecipeLayout {
     
     @Override
     public Rectangle getBounds(int tier) {
-        int size = supportsTiers() ? getTierSize(tier) : Math.max(maxWidth, maxHeight);
+        int size = supportsTiers() ? DynamicRecipeBuilder.getGridSizeForTier(tier) : Math.max(maxWidth, maxHeight);
         return new Rectangle(0, 0, size * slotSpacing, size * slotSpacing);
     }
     
@@ -63,15 +63,5 @@ public class RectangularLayout implements RecipeLayout {
     @Override
     public String getLayoutName() {
         return "Rectangular " + maxWidth + "x" + maxHeight;
-    }
-    
-    private int getTierSize(int tier) {
-        return switch (tier) {
-            case 1 -> 3;
-            case 2 -> 5;
-            case 3 -> 7;
-            case 4 -> 9;
-            default -> 3;
-        };
     }
 }

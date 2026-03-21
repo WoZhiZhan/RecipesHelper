@@ -1133,7 +1133,9 @@ public class RecipeSelectorScreen extends Screen {
         if (ingredientCount <= 25) return 5;   // 5x5
         if (ingredientCount <= 49) return 7;   // 7x7
         if (ingredientCount <= 81) return 9;   // 9x9
-        return 11;
+        if (ingredientCount <= 121) return 11;   // 11x11
+        if (ingredientCount <= 256) return 16;   // 16x16
+        return 21;
     }
 
     private void parseShapelessRecipe(Recipe<?> recipe, int startX, int startY) {

@@ -37,6 +37,12 @@ public class ModIntegrations {
                 "机械动力:混合搅拌", createRecipeProcessor, "compacting");
         RegisterHelper.registerRecipeTypeWithLayout("create", "filling",
                 "机械动力:注液", createRecipeProcessor, "filling");
+        RegisterHelper.registerRecipeType("arcanevortex", "van_sh_workbench_shaped",
+                "秘法涡流:元式超级合成台", new ArcaneVortexProcessor(), 16, false);
+        RegisterHelper.registerRecipeTypeWithLayout("astralrail_cube", "path_ascension",
+                "星轨立方:命途升格台", 2, new AstralrailCubeProcessor(), "path_ascension");
+        RegisterHelper.registerRecipeTypeWithLayout("astralrail_cube", "path_transmuter",
+                "星轨立方:命途淬炼", new AstralrailCubeProcessor(), "path_transmuter");
         // ExtendedCrafting Table配方
         ExtendedCraftingProcessor extendedCraftingProcessor = new ExtendedCraftingProcessor();
 

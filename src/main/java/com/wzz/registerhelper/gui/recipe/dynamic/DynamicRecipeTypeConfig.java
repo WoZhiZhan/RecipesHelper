@@ -265,7 +265,7 @@ public class DynamicRecipeTypeConfig {
                 .supportsFillMode(false)
                 .property("category", "brew")
                 .property("layout", "minecraft_brewing")
-                .property("custom_json", true)  // 标记为自定义JSON类型
+                .property("custom_json", true)
                 .processor(minecraftProcessor)
                 .build());
         registerRecipeType(new RecipeTypeDefinition.Builder("stonecutting", "切石机")
@@ -282,10 +282,9 @@ public class DynamicRecipeTypeConfig {
                 .supportsFillMode(false)
                 .property("category", "anvil")
                 .property("layout", "anvil")
-                .property("custom_json", true)  // 标记为自定义JSON类型
+                .property("custom_json", true)
                 .processor(minecraftProcessor)
                 .build());
-        // 锻造台配方 (1.20+ smithing_transform)
         registerRecipeType(new RecipeTypeDefinition.Builder("smithing", "锻造台")
                 .modId("minecraft")
                 .maxInputs(3)

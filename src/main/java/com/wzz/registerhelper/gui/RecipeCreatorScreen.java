@@ -66,9 +66,6 @@ public class RecipeCreatorScreen extends Screen {
     private Button clearAllButton;
     private Button selectBrushItemButton;
     private Button editExistingRecipeButton;
-    private Button recipeOperationButton;
-    private Button blacklistManagerButton;
-    private Button overrideManagerButton;
     private ComponentRenderManager componentRenderManager;
     private boolean menuOpen = false;
     /** 下拉菜单的屏幕坐标（render 时计算，mouseClicked 时判断） */
@@ -132,17 +129,55 @@ public class RecipeCreatorScreen extends Screen {
     }
 
     /**
-     * 获取网格尺寸
+     * 获取网格尺寸（含当前自适应 spacing）。
+     * 对支持 Tier 的配方类型，使用当前 customTier 对应的实际尺寸，
+     * 确保 calculateDynamicSize 能正确计算窗口高度，避免按钮遮挡格子。
      */
     private SlotManager.GridDimensions getGridDimensions() {
         if (currentRecipeType == null) {
             return new SlotManager.GridDimensions(3, 3);
         }
 
-        return new SlotManager.GridDimensions(
-                currentRecipeType.getMaxGridWidth(),
-                currentRecipeType.getMaxGridHeight()
-        );
+        int gridWidth, gridHeight;
+
+        // Tier 动态类型：用当前 customTier 对应的实际尺寸
+        if (currentRecipeType.isAvaritiaType() ||
+                Boolean.TRUE.equals(currentRecipeType.getProperty("supportsTiers", Boolean.class))) {
+            int gridSize = DynamicRecipeBuilder.getGridSizeForTier(customTier);
+            gridWidth = gridSize;
+            gridHeight = gridSize;
+        } else {
+            // 固定尺寸类型（包括 ArcaneVortex 16x16 等大型固定配方台）
+            gridWidth  = currentRecipeType.getMaxGridWidth();
+            gridHeight = currentRecipeType.getMaxGridHeight();
+        }
+
+        // 无论是动态 Tier 还是固定大格子，都需要计算自适应间距，
+        // 否则 16x16 固定格子在小屏幕上同样会溢出遮住按钮。
+        int spacing = computeAdaptiveSpacing(Math.max(gridWidth, gridHeight));
+        return new SlotManager.GridDimensions(gridWidth, gridHeight, spacing);
+    }
+
+    /**
+     * 根据屏幕可用高度，为指定 gridSize 计算合适的槽位间距。
+     * <p>
+     * 垂直方向布局：
+     *   - 顶部控件区（含标题）：150px
+     *   - 格子区：gridSize * spacing
+     *   - 底部按钮区：35px
+     *   - 屏幕上下留边：40px
+     * <p>
+     * 因此：spacing = (screenH - 40 - 150 - 35) / gridSize
+     * 结果钳制到 [MIN_SLOT_SPACING, DEFAULT_SLOT_SPACING]。
+     */
+    private int computeAdaptiveSpacing(int gridSize) {
+        if (this.height == 0 || gridSize <= 0) return SlotManager.DEFAULT_SLOT_SPACING;
+        // 上下屏幕留白 40 + 顶部控件 150 + 底部按钮区 35
+        int overhead = 40 + 150 + 35;
+        int available = this.height - overhead;
+        int spacing = available / gridSize;
+        return Math.max(SlotManager.MIN_SLOT_SPACING,
+                Math.min(SlotManager.DEFAULT_SLOT_SPACING, spacing));
     }
 
     @Override
@@ -177,13 +212,14 @@ public class RecipeCreatorScreen extends Screen {
         // 构造函数里 width/height 尚未初始化，跳过
         if (this.width == 0 || this.height == 0) return;
 
-        // 获取当前配方类型的网格尺寸
+        // 获取当前配方类型的网格尺寸（已内含自适应 spacing）
         SlotManager.GridDimensions gridDim = getGridDimensions();
 
         // 计算所需的最小尺寸
+        // 纵向：顶部控件区150 + 格子 + 底部按钮区35 + 上下留白20*2
         int rightPanelWidth = 150;
         this.contentWidth = Math.max(560, PADDING + gridDim.getPixelWidth() + PADDING + rightPanelWidth + PADDING);
-        this.contentHeight = Math.max(480, PADDING + 90 + gridDim.getPixelHeight() + PADDING + 80);
+        this.contentHeight = Math.max(480, PADDING + 150 + gridDim.getPixelHeight() + 35 + PADDING);
 
         this.contentWidth = Math.min(this.contentWidth, this.width - 40);
         this.contentHeight = Math.min(this.contentHeight, this.height - 40);
@@ -195,6 +231,7 @@ public class RecipeCreatorScreen extends Screen {
 
         if (slotManager == null) {
             slotManager = new SlotManager(leftPos + PADDING, topPos, rightPanelX);
+            slotManager.setSlotSpacing(gridDim.spacing());
             updateSlotManagerRecipeType();
         } else {
             // 检查网格尺寸是否改变
@@ -204,9 +241,11 @@ public class RecipeCreatorScreen extends Screen {
                     oldDim.getPixelHeight() != gridDim.getPixelHeight()) {
 
                 slotManager = new SlotManager(leftPos + PADDING, topPos, rightPanelX);
+                slotManager.setSlotSpacing(gridDim.spacing());
                 updateSlotManagerRecipeType();
             } else {
-                // 网格尺寸没变，只更新坐标
+                // 网格尺寸没变，只更新坐标和 spacing
+                slotManager.setSlotSpacing(gridDim.spacing());
                 slotManager.updateCoordinates(leftPos + PADDING, topPos, rightPanelX);
                 updateSlotManagerRecipeType();
             }
@@ -487,42 +526,46 @@ public class RecipeCreatorScreen extends Screen {
         if (result.recipeType != null) {
             String recipeTypeName = result.recipeType.name().toLowerCase();
 
-            if ("crafting".equals(recipeTypeName)) {
-                String mode = result.craftingMode != null ? result.craftingMode.name().toLowerCase() : "shaped";
-                String typeId = "crafting_" + mode;
-                return DynamicRecipeTypeConfig.getRecipeType(typeId);
+            switch (recipeTypeName) {
+                case "crafting" -> {
+                    String mode = result.craftingMode != null ? result.craftingMode.name().toLowerCase() : "shaped";
+                    String typeId = "crafting_" + mode;
+                    return DynamicRecipeTypeConfig.getRecipeType(typeId);
 
-            } else if ("cooking".equals(recipeTypeName)) {
-                String cookingType = result.cookingType != null ? result.cookingType.name().toLowerCase() : "smelting";
-                return DynamicRecipeTypeConfig.getRecipeType(cookingType);
-
-            } else if ("avaritia".equals(recipeTypeName)) {
-                String mode = result.craftingMode != null ? result.craftingMode.name().toLowerCase() : "shaped";
-                String typeId = "avaritia_" + mode;
-
-                RecipeTypeDefinition found = DynamicRecipeTypeConfig.getRecipeType(typeId);
-                if (found != null) {
-                    return found;
                 }
+                case "cooking" -> {
+                    String cookingType = result.cookingType != null ? result.cookingType.name().toLowerCase() : "smelting";
+                    return DynamicRecipeTypeConfig.getRecipeType(cookingType);
+                }
+                case "avaritia" -> {
+                    String mode = result.craftingMode != null ? result.craftingMode.name().toLowerCase() : "shaped";
+                    String typeId = "avaritia_" + mode;
 
-                // 如果没找到，尝试查找原始ID（移除 ":crafting_table_recipe" 后缀）
-                if (result.originalRecipeTypeId != null) {
-                    String namespace = result.originalRecipeTypeId.split(":")[0];
-                    if ("avaritia".equals(namespace)) {
-                        // 尝试直接使用 "avaritia_shaped"
-                        return DynamicRecipeTypeConfig.getRecipeType("avaritia_shaped");
+                    RecipeTypeDefinition found = DynamicRecipeTypeConfig.getRecipeType(typeId);
+                    if (found != null) {
+                        return found;
                     }
+
+                    // 如果没找到，尝试查找原始ID（移除 ":crafting_table_recipe" 后缀）
+                    if (result.originalRecipeTypeId != null) {
+                        String namespace = result.originalRecipeTypeId.split(":")[0];
+                        if ("avaritia".equals(namespace)) {
+                            // 尝试直接使用 "avaritia_shaped"
+                            return DynamicRecipeTypeConfig.getRecipeType("avaritia_shaped");
+                        }
+                    }
+                    return found;
+
                 }
-                return found;
-
-            } else if ("brewing".equals(recipeTypeName)) {
-                return DynamicRecipeTypeConfig.getRecipeType("brewing");
-
-            } else if ("stonecutting".equals(recipeTypeName)) {
-                return DynamicRecipeTypeConfig.getRecipeType("stonecutting");
-
-            } else if ("smithing".equals(recipeTypeName) || "smithing_transform".equals(recipeTypeName)) {
-                return DynamicRecipeTypeConfig.getRecipeType("smithing_transform");
+                case "brewing" -> {
+                    return DynamicRecipeTypeConfig.getRecipeType("brewing");
+                }
+                case "stonecutting" -> {
+                    return DynamicRecipeTypeConfig.getRecipeType("stonecutting");
+                }
+                case "smithing", "smithing_transform" -> {
+                    return DynamicRecipeTypeConfig.getRecipeType("smithing_transform");
+                }
             }
         }
         return null;
@@ -655,13 +698,26 @@ public class RecipeCreatorScreen extends Screen {
     }
 
     /**
-     * 获取可用的等级
+     * 获取可用的等级列表。
+     * 根据配方类型注册时的 maxGridWidth 反推最大 Tier，
+     * 避免出现超出实际格子上限的无效 Tier。
      */
     private Integer[] getAvailableTiers() {
         if (currentRecipeType != null &&
                 (currentRecipeType.isAvaritiaType() ||
                         Boolean.TRUE.equals(currentRecipeType.getProperty("supportsTiers", Boolean.class)))) {
-            return new Integer[]{1, 2, 3, 4};
+
+            // 用已注册的最大格子数推算上限，例如：
+            //   avaritia      9x9  → T4
+            //   ArcaneVortex  16x16 → T6
+            int maxGrid = currentRecipeType.getMaxGridWidth();
+            int maxTier = DynamicRecipeBuilder.getMaxTierForGridSize(maxGrid);
+
+            Integer[] tiers = new Integer[maxTier];
+            for (int i = 0; i < maxTier; i++) {
+                tiers[i] = i + 1;
+            }
+            return tiers;
         }
         return new Integer[]{1};
     }

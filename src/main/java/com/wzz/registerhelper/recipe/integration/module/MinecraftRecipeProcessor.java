@@ -9,6 +9,8 @@ import net.minecraft.resources.ResourceLocation;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
+
 import static com.wzz.registerhelper.util.RecipeUtil.*;
 
 /**
@@ -134,7 +136,7 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
         }
 
         // 添加结果（使用对象格式以支持count）
-        recipe.add("result", createResultJson(request.result, request.resultCount));
+        recipe.addProperty("result", getItemResourceLocation(request.result.getItem()).toString());
 
         // 添加经验和时间
         Float experience = (Float) request.properties.get("experience");
@@ -163,8 +165,9 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
             }
         }
 
-        // 结果（使用对象格式以支持count）
-        recipe.add("result", createResultJson(request.result, request.resultCount));
+        // result 必须是物品 ID 字符串，不能用 ItemStack.toString()
+        recipe.addProperty("result", getItemResourceLocation(request.result.getItem()).toString());
+        recipe.addProperty("count", Math.max(request.resultCount, 1));
 
         return recipe;
     }
@@ -267,19 +270,13 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 经验消耗（从properties中获取）
         Integer cost = (Integer) request.properties.get("cost");
-        if (cost != null) {
-            recipe.addProperty("cost", cost);
-        } else {
-            recipe.addProperty("cost", 1);  // 默认1级
-        }
+        // 默认1级
+        recipe.addProperty("cost", Objects.requireNonNullElse(cost, 1));
 
         // 材料消耗数量
         Integer materialCost = (Integer) request.properties.get("material_cost");
-        if (materialCost != null) {
-            recipe.addProperty("material_cost", materialCost);
-        } else {
-            recipe.addProperty("material_cost", 1);  // 默认消耗1个
-        }
+        // 默认消耗1个
+        recipe.addProperty("material_cost", Objects.requireNonNullElse(materialCost, 1));
 
         return recipe;
     }

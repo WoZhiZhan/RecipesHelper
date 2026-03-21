@@ -177,7 +177,10 @@ public class DynamicRecipeBuilder {
     }
 
     /**
-     * 使用优化的方法生成recipeId
+     * 使用优化的方法生成recipeId。
+     * 命名空间取配方类型所属的 modId（如 astralrail_cube、avaritia），
+     * 原版配方类型（minecraft）统一改为 registerhelper，
+     * 确保文件保存到正确的子目录。
      */
     private String generateOptimizedRecipeId(BuildParams params, JsonObject recipeJson) {
         // 构建原始路径用于推断
@@ -185,8 +188,15 @@ public class DynamicRecipeBuilder {
         String typeName = params.recipeType.getId().replace(":", "_");
         String originalPath = "custom_" + typeName + "_" + itemName;
 
-        // 调用优化方法
-        return generateOptimizedFileName(originalPath, recipeJson);
+        String fileName = generateOptimizedFileName(originalPath, recipeJson);
+
+        // 取配方类型的 modId 作为命名空间
+        // 原版 minecraft 类型保持 minecraft，不替换，保证文件存到正确目录
+        String modId = params.recipeType.getModId();
+        if (modId == null || modId.isBlank()) {
+            modId = "registerhelper";
+        }
+        return modId + ":" + fileName;
     }
 
     /**
@@ -400,8 +410,24 @@ public class DynamicRecipeBuilder {
             case 3 -> 7;
             case 4 -> 9;
             case 5 -> 11;
-            default -> 3;
+            case 6 -> 16;
+            default -> 21;
         };
+    }
+
+    /**
+     * 根据配方类型注册的最大格子数，反推该类型最多支持到哪个 Tier。
+     * 与 getGridSizeForTier 完全对应：
+     *   ≤3→T1, ≤5→T2, ≤7→T3, ≤9→T4, ≤11→T5, ≤16→T6, else→T7
+     */
+    public static int getMaxTierForGridSize(int gridSize) {
+        if (gridSize <= 3)  return 1;
+        if (gridSize <= 5)  return 2;
+        if (gridSize <= 7)  return 3;
+        if (gridSize <= 9)  return 4;
+        if (gridSize <= 11) return 5;
+        if (gridSize <= 16) return 6;
+        return 7;
     }
 
     public static int getTierFromIngredientCount(int count) {
@@ -409,7 +435,9 @@ public class DynamicRecipeBuilder {
         if (count <= 25) return 2;
         if (count <= 49) return 3;
         if (count <= 81) return 4;
-        return 5;
+        if (count <= 121) return 5;
+        if (count <= 256) return 6;
+        return 7;
     }
 
     /**

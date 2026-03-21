@@ -1,5 +1,7 @@
 package com.wzz.registerhelper.gui.recipe.layout;
 
+import com.wzz.registerhelper.gui.recipe.layout.integration.astralrail_cube.PathAscension;
+import com.wzz.registerhelper.gui.recipe.layout.integration.astralrail_cube.PathTransmuter;
 import com.wzz.registerhelper.gui.recipe.layout.integration.botania.*;
 import com.wzz.registerhelper.gui.recipe.layout.integration.builtin.*;
 import com.wzz.registerhelper.gui.recipe.layout.integration.create.CompactingLayout;
@@ -49,6 +51,8 @@ public class LayoutManager {
         registerLayout("compacting", new CompactingLayout());
         registerLayout("filling", new FillingLayout());
         registerLayout("pressing", new PressingLayout());
+        registerLayout("path_ascension", new PathAscension());
+        registerLayout("path_transmuter", new PathTransmuter());
     }
     
     /**

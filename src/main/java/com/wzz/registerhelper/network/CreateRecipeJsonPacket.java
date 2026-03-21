@@ -209,6 +209,13 @@ public class CreateRecipeJsonPacket {
             result = result.substring(0, 80);
         }
 
+        // ResourceLocation path 只允许 [a-z0-9/._-]
+        // 将空格和其他非法字符替换为下划线，并转换为小写
+        result = result.toLowerCase()
+                       .replaceAll("[^a-z0-9/._-]", "_")
+                       .replaceAll("_+", "_")   // 合并连续下划线
+                       .replaceAll("_$", "");    // 去掉末尾下划线
+
         return result;
     }
 

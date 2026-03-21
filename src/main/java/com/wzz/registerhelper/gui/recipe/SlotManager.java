@@ -2,6 +2,7 @@ package com.wzz.registerhelper.gui.recipe;
 
 import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
 import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
+import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig;
 import com.wzz.registerhelper.gui.recipe.layout.LayoutManager;
 import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
@@ -16,8 +17,11 @@ import java.util.List;
  * 槽位管理器 - 支持动态配方类型和IngredientData
  */
 public class SlotManager {
-    private static final int SLOT_SIZE = 18;
-    private static final int SLOT_SPACING = 20;
+    /** 默认槽位间距，可通过 setSlotSpacing 动态缩小以适应小屏幕 */
+    private int slotSpacing = 20;
+    /** 槽位间距的硬性下限，低于此值物品图标将无法辨认 */
+    public static final int MIN_SLOT_SPACING = 13;
+    public static final int DEFAULT_SLOT_SPACING = 20;
 
     private List<RecipeComponent> components = new ArrayList<>();
     private final List<IngredientSlot> ingredientSlots = new ArrayList<>();
@@ -39,6 +43,18 @@ public class SlotManager {
         this.rightPanelX = rightPanelX;
         this.currentRecipeType = DynamicRecipeTypeConfig.getRecipeType("crafting_shaped");
         initializeSlots();
+    }
+
+    /**
+     * 动态设置槽位间距（用于大格子在小屏幕上自适应缩放）。
+     * 必须在 setRecipeType / updateCoordinates 之前调用才能生效。
+     */
+    public void setSlotSpacing(int spacing) {
+        this.slotSpacing = Math.max(MIN_SLOT_SPACING, Math.min(DEFAULT_SLOT_SPACING, spacing));
+    }
+
+    public int getSlotSpacing() {
+        return slotSpacing;
     }
 
     public void updateCoordinates(int baseX, int baseY, int rightPanelX) {
@@ -94,13 +110,13 @@ public class SlotManager {
     private void updateAvaritiaSlotPositions() {
         Integer tier = currentRecipeType.getProperty("tier", Integer.class);
         int actualTier = tier != null ? tier : customTier;
-        int gridSize = getAvaritiaGridSize(actualTier);
+        int gridSize = DynamicRecipeBuilder.getGridSizeForTier(actualTier);
         updateGridSlotPositions(gridSize, gridSize);
     }
 
     private void updateCookingSlotPositions() {
         if (!ingredientSlots.isEmpty()) {
-            ingredientSlots.set(0, new IngredientSlot(baseX + SLOT_SPACING, baseY + 170, 0));
+            ingredientSlots.set(0, new IngredientSlot(baseX + slotSpacing, baseY + 170, 0));
         }
     }
 
@@ -108,7 +124,7 @@ public class SlotManager {
         int gridWidth = currentRecipeType.getMaxGridWidth();
         int gridHeight = currentRecipeType.getMaxGridHeight();
         if (Boolean.TRUE.equals(currentRecipeType.getProperty("supportsTiers", Boolean.class))) {
-            int dynamicSize = getGridSizeForTier(customTier);
+            int dynamicSize = DynamicRecipeBuilder.getGridSizeForTier(customTier);
             gridWidth = dynamicSize;
             gridHeight = dynamicSize;
         }
@@ -122,8 +138,8 @@ public class SlotManager {
         for (int i = 0; i < ingredientSlots.size() && i < gridWidth * gridHeight; i++) {
             int x = i % gridWidth;
             int y = i / gridWidth;
-            int slotX = startX + x * SLOT_SPACING;
-            int slotY = startY + y * SLOT_SPACING;
+            int slotX = startX + x * slotSpacing;
+            int slotY = startY + y * slotSpacing;
             ingredientSlots.set(i, new IngredientSlot(slotX, slotY, i));
         }
     }
@@ -206,12 +222,12 @@ public class SlotManager {
     private void initializeAvaritiaSlots() {
         Integer tier = currentRecipeType.getProperty("tier", Integer.class);
         int actualTier = tier != null ? tier : customTier;
-        int gridSize = getAvaritiaGridSize(actualTier);
+        int gridSize = DynamicRecipeBuilder.getGridSizeForTier(actualTier);
         initializeGridSlots(gridSize, gridSize);
     }
 
     private void initializeCookingSlots() {
-        ingredientSlots.add(new IngredientSlot(baseX + SLOT_SPACING, baseY + 170, 0));
+        ingredientSlots.add(new IngredientSlot(baseX + slotSpacing, baseY + 170, 0));
         ingredients.add(IngredientData.empty());
     }
 
@@ -219,7 +235,7 @@ public class SlotManager {
         int gridWidth = currentRecipeType.getMaxGridWidth();
         int gridHeight = currentRecipeType.getMaxGridHeight();
         if (Boolean.TRUE.equals(currentRecipeType.getProperty("supportsTiers", Boolean.class))) {
-            int dynamicSize = getGridSizeForTier(customTier);
+            int dynamicSize = DynamicRecipeBuilder.getGridSizeForTier(customTier);
             gridWidth = dynamicSize;
             gridHeight = dynamicSize;
         }
@@ -227,40 +243,18 @@ public class SlotManager {
         initializeGridSlots(gridWidth, gridHeight);
     }
 
-    private int getGridSizeForTier(int tier) {
-        return switch (tier) {
-            case 1 -> 3;
-            case 2 -> 5;
-            case 3 -> 7;
-            case 4 -> 9;
-            default -> 3;
-        };
-    }
-
     private void initializeGridSlots(int gridWidth, int gridHeight) {
         int startX = baseX;
         int startY = baseY + 150;
         for (int y = 0; y < gridHeight; y++) {
             for (int x = 0; x < gridWidth; x++) {
-                int slotX = startX + x * SLOT_SPACING;
-                int slotY = startY + y * SLOT_SPACING;
+                int slotX = startX + x * slotSpacing;
+                int slotY = startY + y * slotSpacing;
                 ingredientSlots.add(new IngredientSlot(slotX, slotY, y * gridWidth + x));
                 ingredients.add(IngredientData.empty());
             }
         }
     }
-
-    private int getAvaritiaGridSize(int tier) {
-        return switch (tier) {
-            case 1 -> 3;
-            case 2 -> 5;
-            case 3 -> 7;
-            case 4 -> 9;
-            default -> 3;
-        };
-    }
-
-    // === 新的方法：支持IngredientData ===
     
     /**
      * 设置材料数据（新方法）
@@ -391,37 +385,38 @@ public class SlotManager {
      */
     public GridDimensions getGridDimensions() {
         if (currentRecipeType == null) {
-            return new GridDimensions(3, 3);
+            return new GridDimensions(3, 3, slotSpacing);
         }
 
         String category = currentRecipeType.getProperty("category", String.class);
 
         if ("cooking".equals(category) || currentRecipeType.supportsCookingSettings()) {
-            return new GridDimensions(1, 1);
-//        } else if ("avaritia".equals(category)) {
-//            Integer tier = currentRecipeType.getProperty("tier", Integer.class);
-//            int actualTier = tier != null ? tier : customTier;
-//            int gridSize = getAvaritiaGridSize(actualTier);
-//            return new GridDimensions(gridSize, gridSize);
+            return new GridDimensions(1, 1, slotSpacing);
         } else {
             return new GridDimensions(
                     currentRecipeType.getMaxGridWidth(),
-                    currentRecipeType.getMaxGridHeight()
+                    currentRecipeType.getMaxGridHeight(),
+                    slotSpacing
             );
         }
     }
 
-    public record GridDimensions(int width, int height) {
+    public record GridDimensions(int width, int height, int spacing) {
+        /** 兼容旧调用：默认 20px 间距 */
+        public GridDimensions(int width, int height) {
+            this(width, height, DEFAULT_SLOT_SPACING);
+        }
+
         public int getTotalSlots() {
             return width * height;
         }
 
         public int getPixelWidth() {
-            return width * SLOT_SPACING;
+            return width * spacing;
         }
 
         public int getPixelHeight() {
-            return height * SLOT_SPACING;
+            return height * spacing;
         }
     }
 
