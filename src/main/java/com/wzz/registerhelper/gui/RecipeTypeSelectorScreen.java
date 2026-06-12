@@ -193,7 +193,7 @@ public class RecipeTypeSelectorScreen extends Screen {
 
         renderRecipeTypeList(guiGraphics, mouseX, mouseY, listTop, listHeight);
 
-        if (filteredRecipeTypes.size() > maxVisibleItems) {
+        if (filteredRecipeTypes.size() > currentVisibleItems()) {
             renderScrollbar(guiGraphics, listTop, listHeight);
         }
 
@@ -248,11 +248,13 @@ public class RecipeTypeSelectorScreen extends Screen {
     private void renderScrollbar(GuiGraphics guiGraphics, int listTop, int listHeight) {
         int scrollbarX = leftPos + contentWidth - 15;
         int scrollbarHeight = listHeight - 4;
+        int visible = currentVisibleItems();
 
         guiGraphics.fill(scrollbarX, listTop + 2, scrollbarX + 10, listTop + listHeight - 2, 0xFF666666);
 
-        float scrollPercentage = (float) scrollOffset / (filteredRecipeTypes.size() - maxVisibleItems);
-        int sliderHeight = Math.max(20, scrollbarHeight * maxVisibleItems / filteredRecipeTypes.size());
+        int denom = Math.max(1, filteredRecipeTypes.size() - visible);
+        float scrollPercentage = (float) scrollOffset / denom;
+        int sliderHeight = Math.max(20, scrollbarHeight * visible / Math.max(1, filteredRecipeTypes.size()));
         int sliderY = listTop + 2 + (int) ((scrollbarHeight - sliderHeight) * scrollPercentage);
 
         guiGraphics.fill(scrollbarX + 1, sliderY, scrollbarX + 9, sliderY + sliderHeight, 0xFFCCCCCC);
@@ -325,12 +327,19 @@ public class RecipeTypeSelectorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        if (filteredRecipeTypes.size() > maxVisibleItems) {
-            int maxScrollOffset = Math.max(0, filteredRecipeTypes.size() - maxVisibleItems);
+        int visible = currentVisibleItems();
+        if (filteredRecipeTypes.size() > visible) {
+            int maxScrollOffset = Math.max(0, filteredRecipeTypes.size() - visible);
             scrollOffset = Math.max(0, Math.min(maxScrollOffset, scrollOffset - (int) delta));
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, delta);
+    }
+
+    /** 根据当前实际列表高度计算可见行数（适配 GUI 缩放） */
+    private int currentVisibleItems() {
+        int listHeight = contentHeight - 130;
+        return Math.max(1, Math.min(maxVisibleItems, listHeight / 18));
     }
 
     @Override

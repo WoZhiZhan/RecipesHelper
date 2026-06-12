@@ -6,6 +6,7 @@
   "refmap": "mixins.registerhelper.refmap.json",
   "mixins": [
     "PotionBrewingMixin",
+    "RecipeManagerAccessor",
     "RecipeManagerMixin",
     "TagLoaderMixin"
   ],

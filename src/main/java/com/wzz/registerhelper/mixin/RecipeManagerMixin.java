@@ -12,7 +12,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.util.profiling.ProfilerFiller;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeManager;
+import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraftforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 import org.spongepowered.asm.mixin.Mixin;
@@ -66,6 +68,79 @@ public class RecipeManagerMixin {
 
         } catch (Exception e) {
             registerhelper$LOGGER.error("处理配方规则失败", e);
+        }
+    }
+
+    /**
+     * 在配方完全加载完成后（TAIL）再次清理黑名单配方。
+     *
+     * HEAD 阶段只能处理 datapack/json 配方（originalRecipes map）。
+     * 但有些 mod 直接用代码注册 Recipe 实例，这些配方不在 json map 里，
+     * 而是在 apply 执行后才进入 RecipeManager 的内部集合（recipes / byName）。
+     * 这里在 TAIL 直接从最终集合移除黑名单条目，从而支持删除“硬编码”配方。
+     */
+    @Inject(
+            method = "apply(Ljava/util/Map;Lnet/minecraft/server/packs/resources/ResourceManager;Lnet/minecraft/util/profiling/ProfilerFiller;)V",
+            at = @At("TAIL")
+    )
+    private void removeBlacklistedFromFinalRecipes(Map<ResourceLocation, JsonElement> originalRecipes,
+                                                   ResourceManager resourceManager,
+                                                   ProfilerFiller profiler,
+                                                   CallbackInfo ci) {
+        try {
+            Set<ResourceLocation> blacklisted = RecipeBlacklistManager.getBlacklistedRecipes();
+            if (blacklisted.isEmpty()) {
+                return;
+            }
+
+            RecipeManagerAccessor accessor = (RecipeManagerAccessor) this;
+
+            // 1) 清理 byName（id -> Recipe）
+            Map<ResourceLocation, Recipe<?>> byName = accessor.registerhelper$getByName();
+            int removedByName = 0;
+            if (byName != null) {
+                // byName 可能是不可变 map（Forge 会用 ImmutableMap），复制成可变的再写回
+                Map<ResourceLocation, Recipe<?>> mutableByName = new HashMap<>(byName);
+                Iterator<Map.Entry<ResourceLocation, Recipe<?>>> it = mutableByName.entrySet().iterator();
+                while (it.hasNext()) {
+                    if (blacklisted.contains(it.next().getKey())) {
+                        it.remove();
+                        removedByName++;
+                    }
+                }
+                if (removedByName > 0) {
+                    accessor.registerhelper$setByName(mutableByName);
+                }
+            }
+
+            // 2) 清理 recipes（type -> (id -> Recipe)）
+            Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> recipesByType = accessor.registerhelper$getRecipes();
+            int removedByType = 0;
+            if (recipesByType != null) {
+                Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> mutableByType = new HashMap<>();
+                for (Map.Entry<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> typeEntry : recipesByType.entrySet()) {
+                    Map<ResourceLocation, Recipe<?>> inner = new HashMap<>(typeEntry.getValue());
+                    Iterator<Map.Entry<ResourceLocation, Recipe<?>>> innerIt = inner.entrySet().iterator();
+                    while (innerIt.hasNext()) {
+                        if (blacklisted.contains(innerIt.next().getKey())) {
+                            innerIt.remove();
+                            removedByType++;
+                        }
+                    }
+                    mutableByType.put(typeEntry.getKey(), inner);
+                }
+                if (removedByType > 0) {
+                    accessor.registerhelper$setRecipes(mutableByType);
+                }
+            }
+
+            if (removedByName > 0 || removedByType > 0) {
+                registerhelper$LOGGER.info("TAIL 阶段从最终配方集合移除黑名单配方: byName={}, byType={}（含代码注册的非json配方）",
+                        removedByName, removedByType);
+            }
+
+        } catch (Exception e) {
+            registerhelper$LOGGER.error("TAIL 阶段移除黑名单配方失败", e);
         }
     }
 

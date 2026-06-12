@@ -55,6 +55,38 @@ public class BlacklistClientHelper {
     }
     
     /**
+     * 批量添加配方到黑名单
+     */
+    public static boolean addMultipleToBlacklist(java.util.Collection<ResourceLocation> recipeIds) {
+        if (recipeIds == null || recipeIds.isEmpty()) return false;
+        java.util.List<String> ids = recipeIds.stream().map(ResourceLocation::toString).toList();
+        if (isRemoteServer()) {
+            ModNetwork.CHANNEL.sendToServer(
+                new RecipeBlacklistPacket(RecipeBlacklistPacket.Operation.ADD_BATCH, ids)
+            );
+            return true;
+        } else {
+            return RecipeBlacklistManager.addMultipleToBlacklist(new java.util.HashSet<>(recipeIds)) > 0;
+        }
+    }
+
+    /**
+     * 批量从黑名单移除配方
+     */
+    public static boolean removeMultipleFromBlacklist(java.util.Collection<ResourceLocation> recipeIds) {
+        if (recipeIds == null || recipeIds.isEmpty()) return false;
+        java.util.List<String> ids = recipeIds.stream().map(ResourceLocation::toString).toList();
+        if (isRemoteServer()) {
+            ModNetwork.CHANNEL.sendToServer(
+                new RecipeBlacklistPacket(RecipeBlacklistPacket.Operation.REMOVE_BATCH, ids)
+            );
+            return true;
+        } else {
+            return RecipeBlacklistManager.removeMultipleFromBlacklist(new java.util.HashSet<>(recipeIds)) > 0;
+        }
+    }
+
+    /**
      * 清空黑名单
      */
     public static boolean clearBlacklist() {

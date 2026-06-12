@@ -15,6 +15,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -27,13 +28,18 @@ public class BlacklistManagerScreen extends Screen {
     private EditBox searchBox;
     private PinyinSearchHelper<ResourceLocation> searchHelper;
     private Button removeButton;
+    private Button addButton;
     private Button clearAllButton;
     private Button closeButton;
 
-    private int selectedIndex = -1;
+    private final Set<ResourceLocation> selected = new LinkedHashSet<>();
+    private int lastClickedIndex = -1;
     private int scrollOffset = 0;
     private final int itemHeight = 18;
-    private final int visibleItems = 15;
+    // 列表上下边距常量（与 render 中保持一致）
+    private static final int LIST_TOP = 70;
+    private static final int LIST_BOTTOM_MARGIN = 60; // 距离屏幕底部
+    private int visibleItems = 15; // 每帧根据实际高度动态计算
 
     private RecipeBlacklistManager.BlacklistStats stats;
 
@@ -53,7 +59,8 @@ public class BlacklistManagerScreen extends Screen {
         this.allBlacklistedRecipes.sort(Comparator.comparing(ResourceLocation::toString));
         this.filteredRecipes = new ArrayList<>(allBlacklistedRecipes);
         this.stats = RecipeBlacklistManager.getStats();
-        this.selectedIndex = -1;
+        this.selected.clear();
+        this.lastClickedIndex = -1;
         if (searchHelper != null) {
             searchHelper.buildCache(allBlacklistedRecipes);
         }
@@ -73,30 +80,45 @@ public class BlacklistManagerScreen extends Screen {
         // 按钮区域
         int buttonY = this.height - 40;
 
+        addButton = addRenderableWidget(Button.builder(
+                        Component.literal("§a添加配方"),
+                        button -> openAddScreen())
+                .bounds(centerX - 215, buttonY, 80, 20)
+                .build());
+
         removeButton = addRenderableWidget(Button.builder(
                         Component.literal("移除选中"),
-                        button -> removeSelectedRecipe())
-                .bounds(centerX - 160, buttonY, 70, 20)
+                        button -> removeSelectedRecipes())
+                .bounds(centerX - 130, buttonY, 80, 20)
                 .build());
         removeButton.active = false;
 
         clearAllButton = addRenderableWidget(Button.builder(
                         Component.literal("清空黑名单"),
                         button -> confirmClearAll())
-                .bounds(centerX - 80, buttonY, 70, 20)
+                .bounds(centerX - 45, buttonY, 80, 20)
                 .build());
 
         closeButton = addRenderableWidget(Button.builder(
                         Component.literal("关闭"),
                         button -> minecraft.setScreen(parent))
-                .bounds(centerX + 10, buttonY, 50, 20)
+                .bounds(centerX + 40, buttonY, 50, 20)
                 .build());
+    }
+
+    private void openAddScreen() {
+        minecraft.setScreen(new BlacklistAddScreen(this, () -> {
+            // 单人游戏添加后回到本界面会触发，刷新数据
+            refreshData();
+            if (searchBox != null) {
+                onSearchChanged(searchBox.getValue());
+            }
+        }));
     }
 
     private void onSearchChanged(String searchText) {
         filteredRecipes.clear();
-        selectedIndex = -1;
-        removeButton.active = false;
+        lastClickedIndex = -1;
         scrollOffset = 0;
 
         String lowerSearch = searchText.toLowerCase();
@@ -113,26 +135,35 @@ public class BlacklistManagerScreen extends Screen {
                 }
             }
         }
+        // 清理掉已不在列表中的选择
+        selected.retainAll(allBlacklistedRecipes);
+        removeButton.active = !selected.isEmpty();
     }
 
-    private void removeSelectedRecipe() {
-        if (selectedIndex >= 0 && selectedIndex < filteredRecipes.size()) {
-            ResourceLocation recipeId = filteredRecipes.get(selectedIndex);
-            performRemoveOperation(recipeId);
+    private void removeSelectedRecipes() {
+        if (selected.isEmpty()) {
+            return;
         }
-    }
+        List<ResourceLocation> toRemove = new ArrayList<>(selected);
 
-    private void performRemoveOperation(ResourceLocation recipeId) {
-        // 使用网络包辅助类（自动判断单人/多人）
-        BlacklistClientHelper.removeFromBlacklist(recipeId);
-
-        // 如果是单人游戏，立即刷新数据
-        if (!BlacklistClientHelper.isRemoteServer()) {
-            refreshData();
+        if (toRemove.size() == 1) {
+            BlacklistClientHelper.removeFromBlacklist(toRemove.get(0));
+        } else {
+            BlacklistClientHelper.removeMultipleFromBlacklist(toRemove);
         }
 
         if (minecraft.player != null) {
-            minecraft.player.sendSystemMessage(Component.literal("§e正在从黑名单移除: " + recipeId));
+            minecraft.player.sendSystemMessage(Component.literal("§e正在从黑名单移除 " + toRemove.size() + " 个配方..."));
+        }
+
+        if (!BlacklistClientHelper.isRemoteServer()) {
+            refreshData();
+            if (searchBox != null) {
+                onSearchChanged(searchBox.getValue());
+            }
+        } else {
+            selected.clear();
+            removeButton.active = false;
         }
     }
 
@@ -166,9 +197,12 @@ public class BlacklistManagerScreen extends Screen {
         renderBackground(guiGraphics);
 
         int centerX = this.width / 2;
-        int listTop = 70;
-        int listBottom = this.height - 60;
+        int listTop = LIST_TOP;
+        int listBottom = this.height - LIST_BOTTOM_MARGIN;
         int listHeight = listBottom - listTop;
+
+        // 根据实际可用高度动态计算可见行数（修复不同 GUI 缩放下错位/超框问题）
+        this.visibleItems = Math.max(1, (listHeight - 10) / itemHeight);
 
         // 深色遮罩
         guiGraphics.fill(0, 0, this.width, this.height, 0x80000000);
@@ -187,8 +221,8 @@ public class BlacklistManagerScreen extends Screen {
         guiGraphics.drawCenteredString(this.font, "§c配方黑名单管理器", centerX, py + 9, 0xFFFFFF);
 
         // 统计信息
-        String statsText = String.format("§7黑名单配方: §e%d §7个  |  当前显示: §e%d §7个",
-                stats.totalBlacklisted, filteredRecipes.size());
+        String statsText = String.format("§7黑名单配方: §e%d §7个  |  当前显示: §e%d §7个  |  已选: §e%d §7个",
+                stats.totalBlacklisted, filteredRecipes.size(), selected.size());
         guiGraphics.drawCenteredString(this.font, statsText, centerX, 33, 0xAAAAAA);
 
         // 列表背景
@@ -222,7 +256,7 @@ public class BlacklistManagerScreen extends Screen {
             ResourceLocation recipe = filteredRecipes.get(index);
             int itemY = y + i * itemHeight;
 
-            boolean isSelected = (index == selectedIndex);
+            boolean isSelected = selected.contains(recipe);
             boolean isHovered = mouseX >= x && mouseX < x + width &&
                     mouseY >= itemY && mouseY < itemY + itemHeight;
 
@@ -233,15 +267,26 @@ public class BlacklistManagerScreen extends Screen {
                 guiGraphics.fill(x, itemY, x + width, itemY + itemHeight, 0xFF3C3C3C);
             }
 
+            // 复选框
+            int boxX = x + 4, boxY = itemY + 4, boxSize = 10;
+            guiGraphics.fill(boxX, boxY, boxX + boxSize, boxY + boxSize, 0xFF111111);
+            guiGraphics.fill(boxX, boxY, boxX + boxSize, boxY + 1, 0xFF888888);
+            guiGraphics.fill(boxX, boxY + boxSize - 1, boxX + boxSize, boxY + boxSize, 0xFF888888);
+            guiGraphics.fill(boxX, boxY, boxX + 1, boxY + boxSize, 0xFF888888);
+            guiGraphics.fill(boxX + boxSize - 1, boxY, boxX + boxSize, boxY + boxSize, 0xFF888888);
+            if (isSelected) {
+                guiGraphics.fill(boxX + 2, boxY + 2, boxX + boxSize - 2, boxY + boxSize - 2, 0xFFFF5555);
+            }
+
             // 配方ID
             String recipeText = recipe.toString();
-            if (recipeText.length() > 70) {
-                recipeText = recipeText.substring(0, 67) + "...";
+            if (recipeText.length() > 66) {
+                recipeText = recipeText.substring(0, 63) + "...";
             }
 
             // 命名空间颜色
             int textColor = getNamespaceColor(recipe.getNamespace());
-            guiGraphics.drawString(this.font, recipeText, x + 5, itemY + 5, textColor, false);
+            guiGraphics.drawString(this.font, recipeText, x + 20, itemY + 5, textColor, false);
         }
 
         // 空列表提示
@@ -309,25 +354,39 @@ public class BlacklistManagerScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int centerX = this.width / 2;
-        int listTop = 70;
-        int listBottom = this.height - 60;
+        int listTop = LIST_TOP;
+        int listBottom = this.height - LIST_BOTTOM_MARGIN;
         int listX = centerX - 240;
         int listWidth = 480;
 
         if (mouseX >= listX && mouseX < listX + listWidth &&
                 mouseY >= listTop + 5 && mouseY < listBottom - 5) {
 
-            int clickedIndex = (int) ((mouseY - listTop - 5) / itemHeight) + scrollOffset;
+            int row = (int) ((mouseY - listTop - 5) / itemHeight);
+            // 只接受当前实际可见的行
+            if (row < 0 || row >= visibleItems) {
+                return true;
+            }
+            int clickedIndex = row + scrollOffset;
 
             if (clickedIndex >= 0 && clickedIndex < filteredRecipes.size()) {
-                selectedIndex = clickedIndex;
-                removeButton.active = true;
-
-                // 双击移除
-                if (button == 0) {
-                    removeSelectedRecipe();
-                    return true;
+                boolean shift = hasShiftDown();
+                if (shift && lastClickedIndex >= 0 && lastClickedIndex < filteredRecipes.size()) {
+                    int from = Math.min(lastClickedIndex, clickedIndex);
+                    int to = Math.max(lastClickedIndex, clickedIndex);
+                    for (int i = from; i <= to; i++) {
+                        selected.add(filteredRecipes.get(i));
+                    }
+                } else {
+                    ResourceLocation recipe = filteredRecipes.get(clickedIndex);
+                    if (selected.contains(recipe)) {
+                        selected.remove(recipe);
+                    } else {
+                        selected.add(recipe);
+                    }
+                    lastClickedIndex = clickedIndex;
                 }
+                removeButton.active = !selected.isEmpty();
             }
             return true;
         }
@@ -353,9 +412,15 @@ public class BlacklistManagerScreen extends Screen {
             return true;
         }
 
+        if (keyCode == 65 && hasControlDown()) { // Ctrl+A 全选当前
+            selected.addAll(filteredRecipes);
+            removeButton.active = !selected.isEmpty();
+            return true;
+        }
+
         if (keyCode == 46 || keyCode == 261) { // DELETE
-            if (selectedIndex >= 0) {
-                removeSelectedRecipe();
+            if (!selected.isEmpty()) {
+                removeSelectedRecipes();
                 return true;
             }
         }

@@ -21,33 +21,55 @@ public class RecipeBlacklistPacket {
     private static final Logger LOGGER = LogUtils.getLogger();
     
     public enum Operation {
-        ADD,        // 添加到黑名单
-        REMOVE,     // 从黑名单移除
-        CLEAR,      // 清空黑名单
+        ADD,          // 添加到黑名单
+        REMOVE,       // 从黑名单移除
+        CLEAR,        // 清空黑名单
+        ADD_BATCH,    // 批量添加到黑名单
+        REMOVE_BATCH, // 批量从黑名单移除
     }
     
     private final Operation operation;
     private final String recipeId; // 对于 ADD/REMOVE 操作
+    private final java.util.List<String> recipeIds; // 对于 ADD_BATCH/REMOVE_BATCH 操作
     
     public RecipeBlacklistPacket(Operation operation, String recipeId) {
         this.operation = operation;
         this.recipeId = recipeId != null ? recipeId : "";
+        this.recipeIds = java.util.Collections.emptyList();
     }
     
     public RecipeBlacklistPacket(Operation operation) {
         this(operation, "");
+    }
+
+    public RecipeBlacklistPacket(Operation operation, java.util.Collection<String> recipeIds) {
+        this.operation = operation;
+        this.recipeId = "";
+        this.recipeIds = new java.util.ArrayList<>(recipeIds != null ? recipeIds : java.util.Collections.emptyList());
     }
     
     // 编码
     public void encode(FriendlyByteBuf buf) {
         buf.writeEnum(operation);
         buf.writeUtf(recipeId);
+        buf.writeVarInt(recipeIds.size());
+        for (String id : recipeIds) {
+            buf.writeUtf(id);
+        }
     }
     
     // 解码
     public static RecipeBlacklistPacket decode(FriendlyByteBuf buf) {
         Operation operation = buf.readEnum(Operation.class);
         String recipeId = buf.readUtf();
+        int size = buf.readVarInt();
+        java.util.List<String> ids = new java.util.ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            ids.add(buf.readUtf());
+        }
+        if (operation == Operation.ADD_BATCH || operation == Operation.REMOVE_BATCH) {
+            return new RecipeBlacklistPacket(operation, ids);
+        }
         return new RecipeBlacklistPacket(operation, recipeId);
     }
     
@@ -72,6 +94,8 @@ public class RecipeBlacklistPacket {
                 case ADD -> handleAdd(player);
                 case REMOVE -> handleRemove(player);
                 case CLEAR -> handleClear(player);
+                case ADD_BATCH -> handleAddBatch(player);
+                case REMOVE_BATCH -> handleRemoveBatch(player);
             }
         });
         context.setPacketHandled(true);
@@ -121,6 +145,42 @@ public class RecipeBlacklistPacket {
         }
     }
     
+    private void handleAddBatch(ServerPlayer player) {
+        if (recipeIds.isEmpty()) {
+            player.sendSystemMessage(Component.literal("§c批量添加列表为空"));
+            return;
+        }
+        java.util.Set<ResourceLocation> ids = new java.util.HashSet<>();
+        for (String s : recipeIds) {
+            try {
+                ids.add(new ResourceLocation(s));
+            } catch (Exception e) {
+                LOGGER.warn("无效的配方ID: {}", s);
+            }
+        }
+        int added = RecipeBlacklistManager.addMultipleToBlacklist(ids);
+        player.sendSystemMessage(Component.literal("§a批量添加完成: 新增 " + added + " 个，提交 " + ids.size() + " 个"));
+        LOGGER.info("玩家 {} 批量添加 {} 个配方到黑名单", player.getName().getString(), added);
+    }
+
+    private void handleRemoveBatch(ServerPlayer player) {
+        if (recipeIds.isEmpty()) {
+            player.sendSystemMessage(Component.literal("§c批量移除列表为空"));
+            return;
+        }
+        java.util.Set<ResourceLocation> ids = new java.util.HashSet<>();
+        for (String s : recipeIds) {
+            try {
+                ids.add(new ResourceLocation(s));
+            } catch (Exception e) {
+                LOGGER.warn("无效的配方ID: {}", s);
+            }
+        }
+        int removed = RecipeBlacklistManager.removeMultipleFromBlacklist(ids);
+        player.sendSystemMessage(Component.literal("§a批量移除完成: 移除 " + removed + " 个，提交 " + ids.size() + " 个"));
+        LOGGER.info("玩家 {} 批量移除 {} 个黑名单配方", player.getName().getString(), removed);
+    }
+
     private void handleClear(ServerPlayer player) {
         int count = RecipeBlacklistManager.getBlacklistedRecipes().size();
         boolean success = RecipeBlacklistManager.clearBlacklist();

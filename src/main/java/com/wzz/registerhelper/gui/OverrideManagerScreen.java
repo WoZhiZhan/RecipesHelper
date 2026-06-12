@@ -32,7 +32,9 @@ public class OverrideManagerScreen extends Screen {
     private int selectedIndex = -1;
     private int scrollOffset = 0;
     private final int itemHeight = 18;
-    private final int visibleItems = 15;
+    private static final int LIST_TOP = 70;
+    private static final int LIST_BOTTOM_MARGIN = 60;
+    private int visibleItems = 15; // 每帧根据实际高度动态计算
     
     private UnifiedRecipeOverrideManager.OverrideStats stats;
     
@@ -168,9 +170,12 @@ public class OverrideManagerScreen extends Screen {
         renderBackground(guiGraphics);
         
         int centerX = this.width / 2;
-        int listTop = 70;
-        int listBottom = this.height - 60;
+        int listTop = LIST_TOP;
+        int listBottom = this.height - LIST_BOTTOM_MARGIN;
         int listHeight = listBottom - listTop;
+
+        // 根据实际可用高度动态计算可见行数（修复不同 GUI 缩放下错位/超框问题）
+        this.visibleItems = Math.max(1, (listHeight - 10) / itemHeight);
         
         // 标题
         guiGraphics.drawCenteredString(this.font, "配方覆盖管理器", centerX, 15, 0xFFFFFF);
@@ -298,15 +303,19 @@ public class OverrideManagerScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int centerX = this.width / 2;
-        int listTop = 70;
-        int listBottom = this.height - 60;
+        int listTop = LIST_TOP;
+        int listBottom = this.height - LIST_BOTTOM_MARGIN;
         int listX = centerX - 240;
         int listWidth = 480;
         
         if (mouseX >= listX && mouseX < listX + listWidth && 
             mouseY >= listTop + 5 && mouseY < listBottom - 5) {
             
-            int clickedIndex = (int) ((mouseY - listTop - 5) / itemHeight) + scrollOffset;
+            int row = (int) ((mouseY - listTop - 5) / itemHeight);
+            if (row < 0 || row >= visibleItems) {
+                return true;
+            }
+            int clickedIndex = row + scrollOffset;
             
             if (clickedIndex >= 0 && clickedIndex < filteredRecipes.size()) {
                 selectedIndex = clickedIndex;
