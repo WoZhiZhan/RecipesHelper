@@ -27,6 +27,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.function.Consumer;
+import com.wzz.registerhelper.gui.recipe.IngredientData;
 
 @OnlyIn(Dist.CLIENT)
 public class RecipeCreatorScreen extends Screen {
@@ -1292,9 +1293,20 @@ public class RecipeCreatorScreen extends Screen {
                 }
                 case ITEM -> {
                     if (data.hasNBT()) {
-                        // 带NBT：紫色*标记 + 半透明紫色背景
+                        // 右上角紫色*标记（带NBT）
                         guiGraphics.fill(slot.x() + 10, slot.y() + 1, slot.x() + 18, slot.y() + 9, 0x80FF00FF);
                         guiGraphics.drawString(this.font, "§d§l*", slot.x() + 12, slot.y() + 1, 0xFFFFFF, true);
+
+                        // 底部颜色条 + N 标签：按 NBT 匹配模式区分
+                        int barColor;
+                        String label;
+                        switch (data.getNbtMode()) {
+                            case "partial" -> { barColor = 0xFFFFAA00; label = "§eN"; } // 橙黄=部分匹配
+                            case "none"    -> { barColor = 0xFF555555; label = "§8N"; } // 灰=忽略
+                            default        -> { barColor = 0xFFCC44FF; label = "§dN"; } // 紫=精确
+                        }
+                        guiGraphics.fill(slot.x() + 1, slot.y() + 15, slot.x() + 17, slot.y() + 17, barColor);
+                        guiGraphics.drawString(this.font, label, slot.x() + 6, slot.y() + 10, 0xFFFFFF, true);
                     }
                 }
             }
@@ -1332,8 +1344,23 @@ public class RecipeCreatorScreen extends Screen {
                             tooltip.add(stack.getHoverName());
 
                             if (data.hasNBT()) {
-                                tooltip.add(Component.literal("§b✦ 包含NBT数据"));
-                                tooltip.add(Component.literal("§8将保留附魔、名称等数据"));
+                                switch (data.getNbtMode()) {
+                                    case "partial" -> {
+                                        tooltip.add(Component.literal("§e✦ 部分匹配 NBT（忽略 " + data.getIgnoreNbtKeys().size() + " 个 Key）"));
+                                        tooltip.add(Component.literal("§7中键：切换忽略 NBT（会清除忽略 Key）"));
+                                        tooltip.add(Component.literal("§7Shift+中键：重新编辑忽略 Key"));
+                                    }
+                                    case "none" -> {
+                                        tooltip.add(Component.literal("§8✦ 忽略 NBT（仅匹配物品）"));
+                                        tooltip.add(Component.literal("§7中键：切换精确匹配"));
+                                        tooltip.add(Component.literal("§7Shift+中键：设置忽略 Key（部分匹配）"));
+                                    }
+                                    default -> {
+                                        tooltip.add(Component.literal("§d✦ 精确匹配 NBT"));
+                                        tooltip.add(Component.literal("§7中键：切换忽略 NBT"));
+                                        tooltip.add(Component.literal("§7Shift+中键：设置忽略 Key（部分匹配）"));
+                                    }
+                                }
                             }
                         }
                         case TAG -> {
@@ -1404,6 +1431,34 @@ public class RecipeCreatorScreen extends Screen {
                 SlotManager.IngredientSlot slot = slotManager.getIngredientSlots().get(i);
                 if (mouseX >= slot.x() && mouseX < slot.x() + 18 &&
                         mouseY >= slot.y() && mouseY < slot.y() + 18) {
+                    IngredientData slotData = slotManager.getIngredientData(i);
+                    // 中键：切换该槽位 NBT 匹配（仅对带 NBT 的物品有效）
+                    if (button == 2 && slotData != null
+                            && slotData.getType() == IngredientData.Type.ITEM
+                            && slotData.hasNBT()) {
+                        boolean shift = hasShiftDown();
+                        if (shift) {
+                            // Shift+中键：打开独立的忽略 Key 编辑器
+                            if (minecraft != null) {
+                                minecraft.setScreen(new NbtIgnoreEditorScreen(
+                                        this,
+                                        slotData,
+                                        () -> displayInfo(slotData.getIgnoreNbtKeys().isEmpty()
+                                                ? "§d[NBT] 已切回精确匹配"
+                                                : "§e[NBT] 部分匹配，忽略 " + slotData.getIgnoreNbtKeys().size() + " 个 Key")
+                                ));
+                            }
+                            return true;
+                        } else {
+                            // 普通中键：精确 ↔ 忽略（若当前为部分匹配，先清除忽略 Key）
+                            if ("partial".equals(slotData.getNbtMode())) {
+                                slotData.setIgnoreNbtKeys(java.util.List.of());
+                            }
+                            boolean nowOn = slotData.toggleIncludeNBT();
+                            displayInfo(nowOn ? "§d[NBT] 精确匹配 NBT" : "§8[NBT] 忽略 NBT");
+                        }
+                        return true;
+                    }
                     // 使用填充模式处理
                     fillModeHandler.handleSlotClick(slotManager, i, button == 1);
                     // 同步到渲染器
