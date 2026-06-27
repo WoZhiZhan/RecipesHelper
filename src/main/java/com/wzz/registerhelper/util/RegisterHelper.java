@@ -55,10 +55,20 @@ public class RegisterHelper {
      */
     public static void registerRecipeTypeWithLayout(String modID, String type, String displayName,
                                                     ModRecipeProcessor processor, String layoutId) {
+        registerRecipeTypeWithLayout(modID, type, displayName, 9, processor, layoutId);
+    }
+
+    public static void registerRecipeTypeWithLayout(String modID, String type, String displayName, int gridSize,
+                                                    ModRecipeProcessor processor, String layoutId) {
+        registerRecipeTypeWithLayout(modID, type, displayName, gridSize, gridSize, processor, layoutId);
+    }
+
+    public static void registerRecipeTypeWithLayout(String modID, String type, String displayName, int gridWidth, int gridHeight,
+                                                    ModRecipeProcessor processor, String layoutId) {
         DynamicRecipeTypeConfig.registerRecipeType(
                 new DynamicRecipeTypeConfig.RecipeTypeDefinition.Builder(modID + ":" + type, displayName)
                         .modId(modID)
-                        .gridSize(9, 9)
+                        .gridSize(gridWidth, gridHeight)
                         .supportsFillMode(!"mystical_infusion".equals(layoutId))
                         .property("category", modID)
                         .property("mode", type.replace("crafting", ""))

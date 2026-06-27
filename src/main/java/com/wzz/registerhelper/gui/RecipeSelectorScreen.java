@@ -3,6 +3,10 @@ package com.wzz.registerhelper.gui;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
+import com.wzz.registerhelper.util.PinyinSearchHelper;
+import com.wzz.registerhelper.network.RecipeClientCache;
+import com.wzz.registerhelper.network.RequestRecipeListPacket;
+import com.wzz.registerhelper.network.SyncRecipeListPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -10,26 +14,28 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.item.crafting.Recipe;
+import net.minecraft.world.item.crafting.RecipeManager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
-import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
-import net.minecraft.world.item.crafting.RecipeManager;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
+import net.minecraft.client.Minecraft;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import net.minecraft.world.item.crafting.RecipeHolder;
 
 @OnlyIn(Dist.CLIENT)
 public class RecipeSelectorScreen extends Screen {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int MIN_GUI_WIDTH = 650;
     private static final int MIN_GUI_HEIGHT = 350;
-    private static final int RECIPE_DETAIL_WIDTH = 250;
+    private static final int RECIPE_DETAIL_WIDTH = 250; // 增加详情区域宽度
     private static final int RECIPE_ITEM_HEIGHT = 22;
     private static final int MAX_VISIBLE_RECIPES = 11;
     private static final int SLOT_SIZE = 18;
@@ -54,6 +60,7 @@ public class RecipeSelectorScreen extends Screen {
     private String currentRecipeTypeDisplay = "";
 
     private EditBox searchBox;
+    private PinyinSearchHelper<RecipeEntry> searchHelper;
     private Button selectButton;
     private Button cancelButton;
     private Button scrollUpButton;
@@ -68,6 +75,10 @@ public class RecipeSelectorScreen extends Screen {
         this.parentScreen = parentScreen;
         this.onRecipeSelected = onRecipeSelected;
         this.useRecipeFilter = false;
+        this.searchHelper = new PinyinSearchHelper<>(
+                entry -> entry.resultItem.isEmpty() ? "" : entry.resultItem.getHoverName().getString(),
+                entry -> entry.recipeId.toString()
+        );
         loadRecipes();
     }
 
@@ -78,6 +89,10 @@ public class RecipeSelectorScreen extends Screen {
         this.parentScreen = parentScreen;
         this.onRecipeSelected = onRecipeSelected;
         this.useRecipeFilter = true;
+        this.searchHelper = new PinyinSearchHelper<>(
+                entry -> entry.resultItem.isEmpty() ? "" : entry.resultItem.getHoverName().getString(),
+                entry -> entry.recipeId.toString()
+        );
         for (UnifiedRecipeInfo recipe : allowedRecipes) {
             allowedRecipeIds.add(recipe.getRecipeId());
         }
@@ -112,7 +127,40 @@ public class RecipeSelectorScreen extends Screen {
                 LOGGER.error("Game level is null");
                 return;
             }
-            RecipeManager recipeManager = minecraft.level.getRecipeManager();
+
+            // 优先尝试从服务器直接获取（单人游戏或集成服务器）
+            MinecraftServer server = Minecraft.getInstance().getSingleplayerServer();
+            RecipeManager recipeManager;
+
+            if (server != null) {
+                // 单人游戏或局域网主机，直接从服务器获取
+                recipeManager = server.getRecipeManager();
+                LOGGER.info("从集成服务器加载配方");
+            } else {
+                // 远程服务器，使用网络包请求
+                LOGGER.info("检测到远程服务器，使用网络包获取配方列表");
+                loadError = "正在从服务器加载配方...";
+
+                // 清除旧缓存
+                RecipeClientCache.clearCache();
+
+                // 发送请求
+                RequestRecipeListPacket.sendToServer();
+
+                // 添加回调，当数据返回时更新列表
+                RecipeClientCache.addLoadCallback(recipes -> {
+                    // 在主线程更新UI
+                    minecraft.execute(() -> {
+                        loadError = null;
+                        processRecipesFromCache(recipes);
+                        // 也加载自定义配方
+                        loadCustomRecipes();
+                    });
+                });
+
+                return; // 异步加载，直接返回
+            }
+
             if (recipeManager == null) {
                 loadError = "配方管理器为空";
                 LOGGER.error("Recipe manager is null");
@@ -127,12 +175,12 @@ public class RecipeSelectorScreen extends Screen {
             int validRecipeCount = 0;
             for (RecipeHolder<?> holder : recipes) {
                 try {
-                    Recipe<?> recipe = holder.value();
                     ResourceLocation id = holder.id();
                     if (id == null) {
                         LOGGER.warn("配方ID为空，跳过");
                         continue;
                     }
+                    Recipe<?> recipe = holder.value();
                     ItemStack resultItem = ItemStack.EMPTY;
                     try {
                         resultItem = recipe.getResultItem(minecraft.level.registryAccess());
@@ -147,18 +195,190 @@ public class RecipeSelectorScreen extends Screen {
                     LOGGER.warn("处理配方时出错: {}", e.getMessage());
                 }
             }
-            if (validRecipeCount == 0) {
+
+            // 加载自定义配方（酿造台、铁砧等）
+            loadCustomRecipes();
+
+            if (validRecipeCount == 0 && allRecipes.isEmpty()) {
                 loadError = "没有可用的配方数据";
             }
+
+            // 应用配方过滤器（但保留自定义配方）
             if (useRecipeFilter && !allowedRecipeIds.isEmpty()) {
-                allRecipes.removeIf(entry -> !allowedRecipeIds.contains(entry.recipeId));
+                allRecipes.removeIf(entry -> {
+                    // 保留自定义配方（registerhelper命名空间）
+                    if (entry.recipeId.getNamespace().equals("registerhelper")) {
+                        return false;
+                    }
+                    // 过滤其他不在白名单中的配方
+                    return !allowedRecipeIds.contains(entry.recipeId);
+                });
             }
         } catch (Exception e) {
             loadError = "加载配方时出错: " + e.getMessage();
             LOGGER.error("Error loading recipes", e);
         }
+
         allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
         filteredRecipes = new ArrayList<>(allRecipes);
+        searchHelper.buildCache(allRecipes);
+        filteredRecipes = new ArrayList<>(allRecipes);
+    }
+
+    /**
+     * 加载自定义配方（酿造台、铁砧等）
+     * 从config/registerhelper/custom_recipes/目录扫描JSON文件
+     */
+    private void loadCustomRecipes() {
+        try {
+            java.nio.file.Path customRecipesDir = net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get()
+                    .resolve("registerhelper/custom_recipes");
+
+            if (!java.nio.file.Files.exists(customRecipesDir)) {
+                LOGGER.warn("自定义配方目录不存在: {}", customRecipesDir);
+                return;
+            }
+
+            // 扫描酿造台配方
+            loadCustomRecipesFromDirectory(customRecipesDir.resolve("brewing"), "自定义酿造台");
+
+            // 扫描铁砧配方
+            loadCustomRecipesFromDirectory(customRecipesDir.resolve("anvil"), "自定义铁砧");
+        } catch (Exception e) {
+            LOGGER.error("加载自定义配方时出错", e);
+        }
+    }
+
+    /**
+     * 从指定目录加载自定义配方JSON文件
+     *
+     * @return 加载的配方数量
+     */
+    private int loadCustomRecipesFromDirectory(java.nio.file.Path dir, String recipeType) {
+        if (!java.nio.file.Files.exists(dir)) {
+            LOGGER.debug("目录不存在: {}", dir);
+            return 0;
+        }
+
+        final int[] count = {0};
+
+        try (java.util.stream.Stream<java.nio.file.Path> paths = java.nio.file.Files.walk(dir, 1)) {
+            paths.filter(java.nio.file.Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".json"))
+                    .forEach(jsonFile -> {
+                        try {
+
+                            // 读取JSON获取输出物品
+                            String content = java.nio.file.Files.readString(jsonFile);
+                            com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(content).getAsJsonObject();
+
+                            // 解析输出物品
+                            ItemStack outputStack = ItemStack.EMPTY;
+                            if (json.has("output")) {
+                                com.google.gson.JsonElement outputElement = json.get("output");
+                                if (outputElement.isJsonObject()) {
+                                    com.google.gson.JsonObject outputObj = outputElement.getAsJsonObject();
+                                    if (outputObj.has("item")) {
+                                        String itemId = outputObj.get("item").getAsString();
+                                        net.minecraft.world.item.Item item = net.minecraft.core.registries.BuiltInRegistries.ITEM
+                                                .get(ResourceLocation.parse(itemId));
+                                        if (item != null) {
+                                            int itemCount = outputObj.has("count") ? outputObj.get("count").getAsInt() : 1;
+                                            outputStack = new ItemStack(item, itemCount);
+                                        } else {
+                                            LOGGER.warn("未找到物品: {}", itemId);
+                                        }
+                                    }
+                                }
+                            } else {
+                                LOGGER.warn("JSON中没有output字段: {}", jsonFile);
+                            }
+
+                            // 创建RecipeEntry，使用文件路径作为ID
+                            String fileName = jsonFile.getFileName().toString().replace(".json", "");
+                            String category = dir.getFileName().toString(); // brewing 或 anvil
+                            ResourceLocation id = ResourceLocation.fromNamespaceAndPath("registerhelper", "custom_" + category + "/" + fileName);
+
+                            RecipeEntry entry = new RecipeEntry(id, outputStack, recipeType, null);
+                            allRecipes.add(entry);
+                            count[0]++;
+                        } catch (Exception e) {
+                            LOGGER.error("加载自定义配方文件失败: {}", jsonFile, e);
+                        }
+                    });
+        } catch (Exception e) {
+            LOGGER.error("扫描自定义配方目录失败: {}", dir, e);
+        }
+
+        return count[0];
+    }
+
+    /**
+     * 从网络缓存处理配方数据（用于远程服务器）
+     */
+    private void processRecipesFromCache(List<UnifiedRecipeInfo> recipes) {
+        allRecipes.clear();
+
+        if (recipes.isEmpty()) {
+            loadError = RecipeClientCache.getErrorMessage();
+            if (loadError == null) {
+                loadError = "服务器返回了空的配方列表";
+            }
+            filteredRecipes = new ArrayList<>();
+            updateButtons();
+            return;
+        }
+
+        // 将 UnifiedRecipeInfo 转换为 RecipeEntry
+        RecipeManager clientRecipeManager = minecraft.level != null ?
+                minecraft.level.getRecipeManager() : null;
+
+        for (UnifiedRecipeInfo info : recipes) {
+            try {
+                // 尝试从客户端获取配方详情（用于显示）
+                Recipe<?> recipe = null;
+                ItemStack resultItem = ItemStack.EMPTY;
+
+                if (clientRecipeManager != null) {
+                    recipe = clientRecipeManager.byKey(info.id).map(RecipeHolder::value).orElse(null);
+                    if (recipe != null) {
+                        try {
+                            resultItem = recipe.getResultItem(minecraft.level.registryAccess());
+                        } catch (Exception e) {
+                            // 忽略
+                        }
+                    }
+                }
+
+                // 从描述中提取类型
+                String recipeType = info.description.contains("->") ?
+                        info.description.split("->")[0].trim() : "未知类型";
+
+                // 应用过滤器
+                if (useRecipeFilter && !allowedRecipeIds.isEmpty()) {
+                    if (!allowedRecipeIds.contains(info.id)) {
+                        continue;
+                    }
+                }
+
+                allRecipes.add(new RecipeEntry(info.id, resultItem, recipeType, recipe));
+
+            } catch (Exception e) {
+                LOGGER.warn("处理配方 {} 时出错: {}", info.id, e.getMessage());
+            }
+            allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
+            filteredRecipes = new ArrayList<>(allRecipes);
+            searchHelper.buildCache(allRecipes);
+            allRecipes.sort(Comparator.comparing(entry -> entry.recipeId.toString()));
+            filteredRecipes = new ArrayList<>(allRecipes);
+
+            // 重新应用搜索过滤
+            if (searchBox != null && !searchBox.getValue().isEmpty()) {
+                onSearchTextChanged(searchBox.getValue());
+            }
+
+            updateButtons();
+        }
     }
 
     private String classifyRecipeType(Recipe<?> recipe) {
@@ -177,9 +397,7 @@ public class RecipeSelectorScreen extends Screen {
                 return "烟熏配方";
             } else if (typeName.contains("minecraft:campfire_cooking")) {
                 return "营火烹饪";
-            }
-
-            else if (typeName.contains("avaritia")) {
+            } else if (typeName.contains("avaritia")) {
                 if (typeName.contains("shaped")) {
                     return "Avaritia有形状配方";
                 } else if (typeName.contains("shapeless")) {
@@ -187,9 +405,7 @@ public class RecipeSelectorScreen extends Screen {
                 } else {
                     return "Avaritia配方";
                 }
-            }
-
-            else {
+            } else {
                 return typeName;
             }
 
@@ -257,10 +473,34 @@ public class RecipeSelectorScreen extends Screen {
             filteredRecipes = new ArrayList<>(allRecipes);
         } else {
             String lowerSearch = searchText.toLowerCase();
+
             filteredRecipes = allRecipes.stream()
                     .filter(entry -> {
-                        if (entry.recipeId.toString().toLowerCase().contains(lowerSearch)) {
+                        String recipeIdStr = entry.recipeId.toString().toLowerCase();
+                        if (recipeIdStr.contains(lowerSearch)) {
                             return true;
+                        }
+                        String recipeTypeLower = entry.recipeType.toLowerCase();
+                        if (recipeTypeLower.contains(lowerSearch)) {
+                            return true;
+                        }
+                        if (lowerSearch.contains("自定义") || lowerSearch.contains("custom")) {
+                            if (entry.recipeId.getNamespace().equals("registerhelper") &&
+                                    entry.recipeId.getPath().startsWith("custom_")) {
+                                return true;
+                            }
+                        }
+                        if (lowerSearch.contains("酿造") || lowerSearch.contains("brew")) {
+                            if (recipeTypeLower.contains("酿造台") ||
+                                    entry.recipeId.getPath().contains("brewing")) {
+                                return true;
+                            }
+                        }
+                        if (lowerSearch.contains("铁砧") || lowerSearch.contains("anvil")) {
+                            if (recipeTypeLower.contains("铁砧") ||
+                                    entry.recipeId.getPath().contains("anvil")) {
+                                return true;
+                            }
                         }
                         try {
                             if (!entry.resultItem.isEmpty()) {
@@ -270,8 +510,9 @@ public class RecipeSelectorScreen extends Screen {
                                 }
                             }
                         } catch (Exception e) {
+                            // 忽略异常，继续其他匹配
                         }
-                        return entry.recipeType.toLowerCase().contains(lowerSearch);
+                        return searchHelper.matches(entry, searchText);
                     })
                     .collect(Collectors.toList());
         }
@@ -311,6 +552,22 @@ public class RecipeSelectorScreen extends Screen {
     private void selectRecipe() {
         if (selectedRecipeIndex >= 0 && selectedRecipeIndex < filteredRecipes.size()) {
             RecipeEntry selected = filteredRecipes.get(selectedRecipeIndex);
+
+            // 检查是否是自定义配方
+            if (selected.recipeId.getNamespace().equals("registerhelper") &&
+                    selected.recipeId.getPath().startsWith("custom_")) {
+                // 自定义配方不支持GUI编辑，需要手动编辑JSON
+                if (minecraft.player != null) {
+                    minecraft.player.sendSystemMessage(Component.literal(
+                            "§e自定义配方暂不支持GUI编辑，请手动编辑JSON文件：\n" +
+                                    "§fconfig/registerhelper/custom_recipes/" +
+                                    (selected.recipeId.getPath().contains("brewing") ? "brewing/" : "anvil/") +
+                                    selected.recipeId.getPath().substring(selected.recipeId.getPath().lastIndexOf('/') + 1) + ".json"
+                    ));
+                }
+                return;
+            }
+
             onRecipeSelected.accept(selected.recipeId);
             minecraft.setScreen(parentScreen);
         }
@@ -322,30 +579,53 @@ public class RecipeSelectorScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    }
+
+    @Override
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(guiGraphics, mouseX, mouseY, partialTick);
-
-        // 绘制主界面背景
-        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + contentHeight, 0xFF404040);
-        guiGraphics.fill(leftPos + 1, topPos + 1, leftPos + contentWidth - 1, topPos + contentHeight - 1, 0xFF606060);
-
-        // 绘制标题
-        guiGraphics.drawCenteredString(this.font, this.title, leftPos + contentWidth / 2, topPos + 15, 0xFFFFFF);
+        // ── 外框 ──
+        guiGraphics.fill(leftPos - 1, topPos - 1, leftPos + contentWidth + 1, topPos + contentHeight + 1, 0xFF0A0A0A);
+        // ── 主背景 ──
+        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + contentHeight, 0xFF252525);
+        // ── 标题栏 ──
+        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + 28, 0xFF1A3A6A);
+        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + 1, 0xFF4A7ACF);
+        guiGraphics.fill(leftPos, topPos + 27, leftPos + contentWidth, topPos + 28, 0xFF223B80);
+        // ── 标题文字 ──
+        guiGraphics.drawCenteredString(this.font, "§b" + this.title.getString(), leftPos + contentWidth / 2, topPos + 10, 0xFFFFFF);
 
         // 渲染配方详情区域
         renderRecipeDetail(guiGraphics);
 
-        // 分割线
-        guiGraphics.fill(leftPos + RECIPE_DETAIL_WIDTH + 5, topPos + 30, leftPos + RECIPE_DETAIL_WIDTH + 7, topPos + contentHeight - 10, 0xFF808080);
+        // 分割线（双线带阴影）
+        guiGraphics.fill(leftPos + RECIPE_DETAIL_WIDTH + 5, topPos + 30, leftPos + RECIPE_DETAIL_WIDTH + 6, topPos + contentHeight - 10, 0xFF111111);
+        guiGraphics.fill(leftPos + RECIPE_DETAIL_WIDTH + 6, topPos + 30, leftPos + RECIPE_DETAIL_WIDTH + 7, topPos + contentHeight - 10, 0xFF3A3A3A);
 
         // 右侧列表区域
         int listAreaX = leftPos + RECIPE_DETAIL_WIDTH + 20;
 
         if (loadError != null) {
-            guiGraphics.drawCenteredString(this.font, "§c错误: " + loadError,
-                    listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 30, 0xFFAAAA);
-            guiGraphics.drawCenteredString(this.font, "§e点击刷新按钮重试",
-                    listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 105, 0xFFCC66);
+            // 检查是否正在加载
+            if (loadError.contains("正在从服务器加载") || RecipeClientCache.isLoading()) {
+                float progress = SyncRecipeListPacket.getProgress();
+                String progressText = String.format("正在从服务器加载配方... %.0f%%", progress * 100);
+                guiGraphics.drawCenteredString(this.font, "§e" + progressText,
+                        listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 30, 0xFFCC66);
+
+                // 绘制进度条
+                int barX = listAreaX;
+                int barY = topPos + 50;
+                int barWidth = contentWidth - RECIPE_DETAIL_WIDTH - 60;
+                int barHeight = 10;
+                guiGraphics.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF000000);
+                guiGraphics.fill(barX + 1, barY + 1, barX + (int) ((barWidth - 2) * progress), barY + barHeight - 1, 0xFF00AA00);
+            } else {
+                guiGraphics.drawCenteredString(this.font, "§c错误: " + loadError,
+                        listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 30, 0xFFAAAA);
+                guiGraphics.drawCenteredString(this.font, "§e点击刷新按钮重试",
+                        listAreaX + (contentWidth - RECIPE_DETAIL_WIDTH - 40) / 2, topPos + 105, 0xFFCC66);
+            }
         } else {
             String countText = String.format("显示 %d/%d 个配方", filteredRecipes.size(), allRecipes.size());
             guiGraphics.drawString(this.font, countText, listAreaX, topPos + 30, 0xCCCCCC, false);
@@ -356,8 +636,8 @@ public class RecipeSelectorScreen extends Screen {
         int listRight = leftPos + contentWidth - 50;
 
         // 配方列表背景
-        guiGraphics.fill(listAreaX - 10, listTop, listRight, listBottom, 0xFF000000);
-        guiGraphics.fill(listAreaX - 9, listTop + 1, listRight - 1, listBottom - 1, 0xFF808080);
+        guiGraphics.fill(listAreaX - 11, listTop - 1, listRight + 1, listBottom + 1, 0xFF0A0A0A);
+        guiGraphics.fill(listAreaX - 10, listTop, listRight, listBottom, 0xFF1A1A1A);
 
         if (loadError == null) {
             renderRecipeList(guiGraphics, mouseX, mouseY, listTop, listAreaX, listRight);
@@ -375,10 +655,12 @@ public class RecipeSelectorScreen extends Screen {
         int detailWidth = RECIPE_DETAIL_WIDTH - 10;
         int detailHeight = contentHeight - 40;
 
-        guiGraphics.fill(detailX, detailY, detailX + detailWidth, detailY + detailHeight, 0xFF000000);
-        guiGraphics.fill(detailX + 1, detailY + 1, detailX + detailWidth - 1, detailY + detailHeight - 1, 0xFF505050);
-
-        guiGraphics.drawCenteredString(this.font, "配方预览", detailX + detailWidth / 2, detailY + 10, 0xFFFFFF);
+        guiGraphics.fill(detailX - 1, detailY - 1, detailX + detailWidth + 1, detailY + detailHeight + 1, 0xFF0A0A0A);
+        guiGraphics.fill(detailX, detailY, detailX + detailWidth, detailY + detailHeight, 0xFF1E1E1E);
+        // 详情区标题
+        guiGraphics.fill(detailX, detailY, detailX + detailWidth, detailY + 22, 0xFF1A2A45);
+        guiGraphics.fill(detailX, detailY, detailX + detailWidth, detailY + 1, 0xFF3A6AAF);
+        guiGraphics.drawCenteredString(this.font, "§7配方预览", detailX + detailWidth / 2, detailY + 7, 0xCCCCCC);
 
         if (selectedRecipeIndex >= 0 && selectedRecipeIndex < filteredRecipes.size()) {
             RecipeEntry selected = filteredRecipes.get(selectedRecipeIndex);
@@ -506,9 +788,10 @@ public class RecipeSelectorScreen extends Screen {
             boolean isSelected = recipeIndex == selectedRecipeIndex;
 
             if (isSelected) {
-                guiGraphics.fill(itemX, itemY, listRight, itemY + RECIPE_ITEM_HEIGHT, 0xFF4488CC);
+                guiGraphics.fill(itemX, itemY, listRight, itemY + RECIPE_ITEM_HEIGHT, 0xFF1E4080);
+                guiGraphics.fill(itemX, itemY, itemX + 3, itemY + RECIPE_ITEM_HEIGHT, 0xFF4A90D9); // 左侧选中条
             } else if (isHovered) {
-                guiGraphics.fill(itemX, itemY, listRight, itemY + RECIPE_ITEM_HEIGHT, 0xFF666699);
+                guiGraphics.fill(itemX, itemY, listRight, itemY + RECIPE_ITEM_HEIGHT, 0xFF2A2A3A);
             }
 
             try {
@@ -553,10 +836,6 @@ public class RecipeSelectorScreen extends Screen {
         }
     }
 
-    @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-    }
-
     private int getTypeColor(String recipeType) {
         return switch (recipeType) {
             case "有形状配方" -> 0x66FF66;
@@ -582,7 +861,7 @@ public class RecipeSelectorScreen extends Screen {
         if (mouseX >= listAreaX && mouseX < listRight &&
                 mouseY >= listTop && mouseY < listBottom && !filteredRecipes.isEmpty()) {
 
-            int clickedIndex = (int)((mouseY - listTop) / RECIPE_ITEM_HEIGHT) + scrollOffset;
+            int clickedIndex = (int) ((mouseY - listTop) / RECIPE_ITEM_HEIGHT) + scrollOffset;
 
             if (clickedIndex >= 0 && clickedIndex < filteredRecipes.size()) {
                 if (selectedRecipeIndex == clickedIndex && button == 0) {
@@ -601,8 +880,8 @@ public class RecipeSelectorScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double x, double y) {
-        if (y > 0) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (scrollY > 0) {
             scrollUp();
         } else {
             scrollDown();
@@ -656,6 +935,13 @@ public class RecipeSelectorScreen extends Screen {
         RecipeEntry entry = filteredRecipes.get(selectedRecipeIndex);
         Recipe<?> recipe = entry.recipe;
 
+        // 检查是否是自定义配方（registerhelper命名空间且recipe为null）
+        if (recipe == null && entry.recipeId.getNamespace().equals("registerhelper")) {
+            // 处理自定义配方的预览
+            parseCustomRecipe(entry);
+            return;
+        }
+
         if (recipe == null) {
             return;
         }
@@ -692,6 +978,118 @@ public class RecipeSelectorScreen extends Screen {
             LOGGER.warn("解析配方失败: {}", e.getMessage());
             currentRecipeTypeDisplay = "解析失败";
         }
+    }
+
+    /**
+     * 解析自定义配方（酿造台、铁砧等）
+     */
+    private void parseCustomRecipe(RecipeEntry entry) {
+        try {
+            currentRecipeTypeDisplay = entry.recipeType;
+
+            int detailX = leftPos + 10;
+            int detailY = topPos + 60;
+
+            // 设置结果槽位
+            currentResultSlot = new SlotInfo(detailX + RECIPE_DETAIL_WIDTH - 50, detailY + 20, entry.resultItem.copy());
+
+            // 读取JSON文件获取输入材料
+            java.nio.file.Path jsonFile = getCustomRecipeJsonPath(entry.recipeId);
+
+            if (jsonFile != null && java.nio.file.Files.exists(jsonFile)) {
+                String content = java.nio.file.Files.readString(jsonFile);
+                com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(content).getAsJsonObject();
+
+                if (entry.recipeId.getPath().contains("brewing")) {
+                    // 酿造台配方：input + ingredient
+                    parseCustomBrewingRecipe(json, detailX, detailY);
+                } else if (entry.recipeId.getPath().contains("anvil")) {
+                    // 铁砧配方：left + right
+                    parseCustomAnvilRecipe(json, detailX, detailY);
+                }
+            } else {
+                // 无法找到JSON文件，只显示输出
+                LOGGER.warn("自定义配方JSON文件不存在: {}", jsonFile);
+            }
+
+        } catch (Exception e) {
+            LOGGER.warn("解析自定义配方失败: {}", entry.recipeId, e);
+            currentRecipeTypeDisplay = entry.recipeType + " (无法加载详情)";
+        }
+    }
+
+    /**
+     * 获取自定义配方的JSON文件路径
+     */
+    private java.nio.file.Path getCustomRecipeJsonPath(ResourceLocation recipeId) {
+        // registerhelper:custom_brewing/custom_brew → custom_recipes/brewing/custom_brew.json
+        String path = recipeId.getPath(); // custom_brewing/custom_brew
+        if (path.startsWith("custom_")) {
+            String[] parts = path.split("/", 2);
+            if (parts.length == 2) {
+                String category = parts[0].replace("custom_", ""); // brewing or anvil
+                String filename = parts[1] + ".json"; // custom_brew.json
+
+                return net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get()
+                        .resolve("registerhelper/custom_recipes")
+                        .resolve(category)
+                        .resolve(filename);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 解析自定义酿造台配方
+     */
+    private void parseCustomBrewingRecipe(com.google.gson.JsonObject json, int detailX, int detailY) throws Exception {
+        // 输入药水（底部左侧）
+        if (json.has("input")) {
+            ItemStack inputStack = parseJsonItemStack(json.get("input"));
+            currentRecipeSlots.add(new SlotInfo(detailX + 20, detailY + 120, inputStack));
+        }
+
+        // 酿造材料（顶部中间）
+        if (json.has("ingredient")) {
+            ItemStack ingredientStack = parseJsonItemStack(json.get("ingredient"));
+            currentRecipeSlots.add(new SlotInfo(detailX + 60, detailY + 80, ingredientStack));
+        }
+    }
+
+    /**
+     * 解析自定义铁砧配方
+     */
+    private void parseCustomAnvilRecipe(com.google.gson.JsonObject json, int detailX, int detailY) throws Exception {
+        // 左侧物品
+        if (json.has("left")) {
+            ItemStack leftStack = parseJsonItemStack(json.get("left"));
+            currentRecipeSlots.add(new SlotInfo(detailX + 20, detailY + 100, leftStack));
+        }
+
+        // 右侧物品
+        if (json.has("right")) {
+            ItemStack rightStack = parseJsonItemStack(json.get("right"));
+            currentRecipeSlots.add(new SlotInfo(detailX + 80, detailY + 100, rightStack));
+        }
+    }
+
+    /**
+     * 从JSON解析ItemStack
+     */
+    private ItemStack parseJsonItemStack(com.google.gson.JsonElement element) throws Exception {
+        if (element.isJsonObject()) {
+            com.google.gson.JsonObject obj = element.getAsJsonObject();
+            if (obj.has("item")) {
+                String itemId = obj.get("item").getAsString();
+                net.minecraft.world.item.Item item = net.minecraft.core.registries.BuiltInRegistries.ITEM
+                        .get(ResourceLocation.parse(itemId));
+                if (item != null) {
+                    int count = obj.has("count") ? obj.get("count").getAsInt() : 1;
+                    return new ItemStack(item, count);
+                }
+            }
+        }
+        return ItemStack.EMPTY;
     }
 
     /**
@@ -739,7 +1137,9 @@ public class RecipeSelectorScreen extends Screen {
         if (ingredientCount <= 25) return 5;   // 5x5
         if (ingredientCount <= 49) return 7;   // 7x7
         if (ingredientCount <= 81) return 9;   // 9x9
-        return 11;
+        if (ingredientCount <= 121) return 11;   // 11x11
+        if (ingredientCount <= 256) return 16;   // 16x16
+        return 21;
     }
 
     private void parseShapelessRecipe(Recipe<?> recipe, int startX, int startY) {
@@ -854,31 +1254,15 @@ public class RecipeSelectorScreen extends Screen {
         if (ingredientCount <= 9) return 3;
         if (ingredientCount <= 25) return 5;
         if (ingredientCount <= 49) return 7;
-        return 9; // 修复：确保返回9而不是其他值
+        return 9;
     }
 
-    private static class RecipeEntry {
-        public final ResourceLocation recipeId;
-        public final ItemStack resultItem;
-        public final String recipeType;
-        public final Recipe<?> recipe; // 添加原始配方引用
-
-        public RecipeEntry(ResourceLocation recipeId, ItemStack resultItem, String recipeType, Recipe<?> recipe) {
-            this.recipeId = recipeId;
-            this.resultItem = resultItem;
-            this.recipeType = recipeType;
-            this.recipe = recipe;
-        }
+    /**
+     * @param recipe 添加原始配方引用
+     */
+    private record RecipeEntry(ResourceLocation recipeId, ItemStack resultItem, String recipeType, Recipe<?> recipe) {
     }
 
-    private static class SlotInfo {
-        public final int x, y;
-        public final ItemStack item;
-
-        public SlotInfo(int x, int y, ItemStack item) {
-            this.x = x;
-            this.y = y;
-            this.item = item;
-        }
+    private record SlotInfo(int x, int y, ItemStack item) {
     }
 }

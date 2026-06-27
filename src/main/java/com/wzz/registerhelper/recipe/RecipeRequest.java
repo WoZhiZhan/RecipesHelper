@@ -25,6 +25,7 @@ public class RecipeRequest {
         request.recipeType = "shaped";
         request.recipeId = recipeId;
         request.result = result;
+        request.resultCount = result.getCount();
         request.pattern = pattern;
         request.ingredients = ingredients;
         return request;
@@ -36,6 +37,7 @@ public class RecipeRequest {
         request.recipeType = "shapeless";
         request.recipeId = recipeId;
         request.result = result;
+        request.resultCount = result.getCount();
         request.ingredients = ingredients;
         return request;
     }
@@ -46,6 +48,7 @@ public class RecipeRequest {
         request.recipeType = cookingType;
         request.recipeId = recipeId;
         request.result = result;
+        request.resultCount = result.getCount();
         request.ingredients = new Object[]{ingredient};
         request.properties.put("experience", experience);
         request.properties.put("cookingTime", cookingTime);

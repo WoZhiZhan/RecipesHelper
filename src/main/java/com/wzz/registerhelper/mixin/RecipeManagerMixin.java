@@ -8,6 +8,7 @@ import com.google.gson.JsonElement;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.mixinaccess.IRecipeManager;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
+import com.wzz.registerhelper.recipe.RecipeTracker;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.network.protocol.game.ClientboundUpdateRecipesPacket;
@@ -68,10 +69,17 @@ public class RecipeManagerMixin implements IRecipeManager {
                                                   ProfilerFiller profiler,
                                                   CallbackInfo ci) {
         try {
+            // 清空旧的配方追踪
+            RecipeTracker.clearTrackedRecipes();
+
             Map<ResourceLocation, JsonElement> customRecipes = loadCustomRecipes();
             if (!customRecipes.isEmpty()) {
                 registerhelper$LOGGER.info("注入 {} 个自定义配方到游戏中", customRecipes.size());
                 originalRecipes.putAll(customRecipes);
+
+                // 追踪所有自定义配方
+                RecipeTracker.trackRecipes(customRecipes.keySet());
+                registerhelper$LOGGER.info("已追踪 {} 个自定义配方", customRecipes.size());
             }
 
             UnifiedRecipeOverrideManager.applyOverridesToRecipeMap(originalRecipes);
@@ -83,6 +91,85 @@ public class RecipeManagerMixin implements IRecipeManager {
 
         } catch (Exception e) {
             registerhelper$LOGGER.error("处理配方规则失败", e);
+        }
+    }
+
+    /**
+     * 在配方完全加载完成后（TAIL）再次清理黑名单配方。
+     *
+     * HEAD 阶段只能处理 datapack/json 配方（originalRecipes map）。
+     * 但有些 mod 直接用代码注册 Recipe 实例，这些配方不在 json map 里，
+     * 而是在 apply 执行后才进入 RecipeManager 的内部集合（byType / byName）。
+     * 这里在 TAIL 直接从最终集合移除黑名单条目，从而支持删除"硬编码"配方。
+     *
+     * NeoForge 1.21.1 适配：
+     * - 通过 IRecipeManager（即 this）访问，替代旧的 RecipeManagerAccessor
+     * - Recipe<?> -> RecipeHolder<?>
+     * - recipes(Map<Type,Map<id,Recipe>>) -> byType(Multimap<RecipeType<?>, RecipeHolder<?>>)
+     *   按 holder.id() 过滤
+     */
+    @Inject(
+            method = "apply(Ljava/util/Map;Lnet/minecraft/server/packs/resources/ResourceManager;Lnet/minecraft/util/profiling/ProfilerFiller;)V",
+            at = @At("TAIL")
+    )
+    private void removeBlacklistedFromFinalRecipes(Map<ResourceLocation, JsonElement> originalRecipes,
+                                                   ResourceManager resourceManager,
+                                                   ProfilerFiller profiler,
+                                                   CallbackInfo ci) {
+        try {
+            Set<ResourceLocation> blacklisted = RecipeBlacklistManager.getBlacklistedRecipes();
+            if (blacklisted.isEmpty()) {
+                return;
+            }
+
+            IRecipeManager self = this;
+
+            // 1) 清理 byName（id -> RecipeHolder）
+            Map<ResourceLocation, RecipeHolder<?>> byNameMap = self.getByName();
+            int removedByName = 0;
+            Map<ResourceLocation, RecipeHolder<?>> mutableByName = null;
+            if (byNameMap != null) {
+                // byName 可能是不可变 map（ImmutableMap），复制成可变的再写回
+                mutableByName = new HashMap<>(byNameMap);
+                Iterator<Map.Entry<ResourceLocation, RecipeHolder<?>>> it = mutableByName.entrySet().iterator();
+                while (it.hasNext()) {
+                    if (blacklisted.contains(it.next().getKey())) {
+                        it.remove();
+                        removedByName++;
+                    }
+                }
+            }
+
+            // 2) 清理 byType（type -> RecipeHolder），按 holder.id() 过滤
+            Multimap<RecipeType<?>, RecipeHolder<?>> byTypeMap = self.getByType();
+            int removedByType = 0;
+            ImmutableMultimap.Builder<RecipeType<?>, RecipeHolder<?>> newByType = null;
+            if (byTypeMap != null) {
+                newByType = ImmutableMultimap.builder();
+                for (Map.Entry<RecipeType<?>, RecipeHolder<?>> entry : byTypeMap.entries()) {
+                    RecipeHolder<?> holder = entry.getValue();
+                    if (holder != null && blacklisted.contains(holder.id())) {
+                        removedByType++;
+                        continue; // 跳过=移除
+                    }
+                    newByType.put(entry.getKey(), holder);
+                }
+            }
+
+            // 写回（仅在有改动时）
+            if (removedByName > 0 || removedByType > 0) {
+                Multimap<RecipeType<?>, RecipeHolder<?>> finalByType =
+                        (newByType != null) ? newByType.build() : byTypeMap;
+                Map<ResourceLocation, RecipeHolder<?>> finalByName =
+                        (mutableByName != null) ? mutableByName : byNameMap;
+                self.safeSetRecipes(finalByType, finalByName);
+
+                registerhelper$LOGGER.info("TAIL 阶段从最终配方集合移除黑名单配方: byName={}, byType={}（含代码注册的非json配方）",
+                        removedByName, removedByType);
+            }
+
+        } catch (Exception e) {
+            registerhelper$LOGGER.error("TAIL 阶段移除黑名单配方失败", e);
         }
     }
 

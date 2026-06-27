@@ -51,11 +51,7 @@ public class IngredientTypeSelector extends Screen {
         this.slotIndex = slotIndex;
         this.onSelect = onSelect;
     }
-
-    @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-    }
-
+    
     @Override
     protected void init() {
         this.menuX = (this.width - MENU_WIDTH) / 2;
@@ -105,6 +101,10 @@ public class IngredientTypeSelector extends Screen {
         if (onSelect != null) {
             onSelect.accept(type);
         }
+    }
+
+    @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
     }
     
     @Override

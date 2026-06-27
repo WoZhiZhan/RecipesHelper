@@ -22,6 +22,22 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 public class DataComponentsHelper {
 
     /**
+     * 将纯文本包装成 SNBT 单引号字符串字面量。
+     *
+     * <p>1.21 中 minecraft:custom_name / lore 等文本组件，其值在配方 JSON 里会被
+     * 当作文本组件解析。若文本是纯数字（如 "999"）或以数字/特殊符号开头，
+     * 不加引号会被解析器误判为数字或非法 token，导致配方无法生成。
+     * 用单引号包裹并转义内部的反斜杠与单引号，可强制其作为字符串字面量，
+     * 例如 999 -> '999'，使其稳定地保持为文本。
+     */
+    private static String toSnbtString(String raw) {
+        if (raw == null) raw = "";
+        // 转义反斜杠和单引号
+        String escaped = raw.replace("\\", "\\\\").replace("'", "\\'");
+        return "'" + escaped + "'";
+    }
+
+    /**
      * 检查物品是否有任何需要保存的组件
      */
     public static boolean hasAnyComponents(ItemStack stack) {
@@ -87,8 +103,8 @@ public class DataComponentsHelper {
         // 4. 自定义名称 (minecraft:custom_name)
         if (stack.has(DataComponents.CUSTOM_NAME)) {
             Component name = stack.get(DataComponents.CUSTOM_NAME);
-            // 简化格式：直接使用文本
-            components.addProperty("minecraft:custom_name", name.getString());
+            // 用 SNBT 单引号包裹，避免纯数字名称（如 "999"）被解析为数字
+            components.addProperty("minecraft:custom_name", toSnbtString(name.getString()));
         }
 
         // 5. Lore (minecraft:lore)
@@ -97,7 +113,7 @@ public class DataComponentsHelper {
             if (!lore.lines().isEmpty()) {
                 JsonArray loreArray = new JsonArray();
                 for (Component line : lore.lines()) {
-                    loreArray.add(line.getString());
+                    loreArray.add(toSnbtString(line.getString()));
                 }
                 components.add("minecraft:lore", loreArray);
             }

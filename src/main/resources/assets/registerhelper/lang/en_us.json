@@ -1,13 +1,7 @@
 {
-  "itemGroup.regisrerhepler": "Example Mod Tab",
-  "block.regisrerhepler.example_block": "Example Block",
-  "item.regisrerhepler.example_item": "Example Item",
-
-  "regisrerhepler.configuration.title": "RegisrerHepler Configs",
-  "regisrerhepler.configuration.section.regisrerhepler.common.toml": "RegisrerHepler Configs",
-  "regisrerhepler.configuration.section.regisrerhepler.common.toml.title": "RegisrerHepler Configs",
-  "regisrerhepler.configuration.items": "Item List",
-  "regisrerhepler.configuration.logDirtBlock": "Log Dirt Block",
-  "regisrerhepler.configuration.magicNumberIntroduction": "Magic Number Text",
-  "regisrerhepler.configuration.magicNumber": "Magic Number"
+  "registerhelper.jei.brewing": "Custom Brewing",
+  "registerhelper.jei.anvil": "Custom Anvil",
+  "registerhelper.jei.anvil.cost": "Cost: %d Levels",
+  "registerhelper.jei.anvil.material": "Consumes %d materials",
+  "registerhelper.jei.brewing.steps": "Steps: %s"
 }

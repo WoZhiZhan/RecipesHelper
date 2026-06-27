@@ -362,6 +362,18 @@ public class RecipeLoader {
         try {
             MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
             if (server == null) {
+                // 远程（专用）服务器：客户端拿不到 server 实例，改从同步缓存读取
+                List<UnifiedRecipeInfo> cached = com.wzz.registerhelper.network.RecipeClientCache.getCachedRecipes();
+                if (cached.isEmpty()) {
+                    LOGGER.info("配方缓存为空，正在请求服务器数据...");
+                    com.wzz.registerhelper.network.RequestRecipeListPacket.sendToServer(1); // 1=可编辑
+                    return recipes;
+                }
+                for (UnifiedRecipeInfo info : cached) {
+                    if (!info.isBlacklisted) {
+                        recipes.add(info);
+                    }
+                }
                 return recipes;
             }
 
@@ -406,7 +418,14 @@ public class RecipeLoader {
         try {
             MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
             if (server == null) {
-                return recipes;
+                // 远程（专用）服务器：客户端拿不到 server 实例，改从同步缓存读取
+                List<UnifiedRecipeInfo> cached = com.wzz.registerhelper.network.RecipeClientCache.getCachedRecipes();
+                if (cached.isEmpty()) {
+                    LOGGER.info("配方缓存为空，正在请求服务器数据...");
+                    com.wzz.registerhelper.network.RequestRecipeListPacket.sendToServer(0); // 0=全部
+                    return recipes;
+                }
+                return new ArrayList<>(cached);
             }
 
             ServerLevel level = server.overworld();

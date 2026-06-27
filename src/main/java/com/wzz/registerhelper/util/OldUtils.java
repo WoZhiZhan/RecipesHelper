@@ -70,6 +70,29 @@ public final class OldUtils {
         return buildLegacyTagForJson(stack);
     }
 
+    /**
+     * 等价于 1.20.x 的 ItemStack.setTag(CompoundTag)。
+     *
+     * <p>1.21 没有统一的 NBT 容器，这里采取的策略是：
+     * 把整个旧版 NBT 原样塞进 CUSTOM_DATA 组件。对于大多数"自定义物品 / 模组物品"
+     * （它们的数据本来就读写在物品 NBT 根节点）这是等价的；对于 vanilla 的
+     * display/Enchantments/Damage 等结构化字段，本方法不会自动拆解成对应的
+     * DataComponents（如需精确还原 vanilla 字段，应直接用对应组件）。
+     *
+     * @param stack 目标物品
+     * @param tag   旧版 NBT，传 null 等价于清空 CUSTOM_DATA
+     */
+    public static void setTag(ItemStack stack, @Nullable CompoundTag tag) {
+        if (stack == null || stack.isEmpty()) {
+            return;
+        }
+        if (tag == null || tag.isEmpty()) {
+            stack.remove(DataComponents.CUSTOM_DATA);
+            return;
+        }
+        stack.set(DataComponents.CUSTOM_DATA, CustomData.of(tag.copy()));
+    }
+
     @Nullable
     public static CompoundTag buildLegacyTagForJson(ItemStack stack) {
         if (stack == null || stack.isEmpty()) {

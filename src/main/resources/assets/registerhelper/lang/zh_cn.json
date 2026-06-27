@@ -1,0 +1,7 @@
+{
+  "registerhelper.jei.brewing": "自定义酿造台",
+  "registerhelper.jei.brewing.steps": "步数: %s",
+  "registerhelper.jei.anvil": "自定义铁砧",
+  "registerhelper.jei.anvil.cost": "附魔花费: %d",
+  "registerhelper.jei.anvil.material": "消耗 %d 个材料"
+}
