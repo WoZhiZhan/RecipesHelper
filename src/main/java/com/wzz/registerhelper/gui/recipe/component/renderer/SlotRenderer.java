@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui.recipe.component.renderer;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.wzz.registerhelper.gui.GuiTheme;
 import com.wzz.registerhelper.gui.recipe.component.ComponentRenderer;
 import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
 import net.minecraft.client.gui.Font;
@@ -37,26 +38,29 @@ public class SlotRenderer implements ComponentRenderer {
         
         int x = component.getX();
         int y = component.getY();
+        int width = component.getWidth();
+        int height = component.getHeight();
         
         // 检查鼠标悬停
-        boolean isMouseOver = mouseX >= x && mouseX < x + 18 &&
-                             mouseY >= y && mouseY < y + 18;
+        boolean isMouseOver = mouseX >= x && mouseX < x + width &&
+                             mouseY >= y && mouseY < y + height;
         
-        // 绘制背景
-        int bgColor = isMouseOver ? 0x80FFFFFF : 0xFF373737;
-        guiGraphics.fill(x, y, x + 18, y + 18, bgColor);
-        
-        // 边框
-        guiGraphics.fill(x - 1, y - 1, x + 19, y, 0xFF000000);
-        guiGraphics.fill(x - 1, y + 18, x + 19, y + 19, 0xFF000000);
-        guiGraphics.fill(x - 1, y, x, y + 18, 0xFF000000);
-        guiGraphics.fill(x + 18, y, x + 19, y + 18, 0xFF000000);
+        GuiTheme.drawSlot(guiGraphics, x, y, width, height, isMouseOver);
         
         // 渲染物品
         ItemStack item = itemSupplier.get();
         if (!item.isEmpty()) {
             RenderSystem.enableDepthTest();
-            guiGraphics.renderItem(item, x + 1, y + 1);
+            float itemScale = Math.min(1.0F,
+                    Math.max(0.125F, (Math.min(width, height) - 2) / 16.0F));
+            guiGraphics.pose().pushPose();
+            try {
+                guiGraphics.pose().translate(x + 1, y + 1, 0);
+                guiGraphics.pose().scale(itemScale, itemScale, 1.0F);
+                guiGraphics.renderItem(item, 0, 0);
+            } finally {
+                guiGraphics.pose().popPose();
+            }
             RenderSystem.disableDepthTest();
         }
     }

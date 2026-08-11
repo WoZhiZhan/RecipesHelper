@@ -3,6 +3,7 @@ package com.wzz.registerhelper.recipe.integration;
 import com.google.gson.*;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import com.wzz.registerhelper.util.RecipeUtil;
+import net.minecraft.network.chat.Component;
 import net.minecraftforge.fml.ModList;
 
 import java.util.*;
@@ -62,7 +63,8 @@ public class JsonDefinedProcessor implements ModRecipeProcessor {
     public JsonObject createRecipeJson(RecipeRequest request) {
         JsonObject methods = processorDef.getAsJsonObject("methods");
         if (!methods.has("createRecipeJson")) {
-            throw new UnsupportedOperationException("createRecipeJson 未定义: " + modid);
+            throw new UnsupportedOperationException(Component.translatable(
+                    "registerhelper.error.processor.create_json_undefined", modid).getString());
         }
 
         JsonObject def = methods.getAsJsonObject("createRecipeJson");
@@ -73,7 +75,8 @@ public class JsonDefinedProcessor implements ModRecipeProcessor {
             if ("createShapedTableRecipe".equals(delegate)) {
                 return createShapedTableRecipe(request);
             }
-            throw new UnsupportedOperationException("不支持的 delegate: " + delegate);
+            throw new UnsupportedOperationException(Component.translatable(
+                    "registerhelper.error.processor.delegate_unsupported", delegate).getString());
         }
 
         // 2. generator
@@ -81,7 +84,8 @@ public class JsonDefinedProcessor implements ModRecipeProcessor {
             return invokeGenerator(def, request);
         }
 
-        throw new UnsupportedOperationException("createRecipeJson 定义不正确: " + modid);
+        throw new UnsupportedOperationException(Component.translatable(
+                "registerhelper.error.processor.definition_invalid", modid).getString());
     }
 
     private JsonObject createShapedTableRecipe(RecipeRequest request) {
@@ -108,7 +112,8 @@ public class JsonDefinedProcessor implements ModRecipeProcessor {
             return reflectInvoke(generator, recipeType, request);
         }
 
-        throw new RuntimeException("未知 generator: " + generator);
+        throw new RuntimeException(Component.translatable(
+                "registerhelper.error.processor.generator_unknown", generator).getString());
     }
 
     private JsonObject reflectInvoke(String generator, String recipeType, RecipeRequest request) {
@@ -120,7 +125,8 @@ public class JsonDefinedProcessor implements ModRecipeProcessor {
             Method m = clazz.getDeclaredMethod(methodName, String.class, RecipeRequest.class);
             return (JsonObject) m.invoke(null, recipeType, request);
         } catch (Exception e) {
-            throw new RuntimeException("调用 generator 失败: " + generator, e);
+            throw new RuntimeException(Component.translatable(
+                    "registerhelper.error.processor.generator_failed", generator).getString(), e);
         }
     }
 

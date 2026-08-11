@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.create;
 
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.gui.recipe.component.*;
 import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 import java.awt.*;
@@ -25,13 +26,13 @@ public class EmptyingLayout implements RecipeLayout {
         components.add(new StringInputComponent(
             baseX + 132, baseY + 66,
             80, "fluid",
-            "液体", "create:tea",
+             GuiText.string("registerhelper.recipe_layout.fluid"), "create:tea",
             "fluidOutput", false
         ));
         components.add(new NumberInputComponent(
                 baseX + 154, baseY + 110,
                 60, "fluidAmount",
-                "数值", 250,
+                GuiText.string("registerhelper.recipe_layout.number"), 250,
                 0, 10000,
                 "value", false
         ));

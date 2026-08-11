@@ -54,7 +54,9 @@ public class CreateRecipeJsonPacket {
                 // 验证权限
                 if (context.getSender() == null || !context.getSender().hasPermissions(2)) {
                     if (context.getSender() != null) {
-                        context.getSender().sendSystemMessage(Component.literal("§c您没有权限创建配方"));
+                        context.getSender().sendSystemMessage(Component.translatable(
+                                "registerhelper.recipe.create.permission_denied")
+                                .withStyle(net.minecraft.ChatFormatting.RED));
                     }
                     return;
                 }
@@ -64,7 +66,9 @@ public class CreateRecipeJsonPacket {
                 try {
                     recipeObj = JsonParser.parseString(packet.recipeJson).getAsJsonObject();
                 } catch (Exception e) {
-                    context.getSender().sendSystemMessage(Component.literal("§c配方JSON格式无效"));
+                    context.getSender().sendSystemMessage(Component.translatable(
+                            "registerhelper.recipe.json.invalid")
+                            .withStyle(net.minecraft.ChatFormatting.RED));
                     LOGGER.error("配方JSON解析失败: {}", packet.recipeId, e);
                     return;
                 }
@@ -76,22 +80,26 @@ public class CreateRecipeJsonPacket {
                     success = UnifiedRecipeOverrideManager.addOverride(recipeIdLoc, recipeObj);
 
                     if (success) {
-                        context.getSender().sendSystemMessage(
-                                Component.literal("§a配方覆盖成功: " + packet.recipeId + " 使用 /reload 刷新配方")
-                        );
+                        context.getSender().sendSystemMessage(Component.translatable(
+                                "registerhelper.recipe.override.success", packet.recipeId)
+                                .withStyle(net.minecraft.ChatFormatting.GREEN));
                     } else {
-                        context.getSender().sendSystemMessage(Component.literal("§c配方覆盖失败"));
+                        context.getSender().sendSystemMessage(Component.translatable(
+                                "registerhelper.recipe.override.failed")
+                                .withStyle(net.minecraft.ChatFormatting.RED));
                         LOGGER.warn("配方覆盖失败: {}", packet.recipeId);
                     }
                 } else {
                     success = saveRecipeFile(recipeIdLoc, recipeObj);
 
                     if (success) {
-                        context.getSender().sendSystemMessage(
-                                Component.literal("§a配方创建成功: " + packet.recipeId + " 使用 /reload 刷新配方")
-                        );
+                        context.getSender().sendSystemMessage(Component.translatable(
+                                "registerhelper.recipe.create.success", packet.recipeId)
+                                .withStyle(net.minecraft.ChatFormatting.GREEN));
                     } else {
-                        context.getSender().sendSystemMessage(Component.literal("§c配方创建失败"));
+                        context.getSender().sendSystemMessage(Component.translatable(
+                                "registerhelper.recipe.create.failed")
+                                .withStyle(net.minecraft.ChatFormatting.RED));
                         LOGGER.warn("配方创建失败: {}", packet.recipeId);
                     }
                 }
@@ -99,9 +107,9 @@ public class CreateRecipeJsonPacket {
             } catch (Exception e) {
                 LOGGER.error("处理配方JSON包时发生错误", e);
                 if (context.getSender() != null) {
-                    context.getSender().sendSystemMessage(
-                            Component.literal("§c处理配方时发生错误: " + e.getMessage())
-                    );
+                    context.getSender().sendSystemMessage(Component.translatable(
+                            "registerhelper.recipe.operation.failed", e.getMessage())
+                            .withStyle(net.minecraft.ChatFormatting.RED));
                 }
             }
         });

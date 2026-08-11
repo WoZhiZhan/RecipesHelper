@@ -164,7 +164,15 @@ public class ComponentRenderManager {
      * 清空所有数据
      */
     public void clear() {
+        clearRenderers();
         dataManager.clear();
+    }
+
+    /**
+     * Rebuilds widgets without discarding values entered in dynamic components.
+     */
+    public void clearRenderers() {
+        renderers.clear();
         slotItems.clear();
         resultItem = ItemStack.EMPTY;
         editBoxes.clear();

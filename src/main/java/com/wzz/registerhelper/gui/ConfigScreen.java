@@ -24,67 +24,114 @@ public class ConfigScreen extends Screen {
     private boolean perSlotNBT;
     private boolean defaultIncludeNBT;
     private boolean debugLogging;
+    private String guiTheme;
+    private String savedTheme;
 
     // 按钮引用，用于实时刷新文字
     private final List<Button> toggleButtons = new ArrayList<>();
 
     // 配置项元数据
     private static final String[] LABELS = {
-        "Per-slot NBT 控制",
-        "新槽位默认包含 NBT",
-        "调试日志"
+        "registerhelper.gui.config.per_slot_nbt",
+        "registerhelper.gui.config.default_include_nbt",
+        "registerhelper.gui.config.debug_logging",
+        "registerhelper.gui.config.theme"
     };
     private static final String[] DESCS = {
-        "§8材料槽底部显示颜色条，中键独立切换每槽NBT匹配",
-        "§8从背包选物品时，是否默认启用NBT匹配",
-        "§8在日志中输出NBT匹配详细信息"
+        "registerhelper.gui.config.per_slot_nbt.desc",
+        "registerhelper.gui.config.default_include_nbt.desc",
+        "registerhelper.gui.config.debug_logging.desc",
+        "registerhelper.gui.config.theme.desc"
     };
 
-    private static final int PANEL_W   = 300;
-    private static final int ROW_H     = 30;
-    private static final int TITLE_H   = 36;
-    private static final int FOOT_H    = 44;
-    private static final int ROWS      = 3;
+    private static final int PREFERRED_PANEL_WIDTH = 380;
+    private static final int MIN_PANEL_WIDTH = 240;
+    private static final int PREFERRED_ROW_HEIGHT = 32;
+    private static final int TITLE_HEIGHT = 34;
+    private static final int FOOTER_HEIGHT = 40;
+    private static final int ROWS = LABELS.length;
+
+    private GuiLayoutHelper.Bounds panelBounds;
+    private int rowHeight;
+    private boolean showDescriptions;
+    private boolean initialized;
 
     public ConfigScreen(Screen parent) {
-        super(Component.literal("RegisterHelper 配置"));
+        super(GuiText.component("registerhelper.gui.config.title"));
         this.parent = parent;
     }
 
-    private int panelHeight() { return TITLE_H + ROW_H * ROWS + FOOT_H; }
-    private int panelX()      { return (this.width  - PANEL_W) / 2; }
-    private int panelY()      { return (this.height - panelHeight()) / 2; }
-
     @Override
     protected void init() {
-        perSlotNBT        = ModConfig.isPerSlotNBTEnabled();
-        defaultIncludeNBT = ModConfig.getDefaultIncludeNBT();
-        debugLogging      = ModConfig.isDebugLoggingEnabled();
+        if (!initialized) {
+            perSlotNBT        = ModConfig.isPerSlotNBTEnabled();
+            defaultIncludeNBT = ModConfig.getDefaultIncludeNBT();
+            debugLogging      = ModConfig.isDebugLoggingEnabled();
+            guiTheme           = ModConfig.getGuiTheme();
+            savedTheme         = guiTheme;
+            initialized = true;
+        }
+        GuiTheme.applyTheme(guiTheme);
         toggleButtons.clear();
 
-        int cx   = panelX();
-        int rowY = panelY() + TITLE_H;
+        int longestDescription = 0;
+        for (String description : DESCS) {
+            longestDescription = Math.max(longestDescription, this.font.width(GuiText.string(description)));
+        }
+        int preferredWidth = Math.min(480,
+                Math.max(PREFERRED_PANEL_WIDTH, longestDescription + 120));
+        int preferredHeight = TITLE_HEIGHT + PREFERRED_ROW_HEIGHT * ROWS + FOOTER_HEIGHT;
+        panelBounds = GuiLayoutHelper.centered(this.width, this.height,
+                preferredWidth, preferredHeight, MIN_PANEL_WIDTH,
+                TITLE_HEIGHT + ROWS * 22 + FOOTER_HEIGHT, 8, 8);
+        rowHeight = Math.max(22,
+                (panelBounds.height() - TITLE_HEIGHT - FOOTER_HEIGHT) / ROWS);
+        showDescriptions = rowHeight >= 28 && panelBounds.width() >= 280;
+
+        int cx = panelBounds.x();
+        int rowY = panelBounds.y() + TITLE_HEIGHT;
+        int toggleWidth = Math.min(96, Math.max(64, panelBounds.width() / 4));
 
         // 三行开关
         for (int i = 0; i < ROWS; i++) {
             final int idx = i;
-            Button btn = addRenderableWidget(Button.builder(
-                    Component.literal(toggleLabel(getVal(idx))),
-                    b -> {
-                        setVal(idx, !getVal(idx));
-                        b.setMessage(Component.literal(toggleLabel(getVal(idx))));
-                    })
-                    .bounds(cx + PANEL_W - 100, rowY + (ROW_H - 18) / 2, 88, 18)
-                    .build());
+            Button btn;
+            if (idx == 3) {
+                btn = addRenderableWidget(Button.builder(
+                                GuiText.component(GuiTheme.themeLabelKey(guiTheme)),
+                                b -> {
+                                    guiTheme = GuiTheme.nextTheme(guiTheme);
+                                    GuiTheme.applyTheme(guiTheme);
+                                    b.setMessage(GuiText.component(GuiTheme.themeLabelKey(guiTheme)));
+                                })
+                        .bounds(panelBounds.right() - toggleWidth - 10,
+                                rowY + (rowHeight - 18) / 2, toggleWidth, 18)
+                        .build());
+            } else {
+                btn = addRenderableWidget(Button.builder(
+                                GuiText.component(toggleLabelKey(getVal(idx))),
+                                b -> {
+                                    setVal(idx, !getVal(idx));
+                                    b.setMessage(GuiText.component(toggleLabelKey(getVal(idx))));
+                                })
+                        .bounds(panelBounds.right() - toggleWidth - 10,
+                                rowY + (rowHeight - 18) / 2, toggleWidth, 18)
+                        .build());
+            }
             toggleButtons.add(btn);
-            rowY += ROW_H;
+            rowY += rowHeight;
         }
 
-        int footY = panelY() + panelHeight() - FOOT_H + (FOOT_H - 20) / 2;
-        addRenderableWidget(Button.builder(Component.literal("§a✔ 保存"), b -> saveAndClose())
-                .bounds(cx + PANEL_W / 2 - 96, footY, 88, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("§c✖ 取消"), b -> onClose())
-                .bounds(cx + PANEL_W / 2 + 8,  footY, 88, 20).build());
+        int footerY = panelBounds.bottom() - FOOTER_HEIGHT;
+        int footY = footerY + (FOOTER_HEIGHT - 20) / 2;
+        int buttonGap = 8;
+        int buttonWidth = Math.min(96,
+                Math.max(64, (panelBounds.width() - 30 - buttonGap) / 2));
+        int buttonStartX = panelBounds.centerX() - (buttonWidth * 2 + buttonGap) / 2;
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.common.save"), b -> saveAndClose())
+                .bounds(buttonStartX, footY, buttonWidth, 20).build());
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.common.cancel"), b -> onClose())
+                .bounds(buttonStartX + buttonWidth + buttonGap, footY, buttonWidth, 20).build());
     }
 
     private boolean getVal(int idx) {
@@ -102,48 +149,51 @@ public class ConfigScreen extends Screen {
             case 2 -> debugLogging      = v;
         }
     }
-    private static String toggleLabel(boolean on) {
-        return on ? "§a● 开启" : "§c● 关闭";
+    private static String toggleLabelKey(boolean on) {
+        return on ? "registerhelper.gui.config.enabled" : "registerhelper.gui.config.disabled";
     }
 
     @Override
     public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partial) {
         renderBackground(g);
+        GuiTheme.drawBackdrop(g, this.width, this.height);
 
-        int cx = panelX(), cy = panelY();
-        int ph = panelHeight();
+        int cx = panelBounds.x(), cy = panelBounds.y();
+        int panelWidth = panelBounds.width();
+        int ph = panelBounds.height();
 
-        // 外框 + 背景
-        g.fill(cx - 1, cy - 1, cx + PANEL_W + 1, cy + ph + 1, 0xFF080808);
-        g.fill(cx,     cy,     cx + PANEL_W,     cy + ph,      0xFF1E1E1E);
-
-        // 标题栏
-        g.fill(cx, cy, cx + PANEL_W, cy + TITLE_H, 0xFF252538);
-        g.fill(cx, cy + TITLE_H - 1, cx + PANEL_W, cy + TITLE_H, 0xFF3A3A55);
-        g.drawCenteredString(this.font, "§b⚙  RegisterHelper  配置",
-                cx + PANEL_W / 2, cy + (TITLE_H - 8) / 2, 0xFFFFFF);
+        GuiTheme.drawPanel(g, panelBounds, TITLE_HEIGHT, GuiTheme.HEADER_ACCENT);
+        g.drawCenteredString(this.font, GuiText.component("registerhelper.gui.config.header"),
+                panelBounds.centerX(), cy + (TITLE_HEIGHT - 8) / 2, GuiTheme.TEXT_ON_HEADER);
 
         // 行背景 + 文字
-        int rowY = cy + TITLE_H;
+        int rowY = cy + TITLE_HEIGHT;
+        int textWidth = Math.max(1, panelWidth - Math.min(96, Math.max(64, panelWidth / 4)) - 30);
         for (int i = 0; i < ROWS; i++) {
-            int bg = (i % 2 == 0) ? 0xFF202020 : 0xFF242424;
-            g.fill(cx, rowY, cx + PANEL_W, rowY + ROW_H, bg);
-            g.fill(cx, rowY + ROW_H - 1, cx + PANEL_W, rowY + ROW_H, 0xFF333333);
+            int bg = (i % 2 == 0) ? GuiTheme.SURFACE : GuiTheme.SURFACE_ALT;
+            g.fill(cx, rowY, cx + panelWidth, rowY + rowHeight, bg);
+            g.fill(cx, rowY + rowHeight - 1, cx + panelWidth, rowY + rowHeight, GuiTheme.DIVIDER);
 
             // 左侧竖色条：开=蓝, 关=红
-            int barColor = getVal(i) ? 0xFF3355AA : 0xFF882222;
-            g.fill(cx, rowY, cx + 3, rowY + ROW_H - 1, barColor);
+            int barColor = i == 3 ? GuiTheme.INFO : (getVal(i) ? GuiTheme.SUCCESS : GuiTheme.DANGER);
+            g.fill(cx, rowY, cx + 3, rowY + rowHeight - 1, barColor);
 
             // 标签 + 说明
-            g.drawString(this.font, LABELS[i], cx + 10, rowY + 5, 0xEEEEEE, false);
-            g.drawString(this.font, DESCS[i],  cx + 10, rowY + 16, 0xFFFFFF, false);
+            String label = GuiLayoutHelper.ellipsis(this.font, GuiText.string(LABELS[i]), textWidth);
+            g.drawString(this.font, label, cx + 10,
+                    rowY + (showDescriptions ? 4 : (rowHeight - 8) / 2), GuiTheme.TEXT, false);
+            if (showDescriptions) {
+                String description = GuiLayoutHelper.ellipsis(this.font, GuiText.string(DESCS[i]), textWidth);
+                g.drawString(this.font, description, cx + 10, rowY + 16, GuiTheme.TEXT_MUTED, false);
+            }
 
-            rowY += ROW_H;
+            rowY += rowHeight;
         }
 
         // 底栏
-        g.fill(cx, rowY, cx + PANEL_W, rowY + FOOT_H, 0xFF1A1A2A);
-        g.fill(cx, rowY, cx + PANEL_W, rowY + 1, 0xFF3A3A55);
+        int footerY = panelBounds.bottom() - FOOTER_HEIGHT;
+        g.fill(cx, footerY, cx + panelWidth, panelBounds.bottom(), GuiTheme.PANEL_ALT);
+        g.fill(cx, footerY, cx + panelWidth, footerY + 1, GuiTheme.DIVIDER);
 
         super.render(g, mouseX, mouseY, partial);
     }
@@ -152,12 +202,18 @@ public class ConfigScreen extends Screen {
         ModConfig.COMMON.enablePerSlotNBT.set(perSlotNBT);
         ModConfig.COMMON.defaultIncludeNBT.set(defaultIncludeNBT);
         ModConfig.COMMON.enableDebugLogging.set(debugLogging);
+        ModConfig.COMMON.guiTheme.set(GuiTheme.normalizeTheme(guiTheme));
+        GuiTheme.applyTheme(guiTheme);
+        savedTheme = guiTheme;
         ModConfig.COMMON_SPEC.save();
         onClose();
     }
 
     @Override
     public void onClose() {
+        if (savedTheme != null) {
+            GuiTheme.applyTheme(savedTheme);
+        }
         if (minecraft != null) minecraft.setScreen(parent);
     }
 

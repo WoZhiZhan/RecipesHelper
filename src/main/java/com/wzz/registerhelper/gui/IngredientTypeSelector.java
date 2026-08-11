@@ -17,36 +17,38 @@ import java.util.function.Consumer;
 @OnlyIn(Dist.CLIENT)
 public class IngredientTypeSelector extends Screen {
     
-    private static final int MENU_WIDTH = 160;
-    private static final int MENU_HEIGHT = 140;
-    private static final int BUTTON_HEIGHT = 25;
-    private static final int BUTTON_SPACING = 5;
+    private static final int PREFERRED_BUTTON_HEIGHT = 25;
+    private static final int MIN_BUTTON_HEIGHT = 18;
+    private static final int PREFERRED_BUTTON_SPACING = 5;
+    private static final int TITLE_AREA_HEIGHT = 30;
     
     private final Screen parentScreen;
     private final Consumer<SelectionType> onSelect;
     private final int slotIndex;
     
     private int menuX, menuY;
+    private int menuWidth, menuHeight;
+    private int buttonHeight, buttonSpacing;
     
     public enum SelectionType {
-        ALL_ITEMS("从所有物品选择"),
-        INVENTORY("从背包选择（带NBT）"),
-        TAG("选择标签"),
-        CUSTOM_TAG("创建自定义标签");
+        ALL_ITEMS("registerhelper.gui.ingredient_type.all_items"),
+        INVENTORY("registerhelper.gui.ingredient_type.inventory_nbt"),
+        TAG("registerhelper.gui.ingredient_type.tag"),
+        CUSTOM_TAG("registerhelper.gui.ingredient_type.custom_tag");
         
-        private final String displayName;
+        private final String translationKey;
         
-        SelectionType(String displayName) {
-            this.displayName = displayName;
+        SelectionType(String translationKey) {
+            this.translationKey = translationKey;
         }
         
-        public String getDisplayName() {
-            return displayName;
+        public String getTranslationKey() {
+            return translationKey;
         }
     }
     
     public IngredientTypeSelector(Screen parentScreen, int slotIndex, Consumer<SelectionType> onSelect) {
-        super(Component.literal("选择材料类型"));
+        super(GuiText.component("registerhelper.gui.ingredient_type.title"));
         this.parentScreen = parentScreen;
         this.slotIndex = slotIndex;
         this.onSelect = onSelect;
@@ -54,40 +56,58 @@ public class IngredientTypeSelector extends Screen {
     
     @Override
     protected void init() {
-        this.menuX = (this.width - MENU_WIDTH) / 2;
-        this.menuY = (this.height - MENU_HEIGHT) / 2;
+        int widestLabel = 0;
+        for (SelectionType type : SelectionType.values()) {
+            widestLabel = Math.max(widestLabel, this.font.width(GuiText.string(type.getTranslationKey())));
+        }
+        this.menuWidth = GuiLayoutHelper.fit(
+                Math.max(180, widestLabel + 28), widestLabel + 16, this.width - 16);
+
+        int itemCount = SelectionType.values().length;
+        int availableButtonArea = Math.max(itemCount * MIN_BUTTON_HEIGHT,
+                this.height - 16 - TITLE_AREA_HEIGHT - 10);
+        this.buttonSpacing = availableButtonArea >= itemCount * PREFERRED_BUTTON_HEIGHT
+                + (itemCount - 1) * PREFERRED_BUTTON_SPACING
+                ? PREFERRED_BUTTON_SPACING : 2;
+        this.buttonHeight = GuiLayoutHelper.clamp(
+                (availableButtonArea - buttonSpacing * (itemCount - 1)) / itemCount,
+                MIN_BUTTON_HEIGHT, PREFERRED_BUTTON_HEIGHT);
+        this.menuHeight = TITLE_AREA_HEIGHT + itemCount * buttonHeight
+                + (itemCount - 1) * buttonSpacing + 10;
+        this.menuX = (this.width - menuWidth) / 2;
+        this.menuY = (this.height - menuHeight) / 2;
         
-        int buttonY = menuY + 30;
+        int buttonY = menuY + TITLE_AREA_HEIGHT;
         
         // 从所有物品选择
         addRenderableWidget(Button.builder(
-                Component.literal(SelectionType.ALL_ITEMS.getDisplayName()),
+                GuiText.component(SelectionType.ALL_ITEMS.getTranslationKey()),
                 button -> handleSelection(SelectionType.ALL_ITEMS))
-                .bounds(menuX + 10, buttonY, MENU_WIDTH - 20, BUTTON_HEIGHT)
+                .bounds(menuX + 10, buttonY, menuWidth - 20, buttonHeight)
                 .build());
-        buttonY += BUTTON_HEIGHT + BUTTON_SPACING;
+        buttonY += buttonHeight + buttonSpacing;
         
         // 从背包选择
         addRenderableWidget(Button.builder(
-                Component.literal(SelectionType.INVENTORY.getDisplayName()),
+                GuiText.component(SelectionType.INVENTORY.getTranslationKey()),
                 button -> handleSelection(SelectionType.INVENTORY))
-                .bounds(menuX + 10, buttonY, MENU_WIDTH - 20, BUTTON_HEIGHT)
+                .bounds(menuX + 10, buttonY, menuWidth - 20, buttonHeight)
                 .build());
-        buttonY += BUTTON_HEIGHT + BUTTON_SPACING;
+        buttonY += buttonHeight + buttonSpacing;
         
         // 选择标签
         addRenderableWidget(Button.builder(
-                Component.literal(SelectionType.TAG.getDisplayName()),
+                GuiText.component(SelectionType.TAG.getTranslationKey()),
                 button -> handleSelection(SelectionType.TAG))
-                .bounds(menuX + 10, buttonY, MENU_WIDTH - 20, BUTTON_HEIGHT)
+                .bounds(menuX + 10, buttonY, menuWidth - 20, buttonHeight)
                 .build());
-        buttonY += BUTTON_HEIGHT + BUTTON_SPACING;
+        buttonY += buttonHeight + buttonSpacing;
         
         // 创建自定义标签
         addRenderableWidget(Button.builder(
-                Component.literal(SelectionType.CUSTOM_TAG.getDisplayName()),
+                GuiText.component(SelectionType.CUSTOM_TAG.getTranslationKey()),
                 button -> handleSelection(SelectionType.CUSTOM_TAG))
-                .bounds(menuX + 10, buttonY, MENU_WIDTH - 20, BUTTON_HEIGHT)
+                .bounds(menuX + 10, buttonY, menuWidth - 20, buttonHeight)
                 .build());
     }
 
@@ -105,15 +125,13 @@ public class IngredientTypeSelector extends Screen {
     
     @Override
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        // 半透明背景
-        guiGraphics.fill(0, 0, this.width, this.height, 0x80000000);
-        
-        // 菜单背景
-        guiGraphics.fill(menuX, menuY, menuX + MENU_WIDTH, menuY + MENU_HEIGHT + 10, 0xFFC6C6C6);
-        guiGraphics.fill(menuX + 1, menuY + 1, menuX + MENU_WIDTH - 1, menuY + MENU_HEIGHT - 1 + 10, 0xFF8B8B8B);
+        GuiTheme.drawBackdrop(guiGraphics, this.width, this.height);
+        GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(menuX, menuY, menuWidth, menuHeight);
+        GuiTheme.drawPanel(guiGraphics, panel, 28, GuiTheme.HEADER_ACCENT);
         
         // 标题
-        guiGraphics.drawCenteredString(this.font, this.title, menuX + MENU_WIDTH / 2, menuY + 10, 0x404040);
+        guiGraphics.drawCenteredString(this.font, this.title, menuX + menuWidth / 2,
+                menuY + 10, GuiTheme.TEXT_ON_HEADER);
         
         super.render(guiGraphics, mouseX, mouseY, partialTick);
     }

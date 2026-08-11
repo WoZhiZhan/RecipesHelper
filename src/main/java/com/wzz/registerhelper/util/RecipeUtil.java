@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.wzz.registerhelper.gui.recipe.IngredientData;
 import com.wzz.registerhelper.recipe.RecipeRequest;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -73,8 +74,9 @@ public class RecipeUtil {
                         String ingredientKey = ingredientJson.toString();
                         if (!ingredientToChar.containsKey(ingredientKey)) {
                             if (charIndex >= SYMBOL_CHARS.length()) {
-                                throw new IllegalArgumentException(
-                                        String.format("合成表原料过多，超过%d个符号限制", SYMBOL_CHARS.length()));
+                                throw new IllegalArgumentException(Component.translatable(
+                                        "registerhelper.error.recipe.too_many_symbols",
+                                        SYMBOL_CHARS.length()).getString());
                             }
                             char symbol = SYMBOL_CHARS.charAt(charIndex);
                             ingredientToChar.put(ingredientKey, symbol);
@@ -359,11 +361,13 @@ public class RecipeUtil {
             if (SYMBOL_CHARS.indexOf(c) >= 0) {
                 return c;
             } else {
-                throw new IllegalArgumentException("符号必须是允许的字符: " + c);
+                throw new IllegalArgumentException(Component.translatable(
+                        "registerhelper.error.symbol.invalid", c).getString());
             }
         } else if (obj instanceof String str) {
             if (str.isBlank()) {
-                throw new IllegalArgumentException("符号不能为空");
+                throw new IllegalArgumentException(Component.translatable(
+                        "registerhelper.error.symbol.empty").getString());
             }
             char c = str.charAt(0);
 
@@ -374,10 +378,12 @@ public class RecipeUtil {
             if (SYMBOL_CHARS.indexOf(c) >= 0) {
                 return c;
             } else {
-                throw new IllegalArgumentException("符号必须是允许的字符: " + c);
+                throw new IllegalArgumentException(Component.translatable(
+                        "registerhelper.error.symbol.invalid", c).getString());
             }
         }
-        throw new IllegalArgumentException("无效的符号类型: " + obj);
+        throw new IllegalArgumentException(Component.translatable(
+                "registerhelper.error.symbol.type_invalid", obj).getString());
     }
 
     public static ResourceLocation getItemResourceLocation(Item item) {

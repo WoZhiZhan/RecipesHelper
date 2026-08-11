@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.tacz;
 
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.gui.recipe.component.LabelComponent;
 import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
 import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
@@ -25,13 +26,13 @@ public class GunSmithTableLayout implements RecipeLayout {
         components.add(new LabelComponent(
             baseX, baseY - 25,
             "label_title",
-            "§6TACZ枪械工作台"
+            GuiText.string("registerhelper.recipe_layout.tacz.title")
         ));
         
         components.add(new LabelComponent(
             baseX, baseY - 12,
             "label_info",
-            "§7添加材料和输出物品"
+            GuiText.string("registerhelper.recipe_layout.tacz.hint")
         ));
         
         // 材料槽位 (3x3网格)

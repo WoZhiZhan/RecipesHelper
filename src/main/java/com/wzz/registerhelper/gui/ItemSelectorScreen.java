@@ -57,41 +57,43 @@ public class ItemSelectorScreen extends Screen {
     private int leftPos, topPos;
 
     // 颜色主题
-    private static final int C_BG_OUTER    = 0xFF0F0F0F;
-    private static final int C_BG_MAIN     = 0xFF252525;
-    private static final int C_TITLE_BAR   = 0xFF1A3A6A;
-    private static final int C_TITLE_LINE  = 0xFF4A7ACF;
-    private static final int C_PANEL       = 0xFF1A1A1A;
-    private static final int C_SLOT_EMPTY  = 0xFF141414;
-    private static final int C_SLOT_HOVER  = 0xFF1D3555;
-    private static final int C_DIVIDER     = 0xFF333333;
-    private static final int C_FOOTER      = 0xFF1E1E1E;
-    private static final int C_TEXT        = 0xFFE0E0E0;
-    private static final int C_TEXT_DIM    = 0xFF888888;
+    private static final int C_BG_OUTER    = GuiTheme.PANEL_EDGE;
+    private static final int C_BG_MAIN     = GuiTheme.PANEL;
+    private static final int C_TITLE_BAR   = GuiTheme.HEADER;
+    private static final int C_TITLE_LINE  = GuiTheme.HEADER_ACCENT;
+    private static final int C_PANEL       = GuiTheme.SURFACE_ALT;
+    private static final int C_SLOT_EMPTY  = GuiTheme.SLOT;
+    private static final int C_SLOT_HOVER  = GuiTheme.HOVER;
+    private static final int C_DIVIDER     = GuiTheme.DIVIDER;
+    private static final int C_FOOTER      = GuiTheme.PANEL_ALT;
+    private static final int C_TEXT_DIM    = GuiTheme.TEXT_MUTED;
 
     public enum SelectionMode {
-        ALL_ITEMS("所有物品"), INVENTORY("背包物品");
-        private final String displayName;
-        SelectionMode(String d) { this.displayName = d; }
-        public String getDisplayName() { return displayName; }
+        ALL_ITEMS("registerhelper.gui.item_selector.mode.all"),
+        INVENTORY("registerhelper.gui.item_selector.mode.inventory");
+        private final String translationKey;
+        SelectionMode(String translationKey) { this.translationKey = translationKey; }
+        public String getTranslationKey() { return translationKey; }
     }
 
     /** 物品分类（仿原版创造栏标签） */
     public enum ItemCategory {
-        ALL      ("全部",   0xFFE0E0E0),
-        BLOCKS   ("方块",   0xFF88DDAA),
-        TOOLS    ("工具",   0xFFDDAA55),
-        COMBAT   ("战斗",   0xFFDD5555),
-        FOOD     ("食物",   0xFFDDCC44),
-        MISC     ("其他",   0xFFAAAACC);
+        ALL      ("registerhelper.gui.item_selector.category.all"),
+        BLOCKS   ("registerhelper.gui.item_selector.category.blocks"),
+        TOOLS    ("registerhelper.gui.item_selector.category.tools"),
+        COMBAT   ("registerhelper.gui.item_selector.category.combat"),
+        FOOD     ("registerhelper.gui.item_selector.category.food"),
+        MISC     ("registerhelper.gui.item_selector.category.misc"),
+        MODDED   ("registerhelper.gui.item_selector.category.modded");
 
-        final String label;
-        final int color;
-        ItemCategory(String l, int c) { label = l; color = c; }
+        final String translationKey;
+        ItemCategory(String translationKey) {
+            this.translationKey = translationKey;
+        }
     }
 
     public ItemSelectorScreen(Screen parentScreen, Consumer<ItemStack> onItemSelected) {
-        super(Component.literal("选择物品"));
+        super(GuiText.component("registerhelper.gui.item_selector.title"));
         this.parentScreen = parentScreen;
         this.onItemSelected = onItemSelected;
         this.searchHelper = new PinyinSearchHelper<>(
@@ -160,6 +162,11 @@ public class ItemSelectorScreen extends Screen {
         return ItemCategory.MISC;
     }
 
+    private boolean isModded(ItemStack stack) {
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return id != null && !"minecraft".equals(id.getNamespace());
+    }
+
     private void updateFilteredItems(String text) {
         filteredItems.clear();
         List<ItemStack> src = currentMode == SelectionMode.INVENTORY ? inventoryItems : allItems;
@@ -167,7 +174,11 @@ public class ItemSelectorScreen extends Screen {
 
         // 物品类型分类过滤
         if (currentCategory != ItemCategory.ALL) {
-            searched.removeIf(s -> classifyItem(s) != currentCategory);
+            if (currentCategory == ItemCategory.MODDED) {
+                searched.removeIf(s -> !isModded(s));
+            } else {
+                searched.removeIf(s -> classifyItem(s) != currentCategory);
+            }
         }
         filteredItems.addAll(searched);
         maxPage = itemsPerPage > 0 ? Math.max(0, (filteredItems.size() - 1) / itemsPerPage) : 0;
@@ -183,14 +194,16 @@ public class ItemSelectorScreen extends Screen {
 
     @Override
     protected void init() {
-        // ── 动态尺寸 ──
-        int maxW = Math.min(this.width - 30, 620);
-        int maxH = Math.min(this.height - 50, 500);
-        maxW = Math.max(maxW, 260);
-        maxH = Math.max(maxH, 230);
+        String currentSearch = searchBox != null ? searchBox.getValue() : "";
+        int availableWidth = Math.max(1, this.width - 20);
+        int availableHeight = Math.max(1, this.height - 20);
+        int maxW = GuiLayoutHelper.fit(620, 20 + SLOT_SIZE * 4, availableWidth);
+        int maxH = GuiLayoutHelper.fit(500,
+                HEADER_HEIGHT + FOOTER_HEIGHT + SLOT_SIZE, availableHeight);
 
-        this.itemsPerRow  = Math.max(4, (maxW - 20) / SLOT_SIZE);
-        int gridRows      = Math.max(3, (maxH - HEADER_HEIGHT - FOOTER_HEIGHT) / SLOT_SIZE);
+        this.itemsPerRow = Math.max(1, (maxW - 20) / SLOT_SIZE);
+        int gridRows = Math.max(1,
+                (maxH - HEADER_HEIGHT - FOOTER_HEIGHT) / SLOT_SIZE);
         this.itemsPerPage = this.itemsPerRow * gridRows;
         this.guiWidth     = 20 + this.itemsPerRow * SLOT_SIZE;
         this.guiHeight    = HEADER_HEIGHT + gridRows * SLOT_SIZE + FOOTER_HEIGHT;
@@ -199,30 +212,31 @@ public class ItemSelectorScreen extends Screen {
         this.topPos  = (this.height - guiHeight) / 2;
 
         // 重新分页
-        updateFilteredItems(searchBox != null ? searchBox.getValue() : "");
+        updateFilteredItems(currentSearch);
 
         // ── 控件 ──
         searchBox = new EditBox(this.font, leftPos + 10, topPos + 32, guiWidth - 20, 18,
-                Component.literal("搜索"));
-        searchBox.setHint(Component.literal("输入物品名/注册名/拼音... 或 @mod名"));
+                GuiText.component("registerhelper.gui.common.search"));
+        GuiTheme.styleInput(searchBox);
+        searchBox.setHint(GuiText.component("registerhelper.gui.item_selector.search_hint"));
+        searchBox.setValue(currentSearch);
         searchBox.setResponder(this::updateFilteredItems);
         addWidget(searchBox);
 
         modeButton = addRenderableWidget(CycleButton.<SelectionMode>builder(
-                        m -> Component.literal(m.getDisplayName()))
+                        m -> GuiText.component(m.getTranslationKey()))
                 .withValues(SelectionMode.values())
                 .withInitialValue(currentMode)
                 .displayOnlyValue()
                 .create(leftPos + 10, topPos + 6, 90, 20,
-                        Component.literal("选择模式"), this::onModeChanged));
+                        GuiText.component("registerhelper.gui.item_selector.mode_label"), this::onModeChanged));
 
-        int btnY = topPos + guiHeight - FOOTER_HEIGHT + 4;
         prevPageButton = addRenderableWidget(Button.builder(Component.literal("◀"), b -> previousPage())
                 .bounds(leftPos + 4, topPos + guiHeight - 22, 24, 18).build());
         nextPageButton = addRenderableWidget(Button.builder(Component.literal("▶"), b -> nextPage())
                 .bounds(leftPos + guiWidth - 28, topPos + guiHeight - 22, 24, 18).build());
         // 取消按钮贴底，页码显示在其上
-        cancelButton = addRenderableWidget(Button.builder(Component.literal("取消"), b -> onClose())
+        cancelButton = addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.common.cancel"), b -> onClose())
                 .bounds(leftPos + (guiWidth - 50) / 2, topPos + guiHeight - 22, 50, 18).build());
 
         updateButtons();
@@ -239,6 +253,7 @@ public class ItemSelectorScreen extends Screen {
     @Override
     public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         renderBackground(g);
+        GuiTheme.drawBackdrop(g, this.width, this.height);
 
         // 外框
         g.fill(leftPos - 1, topPos - 1, leftPos + guiWidth + 1, topPos + guiHeight + 1, C_BG_OUTER);
@@ -248,18 +263,21 @@ public class ItemSelectorScreen extends Screen {
         int tb = topPos + 28;
         g.fill(leftPos, topPos, leftPos + guiWidth, tb, C_TITLE_BAR);
         g.fill(leftPos, topPos, leftPos + guiWidth, topPos + 1, C_TITLE_LINE);
-        g.fill(leftPos, tb - 1, leftPos + guiWidth, tb, 0xFF335599);
-        String titleText = currentMode == SelectionMode.INVENTORY ? "选择物品  §b[ 背包 ]" : "选择物品  §7[ 全部 ]";
-        g.drawCenteredString(this.font, titleText, leftPos + guiWidth / 2, topPos + 9, C_TEXT);
+        g.fill(leftPos, tb - 1, leftPos + guiWidth, tb, C_DIVIDER);
+        Component titleText = GuiText.component("registerhelper.gui.item_selector.title_mode",
+                GuiText.component(currentMode.getTranslationKey()));
+        g.drawCenteredString(this.font, titleText, leftPos + guiWidth / 2,
+                topPos + 9, GuiTheme.TEXT_ON_HEADER);
 
         // 搜索栏区域
-        g.fill(leftPos, tb, leftPos + guiWidth, topPos + HEADER_HEIGHT - 2, 0xFF1E1E1E);
-        g.fill(leftPos + 5, topPos + HEADER_HEIGHT - 3, leftPos + guiWidth - 5, topPos + HEADER_HEIGHT - 2, C_DIVIDER);
+        g.fill(leftPos, tb, leftPos + guiWidth, topPos + HEADER_HEIGHT - 2, C_PANEL);
+        g.fill(leftPos + 5, topPos + HEADER_HEIGHT - 3, leftPos + guiWidth - 5,
+                topPos + HEADER_HEIGHT - 2, C_DIVIDER);
 
         // ── Tab 栏区域背景 ──
         int tabAreaTop = topPos + 52;
         int tabAreaBot = topPos + 74;
-        g.fill(leftPos, tabAreaTop, leftPos + guiWidth, tabAreaBot, 0xFF1A1A1A);
+        g.fill(leftPos, tabAreaTop, leftPos + guiWidth, tabAreaBot, C_PANEL);
 
         // 物品格子区域
         int gridTop = topPos + HEADER_HEIGHT;
@@ -272,12 +290,15 @@ public class ItemSelectorScreen extends Screen {
 
         renderCategoryTabs(g, mouseX, mouseY);
         renderItemGrid(g, mouseX, mouseY);
+        GuiTheme.drawInput(g, searchBox);
         searchBox.render(g, mouseX, mouseY, partialTick);
         super.render(g, mouseX, mouseY, partialTick);
 
         // 页码（底栏中间，取消按钮上方）
-        String pageInfo = String.format("§7第 %d / %d 页  (%d 个)", currentPage + 1, maxPage + 1, filteredItems.size());
-        g.drawCenteredString(this.font, pageInfo, leftPos + guiWidth / 2, topPos + 81, C_TEXT_DIM);
+        g.drawCenteredString(this.font,
+                GuiText.component("registerhelper.gui.common.page_count",
+                        currentPage + 1, maxPage + 1, filteredItems.size()),
+                leftPos + guiWidth / 2, topPos + 81, C_TEXT_DIM);
 
         renderItemTooltip(g, mouseX, mouseY);
     }
@@ -290,7 +311,7 @@ public class ItemSelectorScreen extends Screen {
         ItemCategory[] cats = ItemCategory.values();
         // 均分宽度
         int totalSpacing = tabSpacing * (cats.length - 1);
-        int tabW = Math.max(28, (guiWidth - 20 - totalSpacing) / cats.length);
+        int tabW = Math.max(1, (guiWidth - 20 - totalSpacing) / cats.length);
         int tabX = leftPos + 10;
 
         for (ItemCategory cat : cats) {
@@ -299,14 +320,19 @@ public class ItemSelectorScreen extends Screen {
                          && mouseY >= tabY && mouseY < tabY + tabH;
 
             // 背景
-            int bg = sel ? 0xFF1D3A6A : (hover ? 0xFF252530 : 0xFF161616);
+            int bg = sel ? GuiTheme.SELECTED : (hover ? GuiTheme.HOVER : GuiTheme.SURFACE_ALT);
             g.fill(tabX, tabY, tabX + tabW, tabY + tabH, bg);
             // 顶部色条
-            int lineColor = sel ? cat.color : (hover ? 0xFF444444 : 0xFF2A2A2A);
+            int lineColor = sel ? GuiTheme.categoryColor(cat.name())
+                    : (hover ? GuiTheme.INPUT_EDGE : GuiTheme.DIVIDER);
             g.fill(tabX, tabY, tabX + tabW, tabY + 2, lineColor);
             // 文字
-            int txtColor = sel ? cat.color : (hover ? 0xFFCCCCCC : 0xFF777777);
-            g.drawCenteredString(this.font, cat.label, tabX + tabW / 2, tabY + 5, txtColor);
+            int txtColor = sel ? GuiTheme.categoryColor(cat.name())
+                    : (hover ? GuiTheme.TEXT : GuiTheme.TEXT_MUTED);
+            String tabLabel = GuiLayoutHelper.ellipsis(this.font,
+                    GuiText.string(cat.translationKey), Math.max(1, tabW - 4));
+            g.drawCenteredString(this.font, tabLabel,
+                    tabX + tabW / 2, tabY + 5, txtColor);
 
             tabX += tabW + tabSpacing;
         }
@@ -324,10 +350,10 @@ public class ItemSelectorScreen extends Screen {
             int sx = gridStartX + (i % itemsPerRow) * SLOT_SIZE;
             int sy = gridStartY + (i / itemsPerRow) * SLOT_SIZE;
             g.fill(sx, sy, sx + SLOT_SIZE, sy + SLOT_SIZE, C_SLOT_EMPTY);
-            g.fill(sx,     sy,               sx + SLOT_SIZE, sy + 1,              0xFF0A0A0A);
-            g.fill(sx,     sy,               sx + 1,          sy + SLOT_SIZE,     0xFF0A0A0A);
-            g.fill(sx,     sy + SLOT_SIZE-1, sx + SLOT_SIZE, sy + SLOT_SIZE,      0xFF3A3A3A);
-            g.fill(sx + SLOT_SIZE-1, sy, sx + SLOT_SIZE, sy + SLOT_SIZE,          0xFF3A3A3A);
+            g.fill(sx,     sy,               sx + SLOT_SIZE, sy + 1,              GuiTheme.SLOT_EDGE);
+            g.fill(sx,     sy,               sx + 1,          sy + SLOT_SIZE,     GuiTheme.SLOT_EDGE);
+            g.fill(sx,     sy + SLOT_SIZE-1, sx + SLOT_SIZE, sy + SLOT_SIZE,      GuiTheme.SLOT_EDGE);
+            g.fill(sx + SLOT_SIZE-1, sy, sx + SLOT_SIZE, sy + SLOT_SIZE,          GuiTheme.SLOT_EDGE);
         }
 
         // 物品
@@ -374,20 +400,22 @@ public class ItemSelectorScreen extends Screen {
                 tt.add(item.getHoverName());
                 ResourceLocation id = BuiltInRegistries.ITEM.getKey(item.getItem());
                 if (id != null) {
-                    tt.add(Component.literal("§7ID: " + id));
-                    tt.add(Component.literal("§9来自: " + id.getNamespace()));
+                    tt.add(GuiText.component("registerhelper.tooltip.item.id", id));
+                    tt.add(GuiText.component("registerhelper.tooltip.item.source", id.getNamespace()));
                 }
                 if (currentMode == SelectionMode.INVENTORY && item.hasTag()) {
-                    tt.add(Component.literal("§b✦ 包含NBT数据"));
-                    tt.add(Component.literal("§8将保留附魔、名称等数据"));
+                    tt.add(GuiText.component("registerhelper.tooltip.item.contains_nbt"));
+                    tt.add(GuiText.component("registerhelper.tooltip.item.preserve_nbt"));
                 }
-                if (item.getCount() > 1) tt.add(Component.literal("§7数量: " + item.getCount()));
+                if (item.getCount() > 1) {
+                    tt.add(GuiText.component("registerhelper.tooltip.item.quantity", item.getCount()));
+                }
                 PinyinSearchHelper.PinyinInfo pi = searchHelper.getPinyinInfo(item);
                 if (pi != null && !pi.fullPinyin.trim().isEmpty()) {
                     String dn = item.getItem().getDescription().getString();
                     if (PinyinSearchHelper.containsChinese(dn)) {
-                        tt.add(Component.literal("§8拼音: " + pi.fullPinyin));
-                        tt.add(Component.literal("§8简写: " + pi.initials));
+                        tt.add(GuiText.component("registerhelper.tooltip.search.pinyin", pi.fullPinyin));
+                        tt.add(GuiText.component("registerhelper.tooltip.search.initials", pi.initials));
                     }
                 }
                 g.renderTooltip(this.font, tt, Optional.empty(), mouseX, mouseY);
@@ -403,7 +431,7 @@ public class ItemSelectorScreen extends Screen {
             {
                 ItemCategory[] cats = ItemCategory.values();
                 int totalSpacing = 3 * (cats.length - 1);
-                int tabW = Math.max(28, (guiWidth - 20 - totalSpacing) / cats.length);
+                int tabW = Math.max(1, (guiWidth - 20 - totalSpacing) / cats.length);
                 int tabX = leftPos + 10;
                 int tabY = topPos + 54, tabH = 18;
                 for (ItemCategory cat : cats) {

@@ -25,9 +25,13 @@ import java.util.function.Consumer;
 @OnlyIn(Dist.CLIENT)
 public class TagSelectorScreen extends Screen {
     
-    private static final int TAGS_PER_PAGE = 12;
-    private static final int GUI_WIDTH = 300;
-    private static final int GUI_HEIGHT = 320;
+    private static final int ROW_HEIGHT = 22;
+    private static final int HEADER_HEIGHT = 35;
+    private static final int FOOTER_HEIGHT = 38;
+    private static final int PREFERRED_WIDTH = 420;
+    private static final int PREFERRED_HEIGHT = 440;
+    private static final int MIN_WIDTH = 240;
+    private static final int MIN_HEIGHT = 180;
     
     private final Screen parentScreen;
     private final Consumer<ResourceLocation> onTagSelected;
@@ -43,7 +47,11 @@ public class TagSelectorScreen extends Screen {
     
     private int currentPage = 0;
     private int maxPage = 0;
+    private int tagsPerPage = 12;
+    private int guiWidth, guiHeight;
     private int leftPos, topPos;
+    private GuiLayoutHelper.Bounds listBounds;
+    private GuiLayoutHelper.Bounds footerBounds;
     
     /**
      * 标签条目，包含标签ID和代表性物品
@@ -63,7 +71,7 @@ public class TagSelectorScreen extends Screen {
     }
     
     public TagSelectorScreen(Screen parentScreen, Consumer<ResourceLocation> onTagSelected) {
-        super(Component.literal("选择标签"));
+        super(GuiText.component("registerhelper.gui.tag_selector.title"));
         this.parentScreen = parentScreen;
         this.onTagSelected = onTagSelected;
         this.searchHelper = new PinyinSearchHelper<>(
@@ -124,7 +132,7 @@ public class TagSelectorScreen extends Screen {
             }
         }
         
-        maxPage = Math.max(0, (filteredTags.size() - 1) / TAGS_PER_PAGE);
+        maxPage = Math.max(0, (filteredTags.size() - 1) / Math.max(1, tagsPerPage));
         currentPage = Math.min(currentPage, maxPage);
         updateButtons();
     }
@@ -147,12 +155,27 @@ public class TagSelectorScreen extends Screen {
     
     @Override
     protected void init() {
-        this.leftPos = (this.width - GUI_WIDTH) / 2;
-        this.topPos = (this.height - GUI_HEIGHT) / 2;
+        String currentSearch = searchBox != null ? searchBox.getValue() : "";
+        GuiLayoutHelper.Bounds panel = GuiLayoutHelper.centered(this.width, this.height,
+                PREFERRED_WIDTH, PREFERRED_HEIGHT, MIN_WIDTH, MIN_HEIGHT, 8, 8);
+        this.leftPos = panel.x();
+        this.topPos = panel.y();
+        this.guiWidth = panel.width();
+        this.guiHeight = panel.height();
+        int listHeight = Math.max(ROW_HEIGHT,
+                guiHeight - HEADER_HEIGHT - FOOTER_HEIGHT);
+        this.tagsPerPage = Math.max(1, listHeight / ROW_HEIGHT);
+        this.listBounds = new GuiLayoutHelper.Bounds(leftPos + 8, topPos + HEADER_HEIGHT,
+                guiWidth - 16, tagsPerPage * ROW_HEIGHT);
+        this.footerBounds = new GuiLayoutHelper.Bounds(leftPos,
+                topPos + guiHeight - FOOTER_HEIGHT, guiWidth, FOOTER_HEIGHT);
         
         // 搜索框
-        searchBox = new EditBox(this.font, leftPos + 8, topPos + 6, GUI_WIDTH - 16, 20, Component.literal("搜索"));
-        searchBox.setHint(Component.literal("输入标签ID或物品名称..."));
+        searchBox = new EditBox(this.font, leftPos + 8, topPos + 6,
+                guiWidth - 16, 20, GuiText.component("registerhelper.gui.common.search"));
+        GuiTheme.styleInput(searchBox);
+        searchBox.setHint(GuiText.component("registerhelper.gui.tag_selector.search_hint"));
+        searchBox.setValue(currentSearch);
         searchBox.setResponder(this::updateFilteredTags);
         addWidget(searchBox);
         
@@ -160,21 +183,22 @@ public class TagSelectorScreen extends Screen {
         prevPageButton = addRenderableWidget(Button.builder(
                 Component.literal("<"),
                 button -> previousPage())
-                .bounds(leftPos + 8, topPos + GUI_HEIGHT - 24, 20, 20)
+                .bounds(leftPos + 8, footerBounds.bottom() - 23, 20, 20)
                 .build());
         
         nextPageButton = addRenderableWidget(Button.builder(
                 Component.literal(">"),
                 button -> nextPage())
-                .bounds(leftPos + GUI_WIDTH - 28, topPos + GUI_HEIGHT - 24, 20, 20)
+                .bounds(leftPos + guiWidth - 28, footerBounds.bottom() - 23, 20, 20)
                 .build());
         
         cancelButton = addRenderableWidget(Button.builder(
-                Component.literal("取消"),
+                GuiText.component("registerhelper.gui.common.cancel"),
                 button -> onClose())
-                .bounds(leftPos + (GUI_WIDTH - 48) / 2, topPos + GUI_HEIGHT - 24, 48, 20)
+                .bounds(leftPos + (guiWidth - 48) / 2, footerBounds.bottom() - 23, 48, 20)
                 .build());
         
+        updateFilteredTags(currentSearch);
         updateButtons();
     }
     
@@ -204,93 +228,92 @@ public class TagSelectorScreen extends Screen {
     @Override
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(guiGraphics);
+        GuiTheme.drawBackdrop(guiGraphics, this.width, this.height);
         
-        // 背景
-        guiGraphics.fill(leftPos, topPos, leftPos + GUI_WIDTH, topPos + GUI_HEIGHT, 0xFFC6C6C6);
-        guiGraphics.fill(leftPos + 1, topPos + 1, leftPos + GUI_WIDTH - 1, topPos + GUI_HEIGHT - 1, 0xFF8B8B8B);
+        GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(leftPos, topPos, guiWidth, guiHeight);
+        GuiTheme.drawPanel(guiGraphics, panel, 0, GuiTheme.HEADER_ACCENT);
+        GuiTheme.drawSurface(guiGraphics, listBounds, false);
+        guiGraphics.fill(footerBounds.x(), footerBounds.y(), footerBounds.right(), footerBounds.bottom(),
+                GuiTheme.PANEL_ALT);
+        guiGraphics.fill(footerBounds.x(), footerBounds.y(), footerBounds.right(), footerBounds.y() + 1,
+                GuiTheme.DIVIDER);
         
         // 标题
-        guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, topPos - 10, 0xFFFFFF);
+        guiGraphics.drawCenteredString(this.font, this.title,
+                leftPos + guiWidth / 2, topPos - 10, 0xFFFFFF);
         
         // 渲染标签列表
         renderTagList(guiGraphics, mouseX, mouseY);
         
+        GuiTheme.drawInput(guiGraphics, searchBox);
         searchBox.render(guiGraphics, mouseX, mouseY, partialTick);
         super.render(guiGraphics, mouseX, mouseY, partialTick);
         
         // 页面信息
-        String pageInfo = String.format("第 %d/%d 页 (共%d个标签)",
-                currentPage + 1, maxPage + 1, filteredTags.size());
-        guiGraphics.drawCenteredString(this.font, pageInfo, leftPos + GUI_WIDTH / 2, topPos + GUI_HEIGHT + 5, 0x404040);
+        guiGraphics.drawCenteredString(this.font,
+                GuiText.component("registerhelper.gui.tag_selector.page",
+                        currentPage + 1, maxPage + 1, filteredTags.size()),
+                leftPos + guiWidth / 2, footerBounds.y() + 2, GuiTheme.TEXT_MUTED);
         
         // 渲染工具提示
         renderTooltips(guiGraphics, mouseX, mouseY);
     }
     
     private void renderTagList(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        int startIndex = currentPage * TAGS_PER_PAGE;
-        int endIndex = Math.min(startIndex + TAGS_PER_PAGE, filteredTags.size());
-        
-        int startY = topPos + 35;
-        int rowHeight = 22;
+        int startIndex = currentPage * tagsPerPage;
+        int endIndex = Math.min(startIndex + tagsPerPage, filteredTags.size());
+        int startY = listBounds.y();
         
         for (int i = startIndex; i < endIndex; i++) {
             int relativeIndex = i - startIndex;
-            int rowY = startY + relativeIndex * rowHeight;
+            int rowY = startY + relativeIndex * ROW_HEIGHT;
             
             TagEntry tag = filteredTags.get(i);
             
             // 检查鼠标悬停
-            boolean isMouseOver = mouseX >= leftPos + 8 && mouseX < leftPos + GUI_WIDTH - 8 &&
-                                mouseY >= rowY && mouseY < rowY + rowHeight - 2;
+            boolean isMouseOver = listBounds.contains(mouseX, mouseY)
+                    && mouseY >= rowY && mouseY < rowY + ROW_HEIGHT - 2;
             
             // 背景
-            int bgColor = isMouseOver ? 0x80FFFFFF : 0xFF555555;
-            guiGraphics.fill(leftPos + 8, rowY, leftPos + GUI_WIDTH - 8, rowY + rowHeight - 2, bgColor);
-            
-            // 边框
-            int borderColor = isMouseOver ? 0xFFFFFFFF : 0xFF8B8B8B;
-            guiGraphics.fill(leftPos + 8, rowY, leftPos + GUI_WIDTH - 8, rowY + 1, borderColor);
-            guiGraphics.fill(leftPos + 8, rowY + rowHeight - 2, leftPos + GUI_WIDTH - 8, rowY + rowHeight - 1, borderColor);
+            GuiTheme.drawRow(guiGraphics, listBounds.x(), rowY, listBounds.width(),
+                    ROW_HEIGHT - 1, relativeIndex, isMouseOver, false);
             
             // 渲染代表性物品图标
             RenderSystem.enableDepthTest();
-            guiGraphics.renderItem(tag.representativeItem, leftPos + 12, rowY + 2);
+            guiGraphics.renderItem(tag.representativeItem, listBounds.x() + 4, rowY + 2);
             RenderSystem.disableDepthTest();
             
             // 标签ID
-            String displayText = "#" + tag.tagId.toString();
-            if (displayText.length() > 35) {
-                displayText = displayText.substring(0, 32) + "...";
-            }
-            guiGraphics.drawString(this.font, displayText, leftPos + 32, rowY + 4, 0xFFFFFF, false);
+            String displayText = GuiLayoutHelper.ellipsis(this.font,
+                    "#" + tag.tagId, Math.max(1, listBounds.width() - 34));
+            guiGraphics.drawString(this.font, displayText,
+                    listBounds.x() + 24, rowY + 4, GuiTheme.TEXT, false);
             
             // 物品数量
-            String countText = "(" + tag.itemCount + "项)";
-            guiGraphics.drawString(this.font, countText, leftPos + 32, rowY + 13, 0xCCCCCC, false);
+            guiGraphics.drawString(this.font,
+                    GuiText.string("registerhelper.gui.tag_selector.item_count", tag.itemCount),
+                    listBounds.x() + 24, rowY + 13, GuiTheme.TEXT_MUTED, false);
         }
     }
     
     private void renderTooltips(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        int startIndex = currentPage * TAGS_PER_PAGE;
-        int endIndex = Math.min(startIndex + TAGS_PER_PAGE, filteredTags.size());
-        
-        int startY = topPos + 35;
-        int rowHeight = 22;
+        int startIndex = currentPage * tagsPerPage;
+        int endIndex = Math.min(startIndex + tagsPerPage, filteredTags.size());
+        int startY = listBounds.y();
         
         for (int i = startIndex; i < endIndex; i++) {
             int relativeIndex = i - startIndex;
-            int rowY = startY + relativeIndex * rowHeight;
+            int rowY = startY + relativeIndex * ROW_HEIGHT;
             
-            if (mouseX >= leftPos + 8 && mouseX < leftPos + GUI_WIDTH - 8 &&
-                mouseY >= rowY && mouseY < rowY + rowHeight - 2) {
+            if (listBounds.contains(mouseX, mouseY)
+                    && mouseY >= rowY && mouseY < rowY + ROW_HEIGHT - 2) {
                 
                 TagEntry tag = filteredTags.get(i);
                 List<Component> tooltip = new ArrayList<>();
                 
-                tooltip.add(Component.literal("§6标签: §f#" + tag.tagId));
-                tooltip.add(Component.literal("§7包含 " + tag.itemCount + " 个物品"));
-                tooltip.add(Component.literal("§8点击选择此标签"));
+                tooltip.add(GuiText.component("registerhelper.tooltip.tag.id", tag.tagId));
+                tooltip.add(GuiText.component("registerhelper.tooltip.tag.contains", tag.itemCount));
+                tooltip.add(GuiText.component("registerhelper.tooltip.tag.select"));
                 
                 guiGraphics.renderTooltip(this.font, tooltip, Optional.empty(), mouseX, mouseY);
                 break;
@@ -301,18 +324,16 @@ public class TagSelectorScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0) { // 左键
-            int startIndex = currentPage * TAGS_PER_PAGE;
-            int endIndex = Math.min(startIndex + TAGS_PER_PAGE, filteredTags.size());
-            
-            int startY = topPos + 35;
-            int rowHeight = 22;
+            int startIndex = currentPage * tagsPerPage;
+            int endIndex = Math.min(startIndex + tagsPerPage, filteredTags.size());
+            int startY = listBounds.y();
             
             for (int i = startIndex; i < endIndex; i++) {
                 int relativeIndex = i - startIndex;
-                int rowY = startY + relativeIndex * rowHeight;
+                int rowY = startY + relativeIndex * ROW_HEIGHT;
                 
-                if (mouseX >= leftPos + 8 && mouseX < leftPos + GUI_WIDTH - 8 &&
-                    mouseY >= rowY && mouseY < rowY + rowHeight - 2) {
+                if (listBounds.contains(mouseX, mouseY)
+                        && mouseY >= rowY && mouseY < rowY + ROW_HEIGHT - 2) {
                     
                     TagEntry tag = filteredTags.get(i);
                     onTagSelected.accept(tag.tagId);

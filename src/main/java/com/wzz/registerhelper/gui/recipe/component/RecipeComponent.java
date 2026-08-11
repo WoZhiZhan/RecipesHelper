@@ -35,6 +35,11 @@ public abstract class RecipeComponent {
         this.x = x;
         this.y = y;
     }
+
+    public void setSize(int width, int height) {
+        this.width = Math.max(1, width);
+        this.height = Math.max(1, height);
+    }
     
     public enum ComponentType {
         SLOT,           // 物品槽位

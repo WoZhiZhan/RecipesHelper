@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe.dynamic;
 
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import com.wzz.registerhelper.recipe.integration.module.MinecraftRecipeProcessor;
 
@@ -51,7 +52,10 @@ public class DynamicRecipeTypeConfig {
 
         // Getters
         public String getId() { return id; }
-        public String getDisplayName() { return displayName; }
+        public String getDisplayName() {
+            return displayName.startsWith("registerhelper.")
+                    ? GuiText.string(displayName) : displayName;
+        }
         public String getModId() { return modId; }
         public int getMaxInputs() { return maxInputs; }
         public int getMaxGridWidth() { return maxGridWidth; }
@@ -180,18 +184,18 @@ public class DynamicRecipeTypeConfig {
     private static String getDisplayName(String modId, String type) {
         return switch (modId) {
             case "minecraft" -> switch (type) {
-                case "crafting_shaped" -> "有序合成";
-                case "crafting_shapeless" -> "无序合成";
-                case "smelting" -> "熔炉";
-                case "blasting" -> "高炉";
-                case "smoking" -> "烟熏炉";
-                case "campfire_cooking" -> "营火";
+                case "crafting_shaped" -> "registerhelper.recipe_type.minecraft.crafting_shaped";
+                case "crafting_shapeless" -> "registerhelper.recipe_type.minecraft.crafting_shapeless";
+                case "smelting" -> "registerhelper.recipe_type.minecraft.smelting";
+                case "blasting" -> "registerhelper.recipe_type.minecraft.blasting";
+                case "smoking" -> "registerhelper.recipe_type.minecraft.smoking";
+                case "campfire_cooking" -> "registerhelper.recipe_type.minecraft.campfire";
                 default -> type;
             };
-            case "avaritia" -> "Avaritia工作台";
-            case "thermal" -> "热力系列";
-            case "mekanism" -> "通用机械";
-            case "immersiveengineering" -> "沉浸工程";
+            case "avaritia" -> "registerhelper.recipe_type.mod.avaritia";
+            case "thermal" -> "registerhelper.recipe_type.mod.thermal";
+            case "mekanism" -> "registerhelper.recipe_type.mod.mekanism";
+            case "immersiveengineering" -> "registerhelper.recipe_type.mod.immersiveengineering";
             default -> modId + ":" + type;
         };
     }
@@ -201,14 +205,14 @@ public class DynamicRecipeTypeConfig {
      */
     private static void registerBuiltinRecipeTypes() {
         MinecraftRecipeProcessor minecraftProcessor = new MinecraftRecipeProcessor();
-        registerRecipeType(new RecipeTypeDefinition.Builder("crafting_shaped", "原版合成")
+        registerRecipeType(new RecipeTypeDefinition.Builder("crafting_shaped", "registerhelper.recipe_type.minecraft.crafting_shaped")
                 .modId("minecraft")
                 .gridSize(3, 3)
                 .property("category", "crafting")
                 .property("mode", "shaped")
                 .processor(minecraftProcessor)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("crafting_shapeless", "原版合成无序")
+        registerRecipeType(new RecipeTypeDefinition.Builder("crafting_shapeless", "registerhelper.recipe_type.minecraft.crafting_shapeless")
                 .modId("minecraft")
                 .gridSize(3, 3)
                 .property("category", "crafting")
@@ -216,7 +220,7 @@ public class DynamicRecipeTypeConfig {
                 .displayable(false)
                 .processor(minecraftProcessor)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("smelting", "原版烹饪")
+        registerRecipeType(new RecipeTypeDefinition.Builder("smelting", "registerhelper.recipe_type.minecraft.smelting")
                 .modId("minecraft")
                 .gridSize(1, 1)
                 .supportsCookingSettings(true)
@@ -226,7 +230,7 @@ public class DynamicRecipeTypeConfig {
                 .property("defaultExp", "0.7")
                 .processor(minecraftProcessor)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("blasting", "高炉")
+        registerRecipeType(new RecipeTypeDefinition.Builder("blasting", "registerhelper.recipe_type.minecraft.blasting")
                 .modId("minecraft")
                 .gridSize(1, 1)
                 .supportsCookingSettings(true)
@@ -237,7 +241,7 @@ public class DynamicRecipeTypeConfig {
                 .displayable(false)
                 .processor(minecraftProcessor)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("smoking", "烟熏炉")
+        registerRecipeType(new RecipeTypeDefinition.Builder("smoking", "registerhelper.recipe_type.minecraft.smoking")
                 .modId("minecraft")
                 .gridSize(1, 1)
                 .supportsCookingSettings(true)
@@ -248,7 +252,7 @@ public class DynamicRecipeTypeConfig {
                 .processor(minecraftProcessor)
                 .displayable(false)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("campfire_cooking", "营火")
+        registerRecipeType(new RecipeTypeDefinition.Builder("campfire_cooking", "registerhelper.recipe_type.minecraft.campfire")
                 .modId("minecraft")
                 .gridSize(1, 1)
                 .supportsCookingSettings(true)
@@ -259,7 +263,7 @@ public class DynamicRecipeTypeConfig {
                 .processor(minecraftProcessor)
                 .displayable(false)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("brew", "酿造台")
+        registerRecipeType(new RecipeTypeDefinition.Builder("brew", "registerhelper.recipe_type.minecraft.brewing")
                 .modId("minecraft")
                 .gridSize(2, 3)
                 .supportsFillMode(false)
@@ -268,7 +272,7 @@ public class DynamicRecipeTypeConfig {
                 .property("custom_json", true)
                 .processor(minecraftProcessor)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("stonecutting", "切石机")
+        registerRecipeType(new RecipeTypeDefinition.Builder("stonecutting", "registerhelper.recipe_type.minecraft.stonecutting")
                 .modId("minecraft")
                 .gridSize(1, 1)
                 .supportsFillMode(false)
@@ -276,7 +280,7 @@ public class DynamicRecipeTypeConfig {
                 .property("layout", "stonecutting")
                 .processor(minecraftProcessor)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("anvil", "铁砧")
+        registerRecipeType(new RecipeTypeDefinition.Builder("anvil", "registerhelper.recipe_type.minecraft.anvil")
                 .modId("minecraft")
                 .gridSize(2, 1)
                 .supportsFillMode(false)
@@ -285,7 +289,7 @@ public class DynamicRecipeTypeConfig {
                 .property("custom_json", true)
                 .processor(minecraftProcessor)
                 .build());
-        registerRecipeType(new RecipeTypeDefinition.Builder("smithing", "锻造台")
+        registerRecipeType(new RecipeTypeDefinition.Builder("smithing", "registerhelper.recipe_type.minecraft.smithing")
                 .modId("minecraft")
                 .maxInputs(3)
                 .gridSize(3, 1)

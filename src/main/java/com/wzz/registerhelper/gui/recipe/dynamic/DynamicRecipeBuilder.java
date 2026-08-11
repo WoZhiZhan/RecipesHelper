@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.gui.recipe.IngredientData;
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.gui.recipe.component.ComponentDataManager;
 import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.network.CreateRecipeJsonPacket;
@@ -92,7 +93,7 @@ public class DynamicRecipeBuilder {
                     .createRecipeJson(request);
 
             if (recipeJson == null) {
-                showError("无法生成配方JSON");
+                showError(GuiText.string("registerhelper.message.recipe.json_failed"));
                 return;
             }
 
@@ -110,14 +111,18 @@ public class DynamicRecipeBuilder {
                     new CreateRecipeJsonPacket(recipeId, jsonString, isOverride);
             ModNetwork.CHANNEL.sendToServer(packet);
 
-            String action = params.isEditing ? "更新" : "创建";
-            String method = isOverride ? "覆盖" : "创建";
-            showSuccess(action + "配方成功！类型: " + params.recipeType.getDisplayName() +
-                    " (" + method + "模式) 使用 /reload 刷新配方");
+            String action = GuiText.string(params.isEditing
+                    ? "registerhelper.message.recipe.action.update"
+                    : "registerhelper.message.recipe.action.create");
+            String method = GuiText.string(isOverride
+                    ? "registerhelper.message.recipe.method.override"
+                    : "registerhelper.message.recipe.method.create");
+            showSuccess(GuiText.string("registerhelper.message.recipe.build_success",
+                    action, params.recipeType.getDisplayName(), method));
 
         } catch (Exception e) {
             LOGGER.error("构建配方失败", e);
-            showError("处理配方时发生错误: " + e.getMessage());
+            showError(GuiText.string("registerhelper.message.recipe.processing_error", e.getMessage()));
         }
     }
 
@@ -484,7 +489,7 @@ public class DynamicRecipeBuilder {
                     if (!itemToChar.containsKey(key)) {
                         if (charIndex >= SYMBOL_CHARS.length()) {
                             throw new IllegalArgumentException(
-                                    String.format("合成表原料过多，超过%d个符号限制", SYMBOL_CHARS.length())
+                                    GuiText.string("registerhelper.message.recipe.too_many_symbols", SYMBOL_CHARS.length())
                             );
                         }
                         char symbol = SYMBOL_CHARS.charAt(charIndex);
@@ -583,7 +588,7 @@ public class DynamicRecipeBuilder {
                     if (!itemToChar.containsKey(key)) {
                         if (charIndex >= SYMBOL_CHARS.length()) {
                             throw new IllegalArgumentException(
-                                    String.format("合成表原料过多，超过%d个符号限制", SYMBOL_CHARS.length())
+                                    GuiText.string("registerhelper.message.recipe.too_many_symbols", SYMBOL_CHARS.length())
                             );
                         }
                         char symbol = SYMBOL_CHARS.charAt(charIndex);
@@ -608,17 +613,17 @@ public class DynamicRecipeBuilder {
      */
     private boolean validateParams(BuildParams params) {
         if (params.recipeType == null) {
-            showError("请选择配方类型！");
+            showError(GuiText.string("registerhelper.message.recipe.select_type"));
             return false;
         }
 
         if (params.resultItem.isEmpty()) {
-            showError("请选择结果物品！");
+            showError(GuiText.string("registerhelper.message.recipe.select_result"));
             return false;
         }
 
         if (params.resultItem.getCount() <= 0) {
-            showError("数量必须大于0！");
+            showError(GuiText.string("registerhelper.message.recipe.positive_count"));
             return false;
         }
 
@@ -636,14 +641,15 @@ public class DynamicRecipeBuilder {
         }
 
         if (!hasIngredients) {
-            showError("请至少添加一个材料！");
+            showError(GuiText.string("registerhelper.message.recipe.add_ingredient"));
             return false;
         }
 
         // 检查mod是否已加载
         ModRecipeProcessor processor = params.recipeType.getProcessor();
         if (processor != null && !processor.isModLoaded()) {
-            showError("所需的mod未加载: " + params.recipeType.getModId());
+            showError(GuiText.string("registerhelper.message.recipe.mod_missing",
+                    params.recipeType.getModId()));
             return false;
         }
 

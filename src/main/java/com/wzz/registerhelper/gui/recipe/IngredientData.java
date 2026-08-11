@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe;
 
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.init.ModConfig;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
@@ -16,18 +17,18 @@ import java.util.List;
 public class IngredientData {
     
     public enum Type {
-        ITEM("物品"),
-        TAG("标签"),
-        CUSTOM_TAG("自定义标签");
+        ITEM("registerhelper.gui.ingredient_data.item"),
+        TAG("registerhelper.gui.ingredient_data.tag"),
+        CUSTOM_TAG("registerhelper.gui.ingredient_data.custom_tag");
         
-        private final String displayName;
+        private final String translationKey;
         
-        Type(String displayName) {
-            this.displayName = displayName;
+        Type(String translationKey) {
+            this.translationKey = translationKey;
         }
         
         public String getDisplayName() {
-            return displayName;
+            return GuiText.string(translationKey);
         }
     }
     
@@ -156,22 +157,24 @@ public class IngredientData {
         return switch (type) {
             case ITEM -> {
                 if (itemStack.isEmpty()) {
-                    yield "空";
+                    yield GuiText.string("registerhelper.gui.ingredient_data.empty");
                 }
                 String name = itemStack.getItem().getDescription().getString();
                 if (itemStack.hasTag()) {
                     if (!includeNBT) {
-                        yield name + " §8(忽略NBT)";
+                        yield GuiText.string("registerhelper.gui.ingredient_data.item_ignore_nbt", name);
                     } else if (!ignoreNbtKeys.isEmpty()) {
-                        yield name + " §e(部分匹配)";
+                        yield GuiText.string("registerhelper.gui.ingredient_data.item_partial_nbt", name);
                     } else {
-                        yield name + " §d(匹配NBT)";
+                        yield GuiText.string("registerhelper.gui.ingredient_data.item_exact_nbt", name);
                     }
                 }
                 yield name;
             }
-            case TAG -> tagId != null ? "§6#" + tagId : "未知标签";
-            case CUSTOM_TAG -> tagId != null ? "§b自定义#" + tagId : "未知自定义标签";
+            case TAG -> tagId != null ? "#" + tagId
+                    : GuiText.string("registerhelper.gui.ingredient_data.unknown_tag");
+            case CUSTOM_TAG -> tagId != null ? "#" + tagId
+                    : GuiText.string("registerhelper.gui.ingredient_data.unknown_custom_tag");
         };
     }
     
@@ -229,20 +232,22 @@ public class IngredientData {
      * @return 切换后的新状态描述
      */
     public String cycleNbtMode() {
-        if (type != Type.ITEM || !hasNBT()) return "无NBT";
+        if (type != Type.ITEM || !hasNBT()) {
+            return GuiText.string("registerhelper.gui.ingredient_data.no_nbt");
+        }
 
         if (includeNBT && ignoreNbtKeys.isEmpty()) {
             // 精确 → 忽略
             includeNBT = false;
-            return "忽略NBT";
+            return GuiText.string("registerhelper.gui.ingredient_data.ignore_nbt");
         } else if (!includeNBT) {
             // 忽略 → 精确
             includeNBT = true;
-            return "匹配NBT";
+            return GuiText.string("registerhelper.gui.ingredient_data.match_nbt");
         }
         // 部分匹配 → 忽略（保留 ignoreKeys，方便再切回来）
         includeNBT = false;
-        return "忽略NBT";
+        return GuiText.string("registerhelper.gui.ingredient_data.ignore_nbt");
     }
 
     /**

@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
@@ -127,7 +128,8 @@ public class SyncRecipeListPacket {
             
         } catch (Exception e) {
             LOGGER.error("处理配方同步数据时出错", e);
-            RecipeClientCache.setError("处理配方数据时出错: " + e.getMessage());
+            RecipeClientCache.setError(Component.translatable(
+                    "registerhelper.recipe.sync.failed", e.getMessage()).getString());
         }
     }
     

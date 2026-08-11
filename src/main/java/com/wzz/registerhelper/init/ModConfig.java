@@ -35,6 +35,7 @@ public class ModConfig {
         public final ForgeConfigSpec.BooleanValue enablePerSlotNBT;
         public final ForgeConfigSpec.BooleanValue enableDebugLogging;
         public final ForgeConfigSpec.BooleanValue defaultIncludeNBT;
+        public final ForgeConfigSpec.ConfigValue<String> guiTheme;
 
         public CommonConfig(ForgeConfigSpec.Builder builder) {
             builder.push("nbt_matching");
@@ -75,6 +76,19 @@ public class ModConfig {
                     .define("enableDebugLogging", false);
 
             builder.pop();
+
+            builder.push("client_ui");
+
+            guiTheme = builder
+                    .comment("RegisterHelper GUI theme",
+                            "Available themes: soft_dark, light",
+                            "",
+                            "RegisterHelper GUI theme",
+                            "Available themes: soft_dark, light")
+                    .define("theme", "soft_dark",
+                            value -> "soft_dark".equals(value) || "light".equals(value));
+
+            builder.pop();
         }
     }
 
@@ -97,5 +111,10 @@ public class ModConfig {
      */
     public static boolean getDefaultIncludeNBT() {
         return COMMON.defaultIncludeNBT.get();
+    }
+
+    public static String getGuiTheme() {
+        String theme = COMMON.guiTheme.get();
+        return "light".equals(theme) ? "light" : "soft_dark";
     }
 }

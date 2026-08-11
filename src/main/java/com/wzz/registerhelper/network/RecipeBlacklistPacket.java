@@ -85,7 +85,8 @@ public class RecipeBlacklistPacket {
             
             // 检查权限（需要OP权限）
             if (!player.hasPermissions(2)) {
-                player.sendSystemMessage(Component.literal("§c你没有权限执行此操作"));
+                player.sendSystemMessage(Component.translatable("registerhelper.recipe.permission_denied")
+                        .withStyle(net.minecraft.ChatFormatting.RED));
                 LOGGER.warn("玩家 {} 尝试操作黑名单但没有权限", player.getName().getString());
                 return;
             }
@@ -103,7 +104,8 @@ public class RecipeBlacklistPacket {
     
     private void handleAdd(ServerPlayer player) {
         if (recipeId.isEmpty()) {
-            player.sendSystemMessage(Component.literal("§c配方ID为空"));
+            player.sendSystemMessage(Component.translatable("registerhelper.recipe.id.empty")
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return;
         }
         
@@ -112,20 +114,24 @@ public class RecipeBlacklistPacket {
             boolean success = RecipeBlacklistManager.addToBlacklist(id);
             
             if (success) {
-                player.sendSystemMessage(Component.literal("§a配方已添加到黑名单: " + recipeId));
+                player.sendSystemMessage(Component.translatable("registerhelper.recipe.blacklist.added", recipeId)
+                        .withStyle(net.minecraft.ChatFormatting.GREEN));
                 LOGGER.info("玩家 {} 将配方 {} 添加到黑名单", player.getName().getString(), recipeId);
             } else {
-                player.sendSystemMessage(Component.literal("§e配方已在黑名单中: " + recipeId));
+                player.sendSystemMessage(Component.translatable("registerhelper.recipe.blacklist.already", recipeId)
+                        .withStyle(net.minecraft.ChatFormatting.YELLOW));
             }
         } catch (Exception e) {
-            player.sendSystemMessage(Component.literal("§c无效的配方ID: " + recipeId));
+            player.sendSystemMessage(Component.translatable("registerhelper.recipe.id.invalid", recipeId)
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             LOGGER.error("添加配方到黑名单失败: {}", recipeId, e);
         }
     }
     
     private void handleRemove(ServerPlayer player) {
         if (recipeId.isEmpty()) {
-            player.sendSystemMessage(Component.literal("§c配方ID为空"));
+            player.sendSystemMessage(Component.translatable("registerhelper.recipe.id.empty")
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return;
         }
         
@@ -134,20 +140,24 @@ public class RecipeBlacklistPacket {
             boolean success = RecipeBlacklistManager.removeFromBlacklist(id);
             
             if (success) {
-                player.sendSystemMessage(Component.literal("§a配方已从黑名单移除: " + recipeId));
+                player.sendSystemMessage(Component.translatable("registerhelper.recipe.blacklist.removed", recipeId)
+                        .withStyle(net.minecraft.ChatFormatting.GREEN));
                 LOGGER.info("玩家 {} 将配方 {} 从黑名单移除", player.getName().getString(), recipeId);
             } else {
-                player.sendSystemMessage(Component.literal("§e配方不在黑名单中: " + recipeId));
+                player.sendSystemMessage(Component.translatable("registerhelper.recipe.blacklist.not_found", recipeId)
+                        .withStyle(net.minecraft.ChatFormatting.YELLOW));
             }
         } catch (Exception e) {
-            player.sendSystemMessage(Component.literal("§c无效的配方ID: " + recipeId));
+            player.sendSystemMessage(Component.translatable("registerhelper.recipe.id.invalid", recipeId)
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             LOGGER.error("从黑名单移除配方失败: {}", recipeId, e);
         }
     }
     
     private void handleAddBatch(ServerPlayer player) {
         if (recipeIds.isEmpty()) {
-            player.sendSystemMessage(Component.literal("§c批量添加列表为空"));
+            player.sendSystemMessage(Component.translatable("registerhelper.recipe.blacklist.batch_add.empty")
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return;
         }
         java.util.Set<ResourceLocation> ids = new java.util.HashSet<>();
@@ -159,13 +169,16 @@ public class RecipeBlacklistPacket {
             }
         }
         int added = RecipeBlacklistManager.addMultipleToBlacklist(ids);
-        player.sendSystemMessage(Component.literal("§a批量添加完成: 新增 " + added + " 个，提交 " + ids.size() + " 个"));
+        player.sendSystemMessage(Component.translatable(
+                "registerhelper.recipe.blacklist.batch_add.completed", added, ids.size())
+                .withStyle(net.minecraft.ChatFormatting.GREEN));
         LOGGER.info("玩家 {} 批量添加 {} 个配方到黑名单", player.getName().getString(), added);
     }
 
     private void handleRemoveBatch(ServerPlayer player) {
         if (recipeIds.isEmpty()) {
-            player.sendSystemMessage(Component.literal("§c批量移除列表为空"));
+            player.sendSystemMessage(Component.translatable("registerhelper.recipe.blacklist.batch_remove.empty")
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return;
         }
         java.util.Set<ResourceLocation> ids = new java.util.HashSet<>();
@@ -177,7 +190,9 @@ public class RecipeBlacklistPacket {
             }
         }
         int removed = RecipeBlacklistManager.removeMultipleFromBlacklist(ids);
-        player.sendSystemMessage(Component.literal("§a批量移除完成: 移除 " + removed + " 个，提交 " + ids.size() + " 个"));
+        player.sendSystemMessage(Component.translatable(
+                "registerhelper.recipe.blacklist.batch_remove.completed", removed, ids.size())
+                .withStyle(net.minecraft.ChatFormatting.GREEN));
         LOGGER.info("玩家 {} 批量移除 {} 个黑名单配方", player.getName().getString(), removed);
     }
 
@@ -186,17 +201,20 @@ public class RecipeBlacklistPacket {
         boolean success = RecipeBlacklistManager.clearBlacklist();
         
         if (success) {
-            player.sendSystemMessage(Component.literal("§a黑名单已清空，移除了 " + count + " 个配方"));
+            player.sendSystemMessage(Component.translatable("registerhelper.recipe.blacklist.cleared", count)
+                    .withStyle(net.minecraft.ChatFormatting.GREEN));
             LOGGER.info("玩家 {} 清空了黑名单（{} 个配方）", player.getName().getString(), count);
         } else {
-            player.sendSystemMessage(Component.literal("§c清空黑名单失败"));
+            player.sendSystemMessage(Component.translatable("registerhelper.recipe.blacklist.clear_failed")
+                    .withStyle(net.minecraft.ChatFormatting.RED));
         }
     }
     
     private void handleReload(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         if (server == null) {
-            player.sendSystemMessage(Component.literal("§c无法获取服务器实例"));
+            player.sendSystemMessage(Component.translatable("registerhelper.server.unavailable")
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return;
         }
         

@@ -13,6 +13,7 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -31,15 +32,27 @@ public class OverrideManagerScreen extends Screen {
     
     private int selectedIndex = -1;
     private int scrollOffset = 0;
-    private final int itemHeight = 18;
-    private static final int LIST_TOP = 70;
-    private static final int LIST_BOTTOM_MARGIN = 60;
-    private int visibleItems = 15; // 每帧根据实际高度动态计算
+    private boolean draggingScrollbar;
+    private double scrollbarGrabOffset;
+    private static final int ITEM_HEIGHT = 18;
+    private static final int HEADER_HEIGHT = 64;
+    private static final int FOOTER_HEIGHT = 34;
+    private static final int SIDEBAR_WIDTH = 150;
+    private static final int PANEL_PREFERRED_WIDTH = 720;
+    private static final int PANEL_MIN_WIDTH = 360;
+    private static final int PANEL_MARGIN = 8;
+    private static final int CONTENT_GAP = 10;
+    private int visibleItems = 1;
+    private GuiLayoutHelper.Bounds panelBounds;
+    private GuiLayoutHelper.Bounds listBounds;
+    private GuiLayoutHelper.Bounds sidebarBounds;
+    private GuiLayoutHelper.Bounds footerBounds;
+    private boolean sidebarVisible;
     
     private UnifiedRecipeOverrideManager.OverrideStats stats;
     
     public OverrideManagerScreen(Screen parent) {
-        super(Component.literal("配方覆盖管理器"));
+        super(GuiText.component("registerhelper.gui.override.title"));
         this.parent = parent;
         this.searchHelper = new PinyinSearchHelper<>(
                 rl -> rl.getPath().replace('_', ' ').replace('/', ' '),
@@ -62,41 +75,81 @@ public class OverrideManagerScreen extends Screen {
     
     @Override
     protected void init() {
-        int centerX = this.width / 2;
-        int topY = 40;
+        String currentSearch = searchBox != null ? searchBox.getValue() : "";
+        int panelWidth = GuiLayoutHelper.fit(PANEL_PREFERRED_WIDTH, PANEL_MIN_WIDTH,
+                this.width - PANEL_MARGIN * 2);
+        int panelHeight = Math.max(1, this.height - PANEL_MARGIN * 2);
+        int panelX = (this.width - panelWidth) / 2;
+        int panelY = (this.height - panelHeight) / 2;
+        panelBounds = new GuiLayoutHelper.Bounds(panelX, panelY, panelWidth, panelHeight);
+
+        sidebarVisible = panelWidth >= SIDEBAR_WIDTH + 520;
+        int contentWidth = panelWidth - 20;
+        int listWidth = sidebarVisible
+                ? contentWidth - SIDEBAR_WIDTH - CONTENT_GAP
+                : contentWidth;
+        int listX = panelX + 10;
+        int listTop = panelY + HEADER_HEIGHT;
+        int listHeight = Math.max(12, panelHeight - HEADER_HEIGHT - FOOTER_HEIGHT - 8);
+        listBounds = new GuiLayoutHelper.Bounds(listX, listTop, listWidth, listHeight);
+        sidebarBounds = new GuiLayoutHelper.Bounds(
+                listX + listWidth + CONTENT_GAP, listTop, SIDEBAR_WIDTH, listHeight);
+        footerBounds = new GuiLayoutHelper.Bounds(panelX + 1,
+                panelBounds.bottom() - FOOTER_HEIGHT, panelWidth - 2, FOOTER_HEIGHT);
+        visibleItems = Math.max(1, (listHeight - 10) / ITEM_HEIGHT);
         
         // 搜索框
-        searchBox = new EditBox(this.font, centerX - 200, topY, 400, 20, Component.literal("搜索覆盖配方"));
-        searchBox.setHint(Component.literal("搜索配方ID或命名空间..."));
+        searchBox = new EditBox(this.font, listBounds.x(), panelY + 36,
+                listBounds.width(), 20, GuiText.component("registerhelper.gui.override.search"));
+        GuiTheme.styleInput(searchBox);
+        searchBox.setHint(GuiText.component("registerhelper.gui.override.search_hint"));
+        searchBox.setValue(currentSearch);
         searchBox.setResponder(this::onSearchChanged);
         addRenderableWidget(searchBox);
         
         // 按钮区域
-        int buttonY = this.height - 40;
+        int[] buttonWidths = {font.width(GuiText.string("registerhelper.gui.override.remove")) + 14,
+                font.width(GuiText.string("registerhelper.gui.override.clear")) + 14,
+                font.width(GuiText.string("registerhelper.gui.override.reload")) + 14,
+                font.width(GuiText.string("registerhelper.gui.common.close")) + 14};
+        int buttonGap = 5;
+        int totalWidth = Arrays.stream(buttonWidths).sum() + buttonGap * (buttonWidths.length - 1);
+        if (totalWidth > footerBounds.width() - 12) {
+            int compactWidth = Math.max(40,
+                    (footerBounds.width() - 12 - buttonGap * (buttonWidths.length - 1))
+                            / buttonWidths.length);
+            Arrays.fill(buttonWidths, compactWidth);
+            totalWidth = compactWidth * buttonWidths.length + buttonGap * (buttonWidths.length - 1);
+        }
+        int currentX = footerBounds.x() + Math.max(6, (footerBounds.width() - totalWidth) / 2);
+        int buttonY = footerBounds.y() + Math.max(0, (footerBounds.height() - 20) / 2);
 
         removeButton = addRenderableWidget(Button.builder(
-                Component.literal("移除覆盖"),
+                GuiText.component("registerhelper.gui.override.remove"),
                 button -> removeSelectedOverride())
-                .bounds(centerX - 160, buttonY, 70, 20)
+                .bounds(currentX, buttonY, buttonWidths[0], 20)
                 .build());
-        removeButton.active = false;
+        removeButton.active = selectedIndex >= 0 && selectedIndex < filteredRecipes.size();
+        currentX += buttonWidths[0] + buttonGap;
         
         clearAllButton = addRenderableWidget(Button.builder(
-                Component.literal("清空覆盖"),
+                GuiText.component("registerhelper.gui.override.clear"),
                 button -> clearAllOverrides())
-                .bounds(centerX - 80, buttonY, 70, 20)
+                .bounds(currentX, buttonY, buttonWidths[1], 20)
                 .build());
+        currentX += buttonWidths[1] + buttonGap;
         
         reloadButton = addRenderableWidget(Button.builder(
-                Component.literal("重载配方"),
+                GuiText.component("registerhelper.gui.override.reload"),
                 button -> reloadRecipes())
-                .bounds(centerX + 10, buttonY, 70, 20)
+                .bounds(currentX, buttonY, buttonWidths[2], 20)
                 .build());
+        currentX += buttonWidths[2] + buttonGap;
         
         closeButton = addRenderableWidget(Button.builder(
-                Component.literal("关闭"),
+                GuiText.component("registerhelper.gui.common.close"),
                 button -> minecraft.setScreen(parent))
-                .bounds(centerX + 90, buttonY, 50, 20)
+                .bounds(currentX, buttonY, buttonWidths[3], 20)
                 .build());
     }
     
@@ -129,11 +182,13 @@ public class OverrideManagerScreen extends Screen {
             if (UnifiedRecipeOverrideManager.removeOverride(recipeId)) {
                 refreshData();
                 if (minecraft.player != null) {
-                    minecraft.player.sendSystemMessage(Component.literal("§a覆盖已移除: " + recipeId + " 使用 /reload 刷新配方"));
+                    minecraft.player.sendSystemMessage(GuiText.component(
+                            "registerhelper.message.override.removed", recipeId));
                 }
             } else {
                 if (minecraft.player != null) {
-                    minecraft.player.sendSystemMessage(Component.literal("§c移除覆盖失败: " + recipeId));
+                    minecraft.player.sendSystemMessage(GuiText.component(
+                            "registerhelper.message.override.remove_failed", recipeId));
                 }
             }
         }
@@ -142,7 +197,7 @@ public class OverrideManagerScreen extends Screen {
     private void clearAllOverrides() {
         if (allOverrideRecipes.isEmpty()) {
             if (minecraft.player != null) {
-                minecraft.player.sendSystemMessage(Component.literal("§e覆盖列表已经是空的"));
+                minecraft.player.sendSystemMessage(GuiText.component("registerhelper.message.override.already_empty"));
             }
             return;
         }
@@ -150,56 +205,67 @@ public class OverrideManagerScreen extends Screen {
         if (UnifiedRecipeOverrideManager.clearAllOverrides()) {
             refreshData();
             if (minecraft.player != null) {
-                minecraft.player.sendSystemMessage(Component.literal("§a所有覆盖已清空，使用 /reload 刷新配方"));
+                minecraft.player.sendSystemMessage(GuiText.component("registerhelper.message.override.cleared"));
             }
         } else {
             if (minecraft.player != null) {
-                minecraft.player.sendSystemMessage(Component.literal("§c清空覆盖失败"));
+                minecraft.player.sendSystemMessage(GuiText.component("registerhelper.message.override.clear_failed"));
             }
         }
     }
     
     private void reloadRecipes() {
         if (minecraft.player != null) {
-            minecraft.player.sendSystemMessage(Component.literal("§a请使用 /reload 命令重载配方"));
+            minecraft.player.sendSystemMessage(GuiText.component("registerhelper.message.override.reload_hint"));
         }
     }
     
     @Override
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(guiGraphics);
+        GuiTheme.drawBackdrop(guiGraphics, this.width, this.height);
         
-        int centerX = this.width / 2;
-        int listTop = LIST_TOP;
-        int listBottom = this.height - LIST_BOTTOM_MARGIN;
-        int listHeight = listBottom - listTop;
+        int centerX = panelBounds.centerX();
+        int listTop = listBounds.y();
+        int listBottom = listBounds.bottom();
+        int listHeight = listBounds.height();
 
-        // 根据实际可用高度动态计算可见行数（修复不同 GUI 缩放下错位/超框问题）
-        this.visibleItems = Math.max(1, (listHeight - 10) / itemHeight);
+        GuiTheme.drawPanel(guiGraphics, panelBounds, 24, GuiTheme.INFO);
+        guiGraphics.fill(footerBounds.x(), footerBounds.y(), footerBounds.right(), footerBounds.bottom(),
+                GuiTheme.PANEL_ALT);
+        guiGraphics.fill(footerBounds.x(), footerBounds.y(), footerBounds.right(), footerBounds.y() + 1,
+                GuiTheme.DIVIDER);
         
         // 标题
-        guiGraphics.drawCenteredString(this.font, "配方覆盖管理器", centerX, 15, 0xFFFFFF);
+        guiGraphics.drawCenteredString(this.font, GuiText.component("registerhelper.gui.override.title"), centerX,
+                panelBounds.y() + 8, GuiTheme.TEXT_ON_HEADER);
         
         // 统计信息
-        String statsText = String.format("覆盖配方: %d 个  |  显示: %d 个", 
-            stats.totalOverrides, filteredRecipes.size());
-        guiGraphics.drawCenteredString(this.font, statsText, centerX, 28, 0xAAAAAA);
+        String statsText = GuiText.string("registerhelper.gui.override.stats",
+                stats.totalOverrides, filteredRecipes.size());
+        statsText = GuiLayoutHelper.ellipsis(this.font, statsText, panelBounds.width() - 20);
+        guiGraphics.drawCenteredString(this.font, statsText, centerX,
+                panelBounds.y() + 26, GuiTheme.TEXT_MUTED);
         
         // 列表背景
-        guiGraphics.fill(centerX - 250, listTop, centerX + 250, listBottom, 0x88000000);
-        guiGraphics.fill(centerX - 249, listTop + 1, centerX + 249, listBottom - 1, 0xFF2D2D30);
+        GuiTheme.drawSurface(guiGraphics, listBounds, false);
         
         // 渲染配方列表
-        renderRecipeList(guiGraphics, mouseX, mouseY, centerX - 240, listTop + 5, 480, listHeight - 10);
+        renderRecipeList(guiGraphics, mouseX, mouseY, listBounds.x() + 5, listTop + 5,
+                listBounds.width() - 10, listHeight - 10);
         
         // 滚动条
         if (filteredRecipes.size() > visibleItems) {
-            renderScrollbar(guiGraphics, centerX + 240, listTop + 5, listHeight - 10);
+            renderScrollbar(guiGraphics, listBounds.right() - 8, listTop + 5, listHeight - 10);
         }
         
         // 侧边栏 - 命名空间统计
-        renderNamespaceStats(guiGraphics, centerX + 260, listTop);
+        if (sidebarVisible) {
+            GuiTheme.drawSurface(guiGraphics, sidebarBounds, true);
+            renderNamespaceStats(guiGraphics, sidebarBounds.x() + 6, sidebarBounds.y() + 6);
+        }
         
+        GuiTheme.drawInput(guiGraphics, searchBox);
         super.render(guiGraphics, mouseX, mouseY, partialTick);
     }
     
@@ -214,24 +280,24 @@ public class OverrideManagerScreen extends Screen {
             if (index >= filteredRecipes.size()) break;
             
             ResourceLocation recipe = filteredRecipes.get(index);
-            int itemY = y + i * itemHeight;
+            int itemY = y + i * ITEM_HEIGHT;
             
             boolean isSelected = (index == selectedIndex);
             boolean isHovered = mouseX >= x && mouseX < x + width && 
-                              mouseY >= itemY && mouseY < itemY + itemHeight;
+                               mouseY >= itemY && mouseY < itemY + ITEM_HEIGHT;
             
             // 背景
             if (isSelected) {
-                guiGraphics.fill(x, itemY, x + width, itemY + itemHeight, 0xFF4A6EBD);
+                GuiTheme.drawRow(guiGraphics, x, itemY, width, ITEM_HEIGHT, i, false, true);
             } else if (isHovered) {
-                guiGraphics.fill(x, itemY, x + width, itemY + itemHeight, 0xFF3C3C3C);
+                GuiTheme.drawRow(guiGraphics, x, itemY, width, ITEM_HEIGHT, i, true, false);
+            } else {
+                GuiTheme.drawRow(guiGraphics, x, itemY, width, ITEM_HEIGHT, i, false, false);
             }
             
             // 配方ID
-            String recipeText = recipe.toString();
-            if (recipeText.length() > 70) {
-                recipeText = recipeText.substring(0, 67) + "...";
-            }
+            String recipeText = GuiLayoutHelper.ellipsis(
+                    this.font, recipe.toString(), Math.max(1, width - 10));
             
             // 命名空间颜色
             int textColor = getNamespaceColor(recipe.getNamespace());
@@ -240,33 +306,30 @@ public class OverrideManagerScreen extends Screen {
         
         // 空列表提示
         if (filteredRecipes.isEmpty()) {
-            String emptyText = allOverrideRecipes.isEmpty() ? 
-                "没有配方覆盖" : "没有匹配的配方";
-            guiGraphics.drawCenteredString(this.font, emptyText, x + width / 2, y + height / 2, 0xAAAAAA);
+            String emptyText = GuiText.string(allOverrideRecipes.isEmpty()
+                    ? "registerhelper.gui.override.empty"
+                    : "registerhelper.gui.common.no_match");
+            guiGraphics.drawCenteredString(this.font, emptyText, x + width / 2, y + height / 2,
+                    GuiTheme.TEXT_MUTED);
         }
     }
     
     private void renderScrollbar(GuiGraphics guiGraphics, int x, int y, int height) {
-        if (filteredRecipes.size() <= visibleItems) return;
-        
-        // 滚动条背景
-        guiGraphics.fill(x, y, x + 6, y + height, 0xFF1E1E1E);
-        
-        // 滚动条滑块
-        int maxScroll = filteredRecipes.size() - visibleItems;
-        int thumbHeight = Math.max(10, height * visibleItems / filteredRecipes.size());
-        int thumbY = y + (height - thumbHeight) * scrollOffset / maxScroll;
-        
-        guiGraphics.fill(x + 1, thumbY, x + 5, thumbY + thumbHeight, 0xFF8B8B8B);
+        GuiLayoutHelper.Scrollbar scrollbar = GuiLayoutHelper.scrollbar(
+                new GuiLayoutHelper.Bounds(x, y, 6, height),
+                filteredRecipes.size(), visibleItems, scrollOffset, 10);
+        if (!scrollbar.visible()) return;
+        GuiTheme.drawScrollbar(guiGraphics, scrollbar, -1, -1);
     }
     
     private void renderNamespaceStats(GuiGraphics guiGraphics, int x, int y) {
         if (stats.byNamespace.isEmpty()) return;
         
-        guiGraphics.drawString(this.font, "§l命名空间统计:", x, y, 0xFFFFFF, false);
+        guiGraphics.drawString(this.font, GuiText.string("registerhelper.gui.common.namespace_stats"),
+                x, y, GuiTheme.TEXT, false);
         
         int lineY = y + 15;
-        int maxLines = 10;
+        int maxLines = Math.max(1, (sidebarBounds.height() - 20) / 12);
         int lineCount = 0;
         
         for (var entry : stats.byNamespace.entrySet().stream()
@@ -278,7 +341,8 @@ public class OverrideManagerScreen extends Screen {
             int count = entry.getValue();
             
             int color = getNamespaceColor(namespace);
-            String text = namespace + ": " + count;
+            String text = GuiLayoutHelper.ellipsis(
+                    this.font, namespace + ": " + count, Math.max(1, sidebarBounds.width() - 12));
             
             guiGraphics.drawString(this.font, text, x, lineY, color, false);
             lineY += 12;
@@ -286,32 +350,35 @@ public class OverrideManagerScreen extends Screen {
         }
         
         if (stats.byNamespace.size() > maxLines) {
-            guiGraphics.drawString(this.font, "§7... 还有 " + (stats.byNamespace.size() - maxLines) + " 个", 
-                x, lineY, 0xAAAAAA, false);
+            guiGraphics.drawString(this.font, GuiText.string("registerhelper.gui.common.more_count",
+                    stats.byNamespace.size() - maxLines), x, lineY, GuiTheme.TEXT_MUTED, false);
         }
     }
     
     private int getNamespaceColor(String namespace) {
-        return switch (namespace) {
-            case "minecraft" -> 0xFF55FF55;  // 绿色 - 原版
-            case "registerhelper" -> 0xFFFF5555;  // 红色 - 自定义
-            case "avaritia" -> 0xFF5555FF;  // 蓝色 - Avaritia
-            default -> 0xFFFFAA00;  // 橙色 - 其他模组
-        };
+        return GuiTheme.namespaceColor(namespace);
     }
     
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int centerX = this.width / 2;
-        int listTop = LIST_TOP;
-        int listBottom = this.height - LIST_BOTTOM_MARGIN;
-        int listX = centerX - 240;
-        int listWidth = 480;
+        if (button == 0) {
+            GuiLayoutHelper.Scrollbar scrollbar = currentScrollbar();
+            if (scrollbar.contains(mouseX, mouseY)) {
+                draggingScrollbar = true;
+                scrollbarGrabOffset = scrollbar.grabOffset(mouseY);
+                scrollOffset = scrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+                return true;
+            }
+        }
+        int listTop = listBounds.y();
+        int listBottom = listBounds.bottom();
+        int listX = listBounds.x() + 5;
+        int listWidth = listBounds.width() - 10;
         
         if (mouseX >= listX && mouseX < listX + listWidth && 
             mouseY >= listTop + 5 && mouseY < listBottom - 5) {
             
-            int row = (int) ((mouseY - listTop - 5) / itemHeight);
+            int row = (int) ((mouseY - listTop - 5) / ITEM_HEIGHT);
             if (row < 0 || row >= visibleItems) {
                 return true;
             }
@@ -331,6 +398,33 @@ public class OverrideManagerScreen extends Screen {
         }
         
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private GuiLayoutHelper.Scrollbar currentScrollbar() {
+        return GuiLayoutHelper.scrollbar(
+                new GuiLayoutHelper.Bounds(listBounds.right() - 8, listBounds.y() + 5,
+                        6, Math.max(1, listBounds.height() - 10)),
+                filteredRecipes.size(), visibleItems, scrollOffset, 10);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button,
+                                double dragX, double dragY) {
+        if (draggingScrollbar && button == 0) {
+            scrollOffset = currentScrollbar().offsetForPointer(mouseY, scrollbarGrabOffset);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        boolean wasDragging = draggingScrollbar;
+        if (wasDragging) {
+            draggingScrollbar = false;
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
     
     @Override

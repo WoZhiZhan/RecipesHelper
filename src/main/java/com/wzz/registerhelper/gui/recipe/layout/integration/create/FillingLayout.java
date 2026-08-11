@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.create;
 
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.gui.recipe.component.*;
 import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 import java.awt.*;
@@ -20,7 +21,7 @@ public class FillingLayout implements RecipeLayout {
         components.add(new StringInputComponent(
             baseX + 50, baseY + 90,
             80, "fluid",
-                "文本", "minecraft:lava",
+                GuiText.string("registerhelper.recipe_layout.text"), "minecraft:lava",
                 "value", false
         ));
         components.add(new NumberInputComponent(

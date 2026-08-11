@@ -6,6 +6,7 @@ import com.wzz.registerhelper.init.ModNetwork;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -129,14 +130,14 @@ public class RequestRecipeListPacket {
         String path = recipeId.getPath();
         
         if (namespace.equals("registerhelper") || path.startsWith("custom_") || path.contains("_custom_")) {
-            return "自定义";
+            return Component.translatable("registerhelper.recipe.source.custom").getString();
         }
-        
+
         if (namespace.equals("minecraft")) {
-            return "原版";
+            return Component.translatable("registerhelper.recipe.source.vanilla").getString();
         }
-        
-        return "模组(" + namespace + ")";
+
+        return Component.translatable("registerhelper.recipe.source.mod", namespace).getString();
     }
     
     /**

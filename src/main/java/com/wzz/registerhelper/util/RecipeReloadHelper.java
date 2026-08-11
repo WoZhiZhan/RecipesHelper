@@ -34,7 +34,8 @@ public class RecipeReloadHelper {
         try {
             MinecraftServer server = source.getServer();
             if (server == null) {
-                source.sendFailure(Component.literal("§c无法获取服务器实例"));
+                source.sendFailure(Component.translatable("registerhelper.server.unavailable")
+                        .withStyle(net.minecraft.ChatFormatting.RED));
                 return false;
             }
 
@@ -76,7 +77,8 @@ public class RecipeReloadHelper {
 
         } catch (Exception e) {
             LOGGER.error("重载数据包时出错", e);
-            source.sendFailure(Component.literal("§c重载失败: " + e.getMessage()));
+            source.sendFailure(Component.translatable("registerhelper.command.reload.failed", e.getMessage())
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return false;
         }
     }

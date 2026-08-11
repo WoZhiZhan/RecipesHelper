@@ -58,7 +58,8 @@ public class RecipeCommand {
             }
 
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c重载失败: " + e.getMessage()));
+            source.sendFailure(Component.translatable("registerhelper.command.reload.failed", e.getMessage())
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             LOGGER.error("配方重载失败", e);
             return 0;
         }
@@ -68,10 +69,12 @@ public class RecipeCommand {
         CommandSourceStack source = context.getSource();
         try {
             KubeJsUtils.exportAllJsonRecipesToJS(true);
-            source.sendSuccess(() -> Component.literal("§a成功导出所有配方到 kubejs/server_scripts/registerhelper_recipes.js"), true);
+            source.sendSuccess(() -> Component.translatable(
+                    "registerhelper.command.export.kubejs.single.success"), true);
             return 1;
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c导出失败: " + e.getMessage()));
+            source.sendFailure(Component.translatable("registerhelper.command.export.failed", e.getMessage())
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             e.printStackTrace();
             return 0;
         }
@@ -81,10 +84,12 @@ public class RecipeCommand {
         CommandSourceStack source = context.getSource();
         try {
             KubeJsUtils.exportAllJsonRecipesToJS(false);
-            source.sendSuccess(() -> Component.literal("§a成功导出所有配方到 kubejs/server_scripts (按目录分文件)"), true);
+            source.sendSuccess(() -> Component.translatable(
+                    "registerhelper.command.export.kubejs.multiple.success"), true);
             return 1;
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c导出失败: " + e.getMessage()));
+            source.sendFailure(Component.translatable("registerhelper.command.export.failed", e.getMessage())
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             e.printStackTrace();
             return 0;
         }
@@ -93,15 +98,18 @@ public class RecipeCommand {
     private static int exportAllToCraftTweakerSingle(CommandContext<CommandSourceStack> context) {
         CommandSourceStack source = context.getSource();
         if (!ModList.get().isLoaded("crafttweaker")) {
-            source.sendFailure(Component.literal("§c导出失败: crafttweaker mod未找到"));
+            source.sendFailure(Component.translatable("registerhelper.command.export.crafttweaker.missing")
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return 0;
         }
         try {
             CrtUtils.exportAllJsonRecipesToZS(true);
-            source.sendSuccess(() -> Component.literal("§a成功导出所有配方到 scripts/registerhelper_recipes.zs"), true);
+            source.sendSuccess(() -> Component.translatable(
+                    "registerhelper.command.export.crafttweaker.single.success"), true);
             return 1;
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c导出失败: " + e.getMessage()));
+            source.sendFailure(Component.translatable("registerhelper.command.export.failed", e.getMessage())
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             e.printStackTrace();
             return 0;
         }
@@ -110,15 +118,18 @@ public class RecipeCommand {
     private static int exportAllToCraftTweakerMultiple(CommandContext<CommandSourceStack> context) {
         CommandSourceStack source = context.getSource();
         if (!ModList.get().isLoaded("crafttweaker")) {
-            source.sendFailure(Component.literal("§c导出失败: crafttweaker mod未找到"));
+            source.sendFailure(Component.translatable("registerhelper.command.export.crafttweaker.missing")
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return 0;
         }
         try {
             CrtUtils.exportAllJsonRecipesToZS(false);
-            source.sendSuccess(() -> Component.literal("§a成功导出所有配方到 scripts (按目录分文件)"), true);
+            source.sendSuccess(() -> Component.translatable(
+                    "registerhelper.command.export.crafttweaker.multiple.success"), true);
             return 1;
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c导出失败: " + e.getMessage()));
+            source.sendFailure(Component.translatable("registerhelper.command.export.failed", e.getMessage())
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             e.printStackTrace();
             return 0;
         }
@@ -130,11 +141,14 @@ public class RecipeCommand {
                 ModNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new OpenGUIPacket());
                 return 1;
             } else {
-                context.getSource().sendFailure(Component.literal("只有玩家可以使用GUI"));
+                context.getSource().sendFailure(Component.translatable(
+                        "registerhelper.command.open_gui.player_only"));
                 return 0;
             }
         } catch (Exception e) {
-            context.getSource().sendFailure(Component.literal("打开GUI失败: " + e.getMessage()));
+            context.getSource().sendFailure(Component.translatable(
+                    "registerhelper.command.open_gui.failed", e.getMessage())
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return 0;
         }
     }

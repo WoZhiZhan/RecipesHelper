@@ -17,6 +17,7 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -40,15 +41,23 @@ public class BlacklistAddScreen extends Screen {
     private Button addButton;
 
     private int scrollOffset = 0;
+    private boolean draggingScrollbar;
+    private double scrollbarGrabOffset;
     private int lastClickedIndex = -1; // 用于 Shift 区间选择
-    private final int itemHeight = 18;
-    private static final int LIST_TOP = 70;
-    private static final int LIST_BOTTOM_MARGIN = 60;
-    private int visibleItems = 15; // 每帧动态计算
+    private static final int ITEM_HEIGHT = 18;
+    private static final int HEADER_HEIGHT = 64;
+    private static final int FOOTER_HEIGHT = 54;
+    private static final int PANEL_PREFERRED_WIDTH = 520;
+    private static final int PANEL_MIN_WIDTH = 340;
+    private static final int PANEL_MARGIN = 8;
+    private int visibleItems = 1;
+    private GuiLayoutHelper.Bounds panelBounds;
+    private GuiLayoutHelper.Bounds listBounds;
+    private GuiLayoutHelper.Bounds footerBounds;
     private String loadError = null;
 
     public BlacklistAddScreen(Screen parent, Runnable onApplied) {
-        super(Component.literal("添加配方到黑名单"));
+        super(GuiText.component("registerhelper.gui.blacklist_add.title"));
         this.parent = parent;
         this.onApplied = onApplied;
         this.searchHelper = new PinyinSearchHelper<>(
@@ -62,7 +71,7 @@ public class BlacklistAddScreen extends Screen {
         try {
             Minecraft mc = Minecraft.getInstance();
             if (mc.level == null) {
-                loadError = "游戏世界未加载";
+                loadError = GuiText.string("registerhelper.message.world_not_loaded");
                 return;
             }
             RecipeManager rm = mc.level.getRecipeManager();
@@ -85,48 +94,79 @@ public class BlacklistAddScreen extends Screen {
             filteredRecipes = new ArrayList<>(allRecipes);
             searchHelper.buildCache(allRecipes);
         } catch (Exception e) {
-            loadError = "加载配方失败: " + e.getMessage();
+            loadError = GuiText.string("registerhelper.message.recipe.load_failed", e.getMessage());
         }
     }
 
     @Override
     protected void init() {
-        int centerX = this.width / 2;
-        int topY = 40;
+        String currentSearch = searchBox != null ? searchBox.getValue() : "";
+        int panelWidth = GuiLayoutHelper.fit(PANEL_PREFERRED_WIDTH, PANEL_MIN_WIDTH,
+                this.width - PANEL_MARGIN * 2);
+        int panelHeight = Math.max(1, this.height - PANEL_MARGIN * 2);
+        int panelX = (this.width - panelWidth) / 2;
+        int panelY = (this.height - panelHeight) / 2;
+        panelBounds = new GuiLayoutHelper.Bounds(panelX, panelY, panelWidth, panelHeight);
+        listBounds = new GuiLayoutHelper.Bounds(panelX + 10, panelY + HEADER_HEIGHT,
+                panelWidth - 20,
+                Math.max(12, panelHeight - HEADER_HEIGHT - FOOTER_HEIGHT));
+        footerBounds = new GuiLayoutHelper.Bounds(panelX + 1,
+                panelBounds.bottom() - FOOTER_HEIGHT, panelWidth - 2, FOOTER_HEIGHT);
+        visibleItems = Math.max(1, (listBounds.height() - 10) / ITEM_HEIGHT);
 
-        searchBox = new EditBox(this.font, centerX - 200, topY, 400, 20, Component.literal("搜索配方"));
-        searchBox.setHint(Component.literal("搜索配方ID、命名空间或拼音..."));
+        searchBox = new EditBox(this.font, listBounds.x(), panelY + 36,
+                listBounds.width(), 20, GuiText.component("registerhelper.gui.blacklist_add.search"));
+        GuiTheme.styleInput(searchBox);
+        searchBox.setHint(GuiText.component("registerhelper.gui.blacklist_add.search_hint"));
+        searchBox.setValue(currentSearch);
         searchBox.setResponder(this::onSearchChanged);
         addRenderableWidget(searchBox);
 
-        int buttonY = this.height - 40;
+        int[] buttonWidths = {font.width(GuiText.string("registerhelper.gui.blacklist_add.add_selected")) + 14,
+                font.width(GuiText.string("registerhelper.gui.blacklist_add.select_all")) + 14,
+                font.width(GuiText.string("registerhelper.gui.blacklist_add.clear_selection")) + 14,
+                font.width(GuiText.string("registerhelper.gui.common.back")) + 14};
+        int buttonGap = 5;
+        int totalWidth = Arrays.stream(buttonWidths).sum() + buttonGap * (buttonWidths.length - 1);
+        if (totalWidth > footerBounds.width() - 12) {
+            int compactWidth = Math.max(40,
+                    (footerBounds.width() - 12 - buttonGap * (buttonWidths.length - 1))
+                            / buttonWidths.length);
+            Arrays.fill(buttonWidths, compactWidth);
+            totalWidth = compactWidth * buttonWidths.length + buttonGap * (buttonWidths.length - 1);
+        }
+        int currentX = footerBounds.x() + Math.max(6, (footerBounds.width() - totalWidth) / 2);
+        int buttonY = footerBounds.bottom() - 27;
 
         addButton = addRenderableWidget(Button.builder(
-                        Component.literal("添加选中"),
+                        GuiText.component("registerhelper.gui.blacklist_add.add_selected"),
                         b -> applyAdd())
-                .bounds(centerX - 185, buttonY, 80, 20)
+                .bounds(currentX, buttonY, buttonWidths[0], 20)
                 .build());
-        addButton.active = false;
+        addButton.active = !selected.isEmpty();
+        currentX += buttonWidths[0] + buttonGap;
 
         addRenderableWidget(Button.builder(
-                        Component.literal("全选当前"),
+                        GuiText.component("registerhelper.gui.blacklist_add.select_all"),
                         b -> selectAllFiltered())
-                .bounds(centerX - 100, buttonY, 70, 20)
+                .bounds(currentX, buttonY, buttonWidths[1], 20)
                 .build());
+        currentX += buttonWidths[1] + buttonGap;
 
         addRenderableWidget(Button.builder(
-                        Component.literal("清空选择"),
+                        GuiText.component("registerhelper.gui.blacklist_add.clear_selection"),
                         b -> {
                             selected.clear();
                             addButton.active = false;
                         })
-                .bounds(centerX - 25, buttonY, 70, 20)
+                .bounds(currentX, buttonY, buttonWidths[2], 20)
                 .build());
+        currentX += buttonWidths[2] + buttonGap;
 
         addRenderableWidget(Button.builder(
-                        Component.literal("返回"),
+                        GuiText.component("registerhelper.gui.common.back"),
                         b -> minecraft.setScreen(parent))
-                .bounds(centerX + 50, buttonY, 60, 20)
+                .bounds(currentX, buttonY, buttonWidths[3], 20)
                 .build());
     }
 
@@ -162,7 +202,8 @@ public class BlacklistAddScreen extends Screen {
         BlacklistClientHelper.addMultipleToBlacklist(new ArrayList<>(selected));
 
         if (minecraft.player != null) {
-            minecraft.player.sendSystemMessage(Component.literal("§e正在批量添加 " + selected.size() + " 个配方到黑名单..."));
+            minecraft.player.sendSystemMessage(GuiText.component(
+                    "registerhelper.message.blacklist.adding_many", selected.size()));
         }
 
         // 单人游戏立即生效，刷新父界面数据
@@ -175,48 +216,49 @@ public class BlacklistAddScreen extends Screen {
     @Override
     public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         renderBackground(g);
-        int centerX = this.width / 2;
-        int listTop = LIST_TOP;
-        int listBottom = this.height - LIST_BOTTOM_MARGIN;
+        GuiTheme.drawBackdrop(g, this.width, this.height);
+        int centerX = panelBounds.centerX();
+        int listTop = listBounds.y();
+        int listBottom = listBounds.bottom();
 
-        // 动态计算可见行数（适配不同 GUI 缩放）
-        this.visibleItems = Math.max(1, (listBottom - listTop - 10) / itemHeight);
-
-        g.fill(0, 0, this.width, this.height, 0x80000000);
-
-        int px = centerX - 252, py = 5, pw = 504, ph = this.height - 10;
-        g.fill(px - 1, py - 1, px + pw + 1, py + ph + 1, 0xFF0A0A0A);
-        g.fill(px, py, px + pw, py + ph, 0xFF252525);
+        int px = panelBounds.x(), py = panelBounds.y();
+        int pw = panelBounds.width(), ph = panelBounds.height();
+        GuiTheme.drawPanel(g, panelBounds, 26, GuiTheme.SUCCESS);
+        g.fill(footerBounds.x(), footerBounds.y(), footerBounds.right(), footerBounds.bottom(),
+                GuiTheme.PANEL_ALT);
+        g.fill(footerBounds.x(), footerBounds.y(), footerBounds.right(), footerBounds.y() + 1,
+                GuiTheme.DIVIDER);
 
         // 标题栏（绿色，区别于移除界面的红色）
-        g.fill(px, py, px + pw, py + 26, 0xFF1A5A1A);
-        g.fill(px, py, px + pw, py + 1, 0xFF4ACF4A);
-        g.fill(px, py + 25, px + pw, py + 26, 0xFF228022);
-        g.drawCenteredString(this.font, "§a添加配方到黑名单（可多选）", centerX, py + 9, 0xFFFFFF);
+        g.drawCenteredString(this.font,
+                GuiText.component("registerhelper.gui.blacklist_add.title_multi"), centerX, py + 9,
+                GuiTheme.TEXT_ON_HEADER);
 
-        String info = String.format("§7已选: §e%d §7个  |  当前显示: §e%d §7个  |  可添加: §e%d §7个",
+        String info = GuiText.string("registerhelper.gui.blacklist_add.stats",
                 selected.size(), filteredRecipes.size(), allRecipes.size());
-        g.drawCenteredString(this.font, info, centerX, 33, 0xAAAAAA);
+        info = GuiLayoutHelper.ellipsis(this.font, info, panelBounds.width() - 20);
+        g.drawCenteredString(this.font, info, centerX, py + 28, GuiTheme.TEXT_MUTED);
 
-        g.fill(centerX - 251, listTop - 1, centerX + 251, listBottom + 1, 0xFF0A0A0A);
-        g.fill(centerX - 250, listTop, centerX + 250, listBottom, 0xFF1A1A1A);
+        GuiTheme.drawSurface(g, listBounds, false);
 
-        renderList(g, mouseX, mouseY, centerX - 240, listTop + 5, 480, listBottom - listTop - 10);
+        renderList(g, mouseX, mouseY, listBounds.x() + 5, listTop + 5,
+                listBounds.width() - 10, listBounds.height() - 10);
 
         if (filteredRecipes.size() > visibleItems) {
-            renderScrollbar(g, centerX + 240, listTop + 5, listBottom - listTop - 10);
+            renderScrollbar(g, listBounds.right() - 8, listTop + 5, listBounds.height() - 10);
         }
 
         // 操作提示
-        g.drawString(this.font, "§7单击切换选择 · Shift 区间选择 · Ctrl+A 全选",
-                centerX - 250, listBottom + 4, 0x888888, false);
+        g.drawString(this.font, GuiText.string("registerhelper.gui.blacklist_add.selection_help"),
+                footerBounds.x() + 8, footerBounds.y() + 4, GuiTheme.TEXT_MUTED, false);
 
+        GuiTheme.drawInput(g, searchBox);
         super.render(g, mouseX, mouseY, partialTick);
     }
 
     private void renderList(GuiGraphics g, int mouseX, int mouseY, int x, int y, int width, int height) {
         if (loadError != null) {
-            g.drawCenteredString(this.font, "§c" + loadError, x + width / 2, y + height / 2, 0xFF5555);
+            g.drawCenteredString(this.font, "§c" + loadError, x + width / 2, y + height / 2, GuiTheme.DANGER);
             return;
         }
 
@@ -228,70 +270,74 @@ public class BlacklistAddScreen extends Screen {
             if (index >= filteredRecipes.size()) break;
 
             ResourceLocation recipe = filteredRecipes.get(index);
-            int itemY = y + i * itemHeight;
+            int itemY = y + i * ITEM_HEIGHT;
 
             boolean isSelected = selected.contains(recipe);
             boolean isHovered = mouseX >= x && mouseX < x + width &&
-                    mouseY >= itemY && mouseY < itemY + itemHeight;
+                    mouseY >= itemY && mouseY < itemY + ITEM_HEIGHT;
 
             if (isSelected) {
-                g.fill(x, itemY, x + width, itemY + itemHeight, 0xFF2E6E3C);
+                GuiTheme.drawRow(g, x, itemY, width, ITEM_HEIGHT, i, false, true);
             } else if (isHovered) {
-                g.fill(x, itemY, x + width, itemY + itemHeight, 0xFF3C3C3C);
+                GuiTheme.drawRow(g, x, itemY, width, ITEM_HEIGHT, i, true, false);
+            } else {
+                GuiTheme.drawRow(g, x, itemY, width, ITEM_HEIGHT, i, false, false);
             }
 
             // 复选框
             int boxX = x + 4, boxY = itemY + 4, boxSize = 10;
-            g.fill(boxX, boxY, boxX + boxSize, boxY + boxSize, 0xFF111111);
-            g.fill(boxX, boxY, boxX + boxSize, boxY + 1, 0xFF888888);
-            g.fill(boxX, boxY + boxSize - 1, boxX + boxSize, boxY + boxSize, 0xFF888888);
-            g.fill(boxX, boxY, boxX + 1, boxY + boxSize, 0xFF888888);
-            g.fill(boxX + boxSize - 1, boxY, boxX + boxSize, boxY + boxSize, 0xFF888888);
+            g.fill(boxX, boxY, boxX + boxSize, boxY + boxSize, GuiTheme.SURFACE);
+            g.fill(boxX, boxY, boxX + boxSize, boxY + 1, GuiTheme.INPUT_EDGE);
+            g.fill(boxX, boxY + boxSize - 1, boxX + boxSize, boxY + boxSize, GuiTheme.INPUT_EDGE);
+            g.fill(boxX, boxY, boxX + 1, boxY + boxSize, GuiTheme.INPUT_EDGE);
+            g.fill(boxX + boxSize - 1, boxY, boxX + boxSize, boxY + boxSize, GuiTheme.INPUT_EDGE);
             if (isSelected) {
-                g.fill(boxX + 2, boxY + 2, boxX + boxSize - 2, boxY + boxSize - 2, 0xFF55FF55);
+                g.fill(boxX + 2, boxY + 2, boxX + boxSize - 2, boxY + boxSize - 2, GuiTheme.SUCCESS);
             }
 
-            String text = recipe.toString();
-            if (text.length() > 66) {
-                text = text.substring(0, 63) + "...";
-            }
+            String text = GuiLayoutHelper.ellipsis(
+                    this.font, recipe.toString(), Math.max(1, width - 24));
             g.drawString(this.font, text, x + 20, itemY + 5, getNamespaceColor(recipe.getNamespace()), false);
         }
 
         if (filteredRecipes.isEmpty() && loadError == null) {
-            g.drawCenteredString(this.font, "没有匹配的配方", x + width / 2, y + height / 2, 0xAAAAAA);
+            g.drawCenteredString(this.font, GuiText.component("registerhelper.gui.common.no_match"),
+                    x + width / 2, y + height / 2, GuiTheme.TEXT_MUTED);
         }
     }
 
     private void renderScrollbar(GuiGraphics g, int x, int y, int height) {
-        g.fill(x, y, x + 6, y + height, 0xFF1E1E1E);
-        int maxScroll = filteredRecipes.size() - visibleItems;
-        int thumbHeight = Math.max(10, height * visibleItems / filteredRecipes.size());
-        int thumbY = y + (maxScroll == 0 ? 0 : (height - thumbHeight) * scrollOffset / maxScroll);
-        g.fill(x + 1, thumbY, x + 5, thumbY + thumbHeight, 0xFF8B8B8B);
+        GuiLayoutHelper.Scrollbar scrollbar = GuiLayoutHelper.scrollbar(
+                new GuiLayoutHelper.Bounds(x, y, 6, height),
+                filteredRecipes.size(), visibleItems, scrollOffset, 10);
+        if (!scrollbar.visible()) return;
+        GuiTheme.drawScrollbar(g, scrollbar, -1, -1);
     }
 
     private int getNamespaceColor(String namespace) {
-        return switch (namespace) {
-            case "minecraft" -> 0xFF55FF55;
-            case "registerhelper" -> 0xFFFF5555;
-            case "avaritia" -> 0xFF5555FF;
-            default -> 0xFFFFAA00;
-        };
+        return GuiTheme.namespaceColor(namespace);
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int centerX = this.width / 2;
-        int listTop = LIST_TOP;
-        int listX = centerX - 240;
-        int listWidth = 480;
-        int listBottom = this.height - LIST_BOTTOM_MARGIN;
+        if (button == 0) {
+            GuiLayoutHelper.Scrollbar scrollbar = currentScrollbar();
+            if (scrollbar.contains(mouseX, mouseY)) {
+                draggingScrollbar = true;
+                scrollbarGrabOffset = scrollbar.grabOffset(mouseY);
+                scrollOffset = scrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+                return true;
+            }
+        }
+        int listTop = listBounds.y();
+        int listX = listBounds.x() + 5;
+        int listWidth = listBounds.width() - 10;
+        int listBottom = listBounds.bottom();
 
         if (mouseX >= listX && mouseX < listX + listWidth &&
                 mouseY >= listTop + 5 && mouseY < listBottom - 5) {
 
-            int row = (int) ((mouseY - listTop - 5) / itemHeight);
+            int row = (int) ((mouseY - listTop - 5) / ITEM_HEIGHT);
             if (row < 0 || row >= visibleItems) {
                 return true;
             }
@@ -318,6 +364,33 @@ public class BlacklistAddScreen extends Screen {
             return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private GuiLayoutHelper.Scrollbar currentScrollbar() {
+        return GuiLayoutHelper.scrollbar(
+                new GuiLayoutHelper.Bounds(listBounds.right() - 8, listBounds.y() + 5,
+                        6, Math.max(1, listBounds.height() - 10)),
+                filteredRecipes.size(), visibleItems, scrollOffset, 10);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button,
+                                double dragX, double dragY) {
+        if (draggingScrollbar && button == 0) {
+            scrollOffset = currentScrollbar().offsetForPointer(mouseY, scrollbarGrabOffset);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        boolean wasDragging = draggingScrollbar;
+        if (wasDragging) {
+            draggingScrollbar = false;
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override

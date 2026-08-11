@@ -2,9 +2,15 @@ package com.wzz.registerhelper.gui.recipe;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
+import com.wzz.registerhelper.gui.recipe.component.NumberInputComponent;
+import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.StringInputComponent;
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
+import com.wzz.registerhelper.gui.recipe.layout.LayoutManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.TagParser;
@@ -26,7 +32,11 @@ import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -60,6 +70,7 @@ public class RecipeLoader {
         public final String originalRecipeTypeId;
         public ResourceLocation recipeId;
         public List<IngredientData> ingredientsData = null;
+        public Map<String, Object> componentData = new HashMap<>();
 
         public LoadResult(boolean success, String message) {
             this(success, null, null, null, 1, ItemStack.EMPTY, Collections.emptyList(), message, null);
@@ -108,6 +119,8 @@ public class RecipeLoader {
             }
             if (json == null) return;
 
+            patchComponentDataFromJson(result, json);
+
             List<com.wzz.registerhelper.gui.recipe.IngredientData> dataList = null;
             if (json.has("key") && json.has("pattern")) {
                 dataList = patchFromShapedKey(json, result);
@@ -129,6 +142,50 @@ public class RecipeLoader {
         } catch (Exception e) {
             LOGGER.warn("[RegisterHelper] patchIngredientDataFromJson 失败: {}", e.getMessage());
         }
+    }
+
+    private void patchComponentDataFromJson(LoadResult result, JsonObject json) {
+        Set<String> componentIds = new HashSet<>();
+        for (var layout : LayoutManager.getAllLayouts()) {
+            for (RecipeComponent component : layout.generateComponents(0, 0, result.avaritiaTeir)) {
+                if (component instanceof NumberInputComponent
+                        || component instanceof StringInputComponent) {
+                    componentIds.add(component.getId());
+                }
+            }
+        }
+
+        for (String componentId : componentIds) {
+            String jsonKey = "fluidAmount".equals(componentId) ? "amount" : componentId;
+            JsonElement value = findJsonValue(json, jsonKey);
+            if (value == null || !value.isJsonPrimitive()) continue;
+            var primitive = value.getAsJsonPrimitive();
+            if (primitive.isBoolean()) {
+                result.componentData.put(componentId, primitive.getAsBoolean());
+            } else if (primitive.isNumber()) {
+                result.componentData.put(componentId, primitive.getAsInt());
+            } else if (primitive.isString()) {
+                result.componentData.put(componentId, primitive.getAsString());
+            }
+        }
+    }
+
+    private JsonElement findJsonValue(JsonElement element, String key) {
+        if (element == null || element.isJsonNull()) return null;
+        if (element.isJsonObject()) {
+            JsonObject object = element.getAsJsonObject();
+            if (object.has(key)) return object.get(key);
+            for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
+                JsonElement nested = findJsonValue(entry.getValue(), key);
+                if (nested != null) return nested;
+            }
+        } else if (element.isJsonArray()) {
+            for (JsonElement child : element.getAsJsonArray()) {
+                JsonElement nested = findJsonValue(child, key);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
     }
 
     /**
@@ -203,12 +260,12 @@ public class RecipeLoader {
             RegistryAccess registryAccess = getRegistryAccess();
 
             if (recipeManager == null || registryAccess == null) {
-                return new LoadResult(false, "无法获取配方数据（服务器未启动或未连接）");
+                return new LoadResult(false, GuiText.string("registerhelper.message.recipe.data_unavailable"));
             }
             var recipe = recipeManager.byKey(recipeId).orElse(null);
 
             if (recipe == null) {
-                return new LoadResult(false, "找不到配方: " + recipeId);
+                return new LoadResult(false, GuiText.string("registerhelper.message.recipe.not_found", recipeId));
             }
             String originalRecipeTypeId;
             try {
@@ -266,7 +323,7 @@ public class RecipeLoader {
 
         } catch (Exception e) {
             LOGGER.error("加载配方失败", e);
-            return new LoadResult(false, "加载配方失败: " + e.getMessage());
+            return new LoadResult(false, GuiText.string("registerhelper.message.recipe.load_failed", e.getMessage()));
         }
     }
 
@@ -296,11 +353,11 @@ public class RecipeLoader {
                     recipe.getId(), originalRecipeTypeId, ingredients.size());
 
             return new LoadResult(true, null, null, null, 1,
-                    resultItem, ingredients, "成功载入模组配方", originalRecipeTypeId);
+                    resultItem, ingredients, GuiText.string("registerhelper.message.recipe.loaded_mod"), originalRecipeTypeId);
 
         } catch (Exception e) {
             LOGGER.warn("解析通用配方失败", e);
-            return new LoadResult(false, "解析配方失败: " + e.getMessage());
+            return new LoadResult(false, GuiText.string("registerhelper.message.recipe.parse_failed", e.getMessage()));
         }
     }
 
@@ -322,7 +379,7 @@ public class RecipeLoader {
             }
         } catch (Exception e) {
             LOGGER.error("解析工作台配方失败", e);
-            return new LoadResult(false, "解析工作台配方失败: " + e.getMessage());
+            return new LoadResult(false, GuiText.string("registerhelper.message.recipe.parse_crafting_failed", e.getMessage()));
         }
     }
 
@@ -346,7 +403,7 @@ public class RecipeLoader {
         }
 
         return new LoadResult(true, RecipeType.CRAFTING, mode, null, 1,
-                resultItem, ingredients, "成功载入工作台配方", originalRecipeTypeId);
+                resultItem, ingredients, GuiText.string("registerhelper.message.recipe.loaded_crafting"), originalRecipeTypeId);
     }
 
     /**
@@ -370,11 +427,11 @@ public class RecipeLoader {
             }
 
             return new LoadResult(true, RecipeType.COOKING, null, cookingType, 1,
-                    resultItem, ingredients, "成功载入烹饪配方", originalRecipeTypeId);
+                    resultItem, ingredients, GuiText.string("registerhelper.message.recipe.loaded_cooking"), originalRecipeTypeId);
 
         } catch (Exception e) {
             LOGGER.warn("解析烹饪配方失败", e);
-            return new LoadResult(false, "解析烹饪配方失败: " + e.getMessage());
+            return new LoadResult(false, GuiText.string("registerhelper.message.recipe.parse_cooking_failed", e.getMessage()));
         }
     }
 
@@ -408,11 +465,11 @@ public class RecipeLoader {
             }
 
             return new LoadResult(true, RecipeType.AVARITIA, mode, null, tier,
-                    resultItem, ingredients, "成功载入Avaritia配方", originalRecipeTypeId);
+                    resultItem, ingredients, GuiText.string("registerhelper.message.recipe.loaded_avaritia"), originalRecipeTypeId);
 
         } catch (Exception e) {
             LOGGER.warn("解析Avaritia配方失败", e);
-            return new LoadResult(false, "解析Avaritia配方失败: " + e.getMessage());
+            return new LoadResult(false, GuiText.string("registerhelper.message.recipe.parse_avaritia_failed", e.getMessage()));
         }
     }
 
@@ -444,11 +501,11 @@ public class RecipeLoader {
 
             // 使用null作为recipeType，让系统根据originalRecipeTypeId自动识别
             return new LoadResult(true, null, null, null, 1,
-                    resultItem, ingredients, "成功载入锻造台配方", originalRecipeTypeId);
+                    resultItem, ingredients, GuiText.string("registerhelper.message.recipe.loaded_smithing"), originalRecipeTypeId);
 
         } catch (Exception e) {
             LOGGER.warn("解析锻造台配方失败", e);
-            return new LoadResult(false, "解析锻造台配方失败: " + e.getMessage());
+            return new LoadResult(false, GuiText.string("registerhelper.message.recipe.parse_smithing_failed", e.getMessage()));
         }
     }
 
@@ -797,14 +854,14 @@ public class RecipeLoader {
         String path = recipeId.getPath();
 
         if (namespace.equals("registerhelper") || path.startsWith("custom_") || path.contains("_custom_")) {
-            return "自定义";
+            return GuiText.string("registerhelper.recipe.source.custom");
         }
 
         if (namespace.equals("minecraft")) {
-            return "原版";
+            return GuiText.string("registerhelper.recipe.source.vanilla");
         }
 
-        return "模组(" + namespace + ")";
+        return GuiText.string("registerhelper.recipe.source.mod", namespace);
     }
 
     /**
