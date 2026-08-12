@@ -1,44 +1,53 @@
 package com.wzz.registerhelper.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.network.OpenGUIPacket;
+import com.wzz.registerhelper.util.CrtUtils;
 import com.wzz.registerhelper.util.KubeJsUtils;
 import com.wzz.registerhelper.util.RecipeReloadHelper;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.slf4j.Logger;
 
 /**
  * RegisterHelper 命令注册。
  *
- * NeoForge 1.21.1 迁移要点：
- * - 删除 CraftTweaker(CrtUtils) 导出分支（联动不移植）
- * - 保留 KubeJS 导出（KubeJsUtils 已存在）
- * - 补回 1.20.1 中的 reload 命令（以服务器身份执行 /reload）
- * - PacketDistributor: ModNetwork.CHANNEL.send(...) -> PacketDistributor.sendToPlayer(...)
- * - net.minecraftforge.fml.ModList 已不再需要（CraftTweaker 检查随分支删除）
+ * NeoForge 1.21.1 command registration and export entry points.
  */
 public class RecipeCommand {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+        LiteralArgumentBuilder<CommandSourceStack> export = Commands.literal("export")
+                .then(Commands.literal("kubejs")
+                        .then(Commands.literal("single")
+                                .executes(RecipeCommand::exportAllToKubeJSSingle))
+                        .then(Commands.literal("multiple")
+                                .executes(RecipeCommand::exportAllToKubeJSMultiple)));
+
+        if (ModList.get().isLoaded("crafttweaker")) {
+            export.then(Commands.literal("crafttweaker")
+                    .then(Commands.literal("single")
+                            .executes(RecipeCommand::exportAllToCraftTweakerSingle))
+                    .then(Commands.literal("multiple")
+                            .executes(RecipeCommand::exportAllToCraftTweakerMultiple)));
+        }
+
         dispatcher.register(Commands.literal("recipe_helper")
                 .requires(source -> source.hasPermission(2))
                 .then(Commands.literal("openGUI")
                         .executes(RecipeCommand::openGUI))
                 .then(Commands.literal("reload")
                         .executes(RecipeCommand::reloadRecipes))
-                .then(Commands.literal("export")
-                        .then(Commands.literal("kubejs")
-                                .then(Commands.literal("single")
-                                        .executes(RecipeCommand::exportAllToKubeJSSingle))
-                                .then(Commands.literal("multiple")
-                                        .executes(RecipeCommand::exportAllToKubeJSMultiple)))));
+                .then(export));
     }
 
     /**
@@ -59,7 +68,8 @@ public class RecipeCommand {
             }
 
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c重载失败: " + e.getMessage()));
+            source.sendFailure(Component.translatable("registerhelper.command.reload.failed", e.getMessage())
+                    .withStyle(ChatFormatting.RED));
             LOGGER.error("配方重载失败", e);
             return 0;
         }
@@ -69,11 +79,13 @@ public class RecipeCommand {
         CommandSourceStack source = context.getSource();
         try {
             KubeJsUtils.exportAllJsonRecipesToJS(true);
-            source.sendSuccess(() -> Component.literal("§a成功导出所有配方到 kubejs/server_scripts/registerhelper_recipes.js"), true);
+            source.sendSuccess(() -> Component.translatable(
+                    "registerhelper.command.export.kubejs.single.success"), true);
             return 1;
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c导出失败: " + e.getMessage()));
-            e.printStackTrace();
+            source.sendFailure(Component.translatable("registerhelper.command.export.failed", e.getMessage())
+                    .withStyle(ChatFormatting.RED));
+            LOGGER.error("导出配方失败", e);
             return 0;
         }
     }
@@ -82,11 +94,53 @@ public class RecipeCommand {
         CommandSourceStack source = context.getSource();
         try {
             KubeJsUtils.exportAllJsonRecipesToJS(false);
-            source.sendSuccess(() -> Component.literal("§a成功导出所有配方到 kubejs/server_scripts (按目录分文件)"), true);
+            source.sendSuccess(() -> Component.translatable(
+                    "registerhelper.command.export.kubejs.multiple.success"), true);
             return 1;
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c导出失败: " + e.getMessage()));
-            e.printStackTrace();
+            source.sendFailure(Component.translatable("registerhelper.command.export.failed", e.getMessage())
+                    .withStyle(ChatFormatting.RED));
+            LOGGER.error("导出配方失败", e);
+            return 0;
+        }
+    }
+
+    private static int exportAllToCraftTweakerSingle(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        if (!ModList.get().isLoaded("crafttweaker")) {
+            source.sendFailure(Component.translatable("registerhelper.command.export.crafttweaker.missing")
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        try {
+            CrtUtils.exportAllJsonRecipesToZS(true);
+            source.sendSuccess(() -> Component.translatable(
+                    "registerhelper.command.export.crafttweaker.single.success"), true);
+            return 1;
+        } catch (Exception e) {
+            source.sendFailure(Component.translatable("registerhelper.command.export.failed", e.getMessage())
+                    .withStyle(ChatFormatting.RED));
+            LOGGER.error("导出 CraftTweaker 配方失败", e);
+            return 0;
+        }
+    }
+
+    private static int exportAllToCraftTweakerMultiple(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        if (!ModList.get().isLoaded("crafttweaker")) {
+            source.sendFailure(Component.translatable("registerhelper.command.export.crafttweaker.missing")
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        try {
+            CrtUtils.exportAllJsonRecipesToZS(false);
+            source.sendSuccess(() -> Component.translatable(
+                    "registerhelper.command.export.crafttweaker.multiple.success"), true);
+            return 1;
+        } catch (Exception e) {
+            source.sendFailure(Component.translatable("registerhelper.command.export.failed", e.getMessage())
+                    .withStyle(ChatFormatting.RED));
+            LOGGER.error("导出 CraftTweaker 配方失败", e);
             return 0;
         }
     }
@@ -97,11 +151,14 @@ public class RecipeCommand {
                 PacketDistributor.sendToPlayer(player, new OpenGUIPacket());
                 return 1;
             } else {
-                context.getSource().sendFailure(Component.literal("只有玩家可以使用GUI"));
+                context.getSource().sendFailure(Component.translatable(
+                        "registerhelper.command.open_gui.player_only"));
                 return 0;
             }
         } catch (Exception e) {
-            context.getSource().sendFailure(Component.literal("打开GUI失败: " + e.getMessage()));
+            context.getSource().sendFailure(Component.translatable(
+                    "registerhelper.command.open_gui.failed", e.getMessage())
+                    .withStyle(ChatFormatting.RED));
             return 0;
         }
     }

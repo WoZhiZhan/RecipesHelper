@@ -3,6 +3,7 @@ package com.wzz.registerhelper.gui.recipe.component.renderer;
 import com.wzz.registerhelper.gui.recipe.component.ComponentDataManager;
 import com.wzz.registerhelper.gui.recipe.component.ComponentRenderer;
 import com.wzz.registerhelper.gui.recipe.component.NumberInputComponent;
+import com.wzz.registerhelper.gui.GuiTheme;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -30,8 +31,9 @@ public class NumberInputRenderer implements ComponentRenderer {
             component.getX(), component.getY(), 
             component.getWidth(), component.getHeight(),
             Component.literal(component.getLabel()));
-        // 设置默认值
-        this.editBox.setValue(String.valueOf(component.getDefaultValue()));
+        GuiTheme.styleInput(this.editBox);
+        int initialValue = dataManager.getNumber(component.getId(), component.getDefaultValue());
+        this.editBox.setValue(String.valueOf(initialValue));
         
         // 设置过滤器（只允许数字）
         this.editBox.setFilter(text -> {
@@ -55,12 +57,13 @@ public class NumberInputRenderer implements ComponentRenderer {
         });
         
         // 初始化数据
-        dataManager.setNumber(component.getId(), component.getDefaultValue());
+        dataManager.setNumber(component.getId(), initialValue);
     }
     
     @Override
     public void render(GuiGraphics guiGraphics, Font font, int mouseX, int mouseY) {
         if (!active) return;
+        GuiTheme.drawInput(guiGraphics, editBox);
         editBox.render(guiGraphics, mouseX, mouseY, 0);
     }
     

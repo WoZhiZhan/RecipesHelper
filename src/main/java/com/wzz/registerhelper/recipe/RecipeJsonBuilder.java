@@ -3,10 +3,7 @@ package com.wzz.registerhelper.recipe;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.wzz.registerhelper.gui.recipe.IngredientData;
-import com.wzz.registerhelper.util.DataComponentsHelper;
-import com.wzz.registerhelper.util.OldUtils;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import com.wzz.registerhelper.util.RecipeUtil;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.HashMap;
@@ -16,8 +13,7 @@ import java.util.Map;
 import static com.wzz.registerhelper.gui.recipe.RecipeTypeConfig.AvaritiaConfig.getGridSizeForTier;
 
 /**
- * 配方JSON构建器
- * 正确处理NBT数据和标签
+ * Recipe JSON builder for the built-in and Avaritia recipe layouts.
  */
 public class RecipeJsonBuilder {
 
@@ -99,16 +95,7 @@ public class RecipeJsonBuilder {
         // 添加材料
         recipe.add("ingredient", createIngredientJson(ingredient));
 
-        // 添加结果（1.21+ 使用对象格式）
-        JsonObject resultObj = new JsonObject();
-        resultObj.addProperty("id", BuiltInRegistries.ITEM.getKey(result.getItem()).toString());
-        if (result.getCount() > 1) {
-            resultObj.addProperty("count", result.getCount());
-        }
-        // 如果有NBT（虽然烹饪配方通常不支持NBT输出）
-        if (OldUtils.hasTag(result)) {
-            resultObj.addProperty("nbt", OldUtils.getTag(result).toString());
-        }
+        JsonObject resultObj = RecipeUtil.createResultJson(result, result.getCount());
         recipe.add("result", resultObj);
 
         // 添加经验和时间
@@ -119,36 +106,17 @@ public class RecipeJsonBuilder {
     }
 
     /**
-     * 创建材料JSON对象
-     * 正确处理普通物品、带NBT的物品和标签
+     * Creates an ingredient using the shared 1.21.1 component policy.
      */
     private static JsonObject createIngredientJson(IngredientData data) {
-        JsonObject ingredient = new JsonObject();
-
-        switch (data.getType()) {
-            case ITEM -> {
-                ItemStack stack = data.getItemStack();
-                return DataComponentsHelper.createIngredientWithComponents(stack);
-            }
-            case TAG -> {
-                // 标签使用 "tag"
-                ResourceLocation tagId = data.getTagId();
-                ingredient.addProperty("tag", tagId.toString());
-            }
-            case CUSTOM_TAG -> {
-                ResourceLocation tagId = data.getTagId();
-                ingredient.addProperty("tag", tagId.toString());
-            }
-        }
-
-        return ingredient;
+        return RecipeUtil.createIngredientJson(data);
     }
 
     /**
      * 创建结果JSON对象
      */
     private static JsonObject createResultJson(ItemStack result) {
-        return DataComponentsHelper.createResultWithComponents(result);
+        return RecipeUtil.createResultJson(result, result.getCount());
     }
 
     /**
@@ -198,15 +166,7 @@ public class RecipeJsonBuilder {
      */
     private static String getIngredientKey(IngredientData data) {
         return switch (data.getType()) {
-            case ITEM -> {
-                ItemStack stack = data.getItemStack();
-                String key = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-                // 如果有NBT，需要包含NBT的内容以区分不同的NBT物品
-                if (OldUtils.hasTag(stack)) {
-                    key += "_nbt_" + OldUtils.getTag(stack).toString();
-                }
-                yield key;
-            }
+            case ITEM -> RecipeUtil.createIngredientJson(data).toString();
             case TAG, CUSTOM_TAG -> "tag_" + data.getTagId().toString();
         };
     }

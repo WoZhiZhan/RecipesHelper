@@ -5,10 +5,10 @@ import com.google.gson.JsonObject;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import com.wzz.registerhelper.util.ModLogger;
-import net.minecraft.resources.ResourceLocation;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import static com.wzz.registerhelper.util.RecipeUtil.*;
 
@@ -42,6 +42,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
             case "campfire_cooking", "campfire" -> createCookingRecipe(request, "minecraft:campfire_cooking");
             case "stonecutting" -> createStonecuttingRecipe(request);
             case "smithing", "smithing_transform" -> createSmithingRecipe(request);
+            case "brew", "brewing" -> createBrewingRecipe(request);
+            case "anvil" -> createAnvilRecipe(request);
             default -> {
                 ModLogger.getLogger().error("Unsupported recipe type: {} (processed as: {})", request.recipeType, recipeType);
                 yield null;
@@ -52,9 +54,9 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
     @Override
     public String[] getSupportedRecipeTypes() {
         return new String[]{
-                "shaped", "shapeless",
-                "smelting", "blasting", "smoking", "campfire_cooking",
-                "stonecutting", "smithing"
+                "shaped", "crafting_shaped", "shapeless", "crafting_shapeless",
+                "smelting", "blasting", "smoking", "campfire_cooking", "campfire",
+                "brew", "brewing", "stonecutting", "smithing", "smithing_transform", "anvil"
         };
     }
 
@@ -81,7 +83,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
                     char symbol = getCharFromObject(request.ingredients[i]);
                     Object ingredient = request.ingredients[i + 1];
 
-                    JsonObject ingredientJson = createIngredientJson(ingredient);
+                    JsonObject ingredientJson = createIngredientJson(ingredient,
+                            (Boolean) request.properties.getOrDefault("includeNBT", true));
                     if (ingredientJson != null) {
                         keyMapping.put(symbol, ingredientJson);
                     }
@@ -108,7 +111,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
         if (request.ingredients != null) {
             JsonArray ingredientsArray = new JsonArray();
             for (Object ingredient : request.ingredients) {
-                JsonObject ingredientJson = createIngredientJson(ingredient);
+                JsonObject ingredientJson = createIngredientJson(ingredient,
+                        (Boolean) request.properties.getOrDefault("includeNBT", true));
                 if (ingredientJson != null) {
                     ingredientsArray.add(ingredientJson);
                 }
@@ -132,30 +136,22 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 添加ingredient
         if (request.ingredients != null && request.ingredients.length > 0) {
-            JsonObject ingredientJson = createIngredientJson(request.ingredients[0]);
+            JsonObject ingredientJson = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (ingredientJson != null) {
                 recipe.add("ingredient", ingredientJson);
             }
         }
 
-        // 添加结果（1.21+ 使用对象格式）
-        JsonObject resultObj = new JsonObject();
-        ResourceLocation resultId = getItemResourceLocation(request.result.getItem());
-        resultObj.addProperty("id", resultId.toString());
-
-        // 如果数量不是1，添加 count
-        if (request.resultCount > 1) {
-            resultObj.addProperty("count", request.resultCount);
-        }
-
-        recipe.add("result", resultObj);
+        // 添加结果（1.21+ 使用对象格式和 Data Components）
+        recipe.add("result", createResultJson(request.result, request.resultCount));
 
         // 添加经验和时间
-        Float experience = (Float) request.properties.get("experience");
+        Number experience = (Number) request.properties.get("experience");
         Integer cookingTime = (Integer) request.properties.get("cookingTime");
 
         if (experience != null) {
-            recipe.addProperty("experience", experience);
+            recipe.addProperty("experience", experience.floatValue());
         } else {
             // 默认经验值
             recipe.addProperty("experience", 0.1f);
@@ -187,20 +183,15 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 输入材料
         if (request.ingredients != null && request.ingredients.length > 0) {
-            JsonObject ingredient = createIngredientJson(request.ingredients[0]);
+            JsonObject ingredient = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (ingredient != null) {
                 recipe.add("ingredient", ingredient);
             }
         }
 
-        // 结果（1.21+ 使用对象格式）
-        JsonObject resultObj = new JsonObject();
-        ResourceLocation resultId = getItemResourceLocation(request.result.getItem());
-        resultObj.addProperty("id", resultId.toString());
-        recipe.add("result", resultObj);
-
-        // count 字段独立在外
-        recipe.addProperty("count", Math.max(1, request.resultCount));
+        // 1.21.1 keeps count and components inside the ItemStack result.
+        recipe.add("result", createResultJson(request.result, Math.max(1, request.resultCount)));
 
         return recipe;
     }
@@ -214,7 +205,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 模板（第一个材料）
         if (request.ingredients != null && request.ingredients.length > 0) {
-            JsonObject template = createIngredientJson(request.ingredients[0]);
+            JsonObject template = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (template != null) {
                 recipe.add("template", template);
             }
@@ -222,7 +214,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 基础物品（第二个材料）
         if (request.ingredients != null && request.ingredients.length > 1) {
-            JsonObject base = createIngredientJson(request.ingredients[1]);
+            JsonObject base = createIngredientJson(request.ingredients[1],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (base != null) {
                 recipe.add("base", base);
             }
@@ -230,7 +223,8 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
 
         // 添加材料（第三个材料）
         if (request.ingredients != null && request.ingredients.length > 2) {
-            JsonObject addition = createIngredientJson(request.ingredients[2]);
+            JsonObject addition = createIngredientJson(request.ingredients[2],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
             if (addition != null) {
                 recipe.add("addition", addition);
             }
@@ -239,6 +233,62 @@ public class MinecraftRecipeProcessor implements ModRecipeProcessor {
         // 结果（1.21 格式）
         recipe.add("result", createResultJson(request.result, request.resultCount));
 
+        return recipe;
+    }
+
+    /**
+     * Creates the registerhelper brewing recipe used by the built-in brewing layout.
+     */
+    private JsonObject createBrewingRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "registerhelper:brewing");
+
+        if (request.ingredients != null && request.ingredients.length > 0) {
+            JsonObject input = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
+            if (input != null) {
+                recipe.add("input", input);
+            }
+        }
+        if (request.ingredients != null && request.ingredients.length > 1) {
+            JsonObject ingredient = createIngredientJson(request.ingredients[1],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
+            if (ingredient != null) {
+                recipe.add("ingredient", ingredient);
+            }
+        }
+
+        recipe.add("output", createResultJson(request.result, request.resultCount));
+        return recipe;
+    }
+
+    /**
+     * Creates the registerhelper anvil recipe used by the built-in anvil layout.
+     */
+    private JsonObject createAnvilRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "registerhelper:anvil");
+
+        if (request.ingredients != null && request.ingredients.length > 0) {
+            JsonObject left = createIngredientJson(request.ingredients[0],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
+            if (left != null) {
+                recipe.add("left", left);
+            }
+        }
+        if (request.ingredients != null && request.ingredients.length > 1) {
+            JsonObject right = createIngredientJson(request.ingredients[1],
+                    (Boolean) request.properties.getOrDefault("includeNBT", true));
+            if (right != null) {
+                recipe.add("right", right);
+            }
+        }
+
+        recipe.add("output", createResultJson(request.result, request.resultCount));
+        Integer cost = (Integer) request.properties.get("cost");
+        recipe.addProperty("cost", Objects.requireNonNullElse(cost, 1));
+        Integer materialCost = (Integer) request.properties.get("material_cost");
+        recipe.addProperty("material_cost", Objects.requireNonNullElse(materialCost, 1));
         return recipe;
     }
 }

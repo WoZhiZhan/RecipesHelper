@@ -4,18 +4,18 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
+import com.mojang.serialization.DynamicOps;
+import com.mojang.serialization.JsonOps;
+import com.wzz.registerhelper.util.DataComponentsHelper;
 import com.wzz.registerhelper.util.OldUtils;
 import net.minecraft.core.Holder;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.TagParser;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.Potion;
 import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.crafting.Ingredient;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.loading.FMLPaths;
@@ -146,7 +146,8 @@ public class CustomRecipeLoader {
     }
 
     /**
-     * 解析ItemStack（支持NBT和药水）
+     * Parses both the standard 1.21.1 stack object and the legacy config
+     * object. Legacy nbt is mapped to CUSTOM_DATA after codec parsing.
      */
     private static ItemStack parseItemStack(JsonElement element) {
         if (element == null || element.isJsonNull()) {
@@ -155,24 +156,30 @@ public class CustomRecipeLoader {
         try {
             JsonObject obj = element.getAsJsonObject();
 
-            String itemId = obj.get("item").getAsString();
-            Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(itemId));
-            if (item == null || item == Items.AIR) {
-                LOGGER.warn("未知物品: {}", itemId);
+            String itemId = obj.has("id")
+                    ? obj.get("id").getAsString()
+                    : obj.has("item") ? obj.get("item").getAsString()
+                    : obj.has("items") ? obj.get("items").toString() : "<missing>";
+            ItemStack stack = isNeoForgeComponentIngredient(obj)
+                    ? parseNeoForgeComponentIngredient(obj)
+                    : DataComponentsHelper.parseItemStack(obj);
+            if (stack.isEmpty()) {
+                LOGGER.warn("未知或无法解析的物品: {}", itemId);
                 return null;
             }
 
-            int count = obj.has("count") ? obj.get("count").getAsInt() : 1;
-            ItemStack stack = new ItemStack(item, count);
-
-            // 解析NBT（写入 CUSTOM_DATA，通过兼容层）
             if (obj.has("nbt")) {
-                String nbtString = obj.get("nbt").getAsString();
-                try {
-                    CompoundTag nbt = TagParser.parseTag(nbtString);
-                    OldUtils.setTag(stack, nbt);
-                } catch (Exception e) {
-                    LOGGER.error("解析NBT失败: {}", nbtString, e);
+                var nbt = DataComponentsHelper.parseSnbt(obj.get("nbt"));
+                if (nbt != null) {
+                    var customData = OldUtils.getCustomDataTag(stack);
+                    if (customData != null) {
+                        customData.merge(nbt);
+                    } else {
+                        customData = nbt;
+                    }
+                    OldUtils.setTag(stack, customData);
+                } else {
+                    LOGGER.error("解析NBT失败: {}", obj.get("nbt"));
                 }
             }
 
@@ -195,6 +202,35 @@ public class CustomRecipeLoader {
             LOGGER.error("解析ItemStack失败", e);
             return null;
         }
+    }
+
+    private static boolean isNeoForgeComponentIngredient(JsonObject object) {
+        return object.has("type")
+                && "neoforge:components".equals(object.get("type").getAsString());
+    }
+
+    private static ItemStack parseNeoForgeComponentIngredient(JsonObject object) {
+        int count = object.has("count") ? object.get("count").getAsInt() : 1;
+        JsonObject ingredientJson = object.deepCopy();
+        ingredientJson.remove("count");
+
+        DynamicOps<JsonElement> ops = OldUtils.getRegistryAccess()
+                .createSerializationContext(JsonOps.INSTANCE);
+        Ingredient ingredient = Ingredient.CODEC.parse(ops, ingredientJson)
+                .resultOrPartial(message -> LOGGER.error(
+                        "解析NeoForge组件原料失败: {}", message))
+                .orElse(null);
+        if (ingredient == null) {
+            return ItemStack.EMPTY;
+        }
+
+        ItemStack[] matchingStacks = ingredient.getItems();
+        if (matchingStacks.length == 0) {
+            return ItemStack.EMPTY;
+        }
+        ItemStack stack = matchingStacks[0].copy();
+        stack.setCount(Math.max(1, count));
+        return stack;
     }
 
     public static boolean hasBrewingRecipe(ItemStack input, ItemStack ingredient) {

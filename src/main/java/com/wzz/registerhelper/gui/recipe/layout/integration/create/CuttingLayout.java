@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.create;
 
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.gui.recipe.component.*;
 import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
@@ -21,13 +22,13 @@ public class CuttingLayout implements RecipeLayout {
         components.add(new NumberInputComponent(
                 baseX + 198, baseY + 132,
                 60, "processingTime",
-                "数值", 100,
+                GuiText.string("registerhelper.recipe_layout.number"), 100,
                 10, 10000,
                 "value", false
         ));
         components.add(new LabelComponent(
                 baseX + 132, baseY + 132,
-                "comp_2", "处理事件(tick)",
+                "comp_2", GuiText.string("registerhelper.recipe_layout.processing_time_ticks"),
                 12, 0x404040
         ));
 

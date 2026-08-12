@@ -164,9 +164,15 @@ public class ComponentRenderManager {
      * 清空所有数据
      */
     public void clear() {
+        clearRenderers();
         dataManager.clear();
+    }
+
+    /** Rebuild visual components without discarding entered component values. */
+    public void clearRenderers() {
         slotItems.clear();
         resultItem = ItemStack.EMPTY;
         editBoxes.clear();
+        renderers.clear();
     }
 }

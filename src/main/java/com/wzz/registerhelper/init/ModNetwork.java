@@ -13,7 +13,7 @@ public class ModNetwork {
 
     @SubscribeEvent
     public static void register(RegisterPayloadHandlersEvent event) {
-        final PayloadRegistrar registrar = event.registrar("1");
+        final PayloadRegistrar registrar = event.registrar("4");
 
         // 注册打开GUI的包（服务器 -> 客户端）
         registrar.playToClient(

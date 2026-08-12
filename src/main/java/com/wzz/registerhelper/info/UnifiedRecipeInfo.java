@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.info;
 
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
 public class UnifiedRecipeInfo {
@@ -18,9 +19,13 @@ public class UnifiedRecipeInfo {
     }
     
     public String getStatusText() {
-        if (isBlacklisted) return "§c[已禁用]";
-        if (hasOverride) return "§e[已覆盖]";
-        return "§a[正常]";
+        if (isBlacklisted) {
+            return Component.translatable("registerhelper.recipe.status.disabled").getString();
+        }
+        if (hasOverride) {
+            return Component.translatable("registerhelper.recipe.status.overridden").getString();
+        }
+        return Component.translatable("registerhelper.recipe.status.normal").getString();
     }
     
     public String getDisplayText() {

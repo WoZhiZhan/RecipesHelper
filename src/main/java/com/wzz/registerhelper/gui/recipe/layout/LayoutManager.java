@@ -1,5 +1,7 @@
 package com.wzz.registerhelper.gui.recipe.layout;
 
+import com.wzz.registerhelper.gui.recipe.layout.integration.astralrail_cube.PathAscension;
+import com.wzz.registerhelper.gui.recipe.layout.integration.astralrail_cube.PathTransmuter;
 import com.wzz.registerhelper.gui.recipe.layout.integration.botania.*;
 import com.wzz.registerhelper.gui.recipe.layout.integration.builtin.*;
 import com.wzz.registerhelper.gui.recipe.layout.integration.create.CompactingLayout;
@@ -11,6 +13,7 @@ import com.wzz.registerhelper.gui.recipe.layout.integration.farmersdelight.Cutti
 import com.wzz.registerhelper.gui.recipe.layout.integration.immersive_engineering.ArcFurnaceLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.mysticalagriculture.InfusionLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.mysticalagriculture.ReprocessorLayout;
+import com.wzz.registerhelper.gui.recipe.layout.integration.tacz.GunSmithTableLayout;
 
 import java.util.*;
 
@@ -29,11 +32,13 @@ public class LayoutManager {
         registerLayout("rectangular_2x2", new RectangularLayout(2, 2));
         registerLayout("rectangular_5x5", new RectangularLayout(5, 5));
         registerLayout("rectangular_11x11", new RectangularLayout(11, 11));
+        registerLayout("rectangular_7x7", new RectangularLayout(7, 7));
 
         // Minecraft 内置布局
         registerLayout("minecraft_brewing", new MinecraftBrewingLayout());
         registerLayout("stonecutting", new StonecuttingLayout());
         registerLayout("smithing", new SmithingLayout());
+        registerLayout("anvil", new AnvilLayout());
         
         // Mod 集成布局
         registerLayout("runic_altar", new RunicAltarLayout());
@@ -47,6 +52,11 @@ public class LayoutManager {
         registerLayout("compacting", new CompactingLayout());
         registerLayout("filling", new FillingLayout());
         registerLayout("pressing", new PressingLayout());
+        registerLayout("path_ascension", new PathAscension());
+        registerLayout("path_transmuter", new PathTransmuter());
+        RecipeLayout gunSmithTable = new GunSmithTableLayout();
+        registerLayout("tacz_gun_smith_table", gunSmithTable);
+        registerLayout("gun_smith_table", gunSmithTable);
     }
     
     /**

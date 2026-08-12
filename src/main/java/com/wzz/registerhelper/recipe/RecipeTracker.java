@@ -49,7 +49,9 @@ public class RecipeTracker {
      * @return 配方ID集合的只读视图
      */
     public static Set<ResourceLocation> getTrackedRecipes() {
-        return Collections.unmodifiableSet(TRACKED_RECIPES);
+        synchronized (TRACKED_RECIPES) {
+            return Set.copyOf(TRACKED_RECIPES);
+        }
     }
 
     /**

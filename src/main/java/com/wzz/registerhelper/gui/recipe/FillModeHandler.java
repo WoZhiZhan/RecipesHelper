@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe;
 
+import com.wzz.registerhelper.gui.GuiText;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.function.Consumer;
@@ -62,7 +63,7 @@ public class FillModeHandler {
     private void handleBrushMode(SlotManager slotManager, int slotIndex) {
         if (brushItem.isEmpty()) {
             if (errorCallback != null) {
-                errorCallback.accept("请先选择画笔物品！");
+                errorCallback.accept(GuiText.string("registerhelper.message.recipe.select_brush_first"));
             }
             return;
         }
@@ -76,7 +77,7 @@ public class FillModeHandler {
     private void handleFillMode(SlotManager slotManager) {
         if (brushItem.isEmpty()) {
             if (errorCallback != null) {
-                errorCallback.accept("请先选择画笔物品！");
+                errorCallback.accept(GuiText.string("registerhelper.message.recipe.select_brush_first"));
             }
             return;
         }
@@ -98,13 +99,14 @@ public class FillModeHandler {
      */
     public String getHintText() {
         String hint = switch (currentMode) {
-            case NORMAL -> "普通模式: 点击槽位选择物品";
-            case BRUSH -> "画笔模式: 点击槽位填充画笔物品";
-            case FILL -> "填充模式: 点击任意槽位填充所有空槽";
+            case NORMAL -> GuiText.string("registerhelper.gui.recipe_creator.fill_hint.normal");
+            case BRUSH -> GuiText.string("registerhelper.gui.recipe_creator.fill_hint.brush");
+            case FILL -> GuiText.string("registerhelper.gui.recipe_creator.fill_hint.fill");
         };
 
         if (currentMode != FillMode.NORMAL && !brushItem.isEmpty()) {
-            hint += " [当前画笔: " + brushItem.getHoverName().getString() + "]";
+            hint = GuiText.string("registerhelper.gui.recipe_creator.fill_hint.with_brush",
+                    hint, brushItem.getHoverName().getString());
         }
 
         return hint;
@@ -115,9 +117,9 @@ public class FillModeHandler {
      */
     public String getSlotTooltip() {
         return switch (currentMode) {
-            case NORMAL -> "左键: 选择物品\n右键: 清空";
-            case BRUSH -> "左键: 填充画笔物品\n右键: 清空";
-            case FILL -> "左键: 填充所有空槽\n右键: 清空";
+            case NORMAL -> GuiText.string("registerhelper.tooltip.recipe_slot.mode_normal");
+            case BRUSH -> GuiText.string("registerhelper.tooltip.recipe_slot.mode_brush");
+            case FILL -> GuiText.string("registerhelper.tooltip.recipe_slot.mode_fill");
         };
     }
 

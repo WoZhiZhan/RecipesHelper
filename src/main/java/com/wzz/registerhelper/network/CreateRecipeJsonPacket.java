@@ -10,6 +10,7 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.slf4j.Logger;
@@ -26,11 +27,25 @@ import java.nio.file.Path;
 public record CreateRecipeJsonPacket(
         String recipeId,      // 配方ID (namespace:path)
         String recipeJson,    // 完整的配方JSON字符串
-        boolean isOverride    // 是否为覆盖模式
+        boolean isOverride,   // 是否为覆盖模式
+        boolean replaceExisting // 编辑自定义配方时覆盖原文件
 ) implements CustomPacketPayload {
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    public CreateRecipeJsonPacket {
+        recipeId = recipeId == null ? "" : recipeId;
+        recipeJson = recipeJson == null ? "" : recipeJson;
+        NetworkProtocolLimits.validateString(
+                recipeId, "recipeId", NetworkProtocolLimits.MAX_RECIPE_ID_LENGTH);
+        NetworkProtocolLimits.validateString(
+                recipeJson, "recipeJson", NetworkProtocolLimits.MAX_RECIPE_JSON_LENGTH);
+    }
+
+    public CreateRecipeJsonPacket(String recipeId, String recipeJson, boolean isOverride) {
+        this(recipeId, recipeJson, isOverride, false);
+    }
 
     public static final CustomPacketPayload.Type<CreateRecipeJsonPacket> TYPE =
             new CustomPacketPayload.Type<>(
@@ -38,12 +53,14 @@ public record CreateRecipeJsonPacket(
             );
 
     public static final StreamCodec<ByteBuf, CreateRecipeJsonPacket> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.STRING_UTF8,
+            NetworkProtocolLimits.string(NetworkProtocolLimits.MAX_RECIPE_ID_LENGTH),
             CreateRecipeJsonPacket::recipeId,
-            ByteBufCodecs.STRING_UTF8,
+            NetworkProtocolLimits.string(NetworkProtocolLimits.MAX_RECIPE_JSON_LENGTH),
             CreateRecipeJsonPacket::recipeJson,
             ByteBufCodecs.BOOL,
             CreateRecipeJsonPacket::isOverride,
+            ByteBufCodecs.BOOL,
+            CreateRecipeJsonPacket::replaceExisting,
             CreateRecipeJsonPacket::new
     );
 
@@ -57,12 +74,14 @@ public record CreateRecipeJsonPacket(
      */
     public static void handle(CreateRecipeJsonPacket packet, IPayloadContext context) {
         // 在主线程处理
-        context.enqueueWork(() -> {
+                context.enqueueWork(() -> {
                     try {
                         // 验证权限
-                        if (context.player() == null || !context.player().hasPermissions(2)) {
+                        if (!(context.player() instanceof ServerPlayer player) || !player.hasPermissions(2)) {
                             if (context.player() != null) {
-                                context.player().sendSystemMessage(Component.literal("§c您没有权限创建配方"));
+                                context.player().sendSystemMessage(Component.translatable(
+                                        "registerhelper.recipe.create.permission_denied")
+                                        .withStyle(net.minecraft.ChatFormatting.RED));
                             }
                             return;
                         }
@@ -72,35 +91,49 @@ public record CreateRecipeJsonPacket(
                         try {
                             recipeObj = JsonParser.parseString(packet.recipeJson()).getAsJsonObject();
                         } catch (Exception e) {
-                            context.player().sendSystemMessage(Component.literal("§c配方JSON格式无效"));
+                            player.sendSystemMessage(Component.translatable("registerhelper.recipe.json.invalid")
+                                    .withStyle(net.minecraft.ChatFormatting.RED));
                             LOGGER.error("配方JSON解析失败: {}", packet.recipeId(), e);
                             return;
                         }
 
-                        ResourceLocation recipeIdLoc = ResourceLocation.parse(packet.recipeId());
+                        ResourceLocation recipeIdLoc;
+                        try {
+                            recipeIdLoc = ResourceLocation.parse(packet.recipeId());
+                        } catch (Exception e) {
+                            player.sendSystemMessage(Component.translatable(
+                                    "registerhelper.recipe.id.invalid", packet.recipeId())
+                                    .withStyle(net.minecraft.ChatFormatting.RED));
+                            return;
+                        }
                         boolean success;
 
                         if (packet.isOverride()) {
                             success = UnifiedRecipeOverrideManager.addOverride(recipeIdLoc, recipeObj);
 
                             if (success) {
-                                context.player().sendSystemMessage(
-                                        Component.literal("§a配方覆盖成功: " + packet.recipeId() + " 使用 /reload 刷新配方")
-                                );
+                                player.sendSystemMessage(Component.translatable(
+                                        "registerhelper.recipe.override.success", packet.recipeId())
+                                        .withStyle(net.minecraft.ChatFormatting.GREEN));
                             } else {
-                                context.player().sendSystemMessage(Component.literal("§c配方覆盖失败"));
+                                player.sendSystemMessage(Component.translatable(
+                                        "registerhelper.recipe.override.failed")
+                                        .withStyle(net.minecraft.ChatFormatting.RED));
                                 LOGGER.warn("配方覆盖失败: {}", packet.recipeId());
                             }
                         } else {
-                            SaveResult result = saveRecipeFile(recipeIdLoc, recipeObj);
+                            SaveResult result = saveRecipeFile(
+                                    recipeIdLoc, recipeObj, packet.replaceExisting());
 
                             if (result.success) {
-                                context.player().sendSystemMessage(
-                                        Component.literal("§a配方创建成功: " + result.fileName + " 使用 /reload 刷新配方")
-                                );
+                                player.sendSystemMessage(Component.translatable(
+                                        "registerhelper.recipe.create.success", result.fileName)
+                                        .withStyle(net.minecraft.ChatFormatting.GREEN));
                                 LOGGER.info("配方创建成功: {} (保存为: {})", packet.recipeId(), result.fileName);
                             } else {
-                                context.player().sendSystemMessage(Component.literal("§c配方创建失败"));
+                                player.sendSystemMessage(Component.translatable(
+                                        "registerhelper.recipe.create.failed")
+                                        .withStyle(net.minecraft.ChatFormatting.RED));
                                 LOGGER.warn("配方创建失败: {}", packet.recipeId());
                             }
                         }
@@ -108,9 +141,9 @@ public record CreateRecipeJsonPacket(
                     } catch (Exception e) {
                         LOGGER.error("处理配方JSON包时发生错误", e);
                         if (context.player() != null) {
-                            context.player().sendSystemMessage(
-                                    Component.literal("§c处理配方时发生错误: " + e.getMessage())
-                            );
+                            context.player().sendSystemMessage(Component.translatable(
+                                    "registerhelper.recipe.operation.failed", e.getMessage())
+                                    .withStyle(net.minecraft.ChatFormatting.RED));
                         }
                     }
                 })
@@ -139,45 +172,59 @@ public record CreateRecipeJsonPacket(
      * 保存配方文件到服务器（创建模式）
      * @return SaveResult 包含成功状态和实际文件名
      */
-    private static SaveResult saveRecipeFile(ResourceLocation recipeId, JsonObject recipeJson) {
+    private static SaveResult saveRecipeFile(ResourceLocation recipeId, JsonObject recipeJson,
+                                             boolean replaceExisting) {
         try {
             String namespace = recipeId.getNamespace();
             String path = recipeId.getPath();
 
-            // 生成简化的文件名，保留custom前缀
-            String fileName = generateOptimizedFileName(path, recipeJson);
+            String baseFileName = generateOptimizedFileName(path, recipeJson);
+            String recipeType = recipeJson.has("type") ? recipeJson.get("type").getAsString() : "";
 
-            // 保存到 recipes 目录
-            Path recipePath = FMLPaths.GAMEDIR.get()
-                    .resolve("config/registerhelper/recipes")
-                    .resolve(namespace)
-                    .resolve(fileName + ".json");
-
-            // 如果文件已存在，添加序号
-            int counter = 1;
-            Path finalPath = recipePath;
-            String finalFileName = fileName;
-            while (Files.exists(finalPath)) {
-                finalFileName = fileName + "_" + counter;
-                finalPath = FMLPaths.GAMEDIR.get()
-                        .resolve("config/registerhelper/recipes")
-                        .resolve(namespace)
-                        .resolve(finalFileName + ".json");
-                counter++;
+            Path baseDir;
+            if (isCustomRecipeType(recipeType)) {
+                baseDir = FMLPaths.CONFIGDIR.get()
+                        .resolve("registerhelper/custom_recipes")
+                        .resolve(getCustomRecipeCategory(recipeType));
+            } else {
+                baseDir = FMLPaths.CONFIGDIR.get()
+                        .resolve("registerhelper/recipes")
+                        .resolve(namespace);
             }
 
-            // 创建目录
-            Files.createDirectories(finalPath.getParent());
+            Files.createDirectories(baseDir);
+
+            Path existingPath = replaceExisting
+                    ? findExistingRecipePath(recipeId, recipeType, baseDir) : null;
+            Path finalPath;
+            String finalFileName;
+            if (existingPath != null) {
+                // 编辑已有自定义配方时，沿用原文件，避免每次编辑都生成 _1、_2...
+                finalPath = existingPath;
+                finalFileName = stripJsonExtension(existingPath.getFileName().toString());
+            } else {
+                // 新建同名配方时保留序号，避免覆盖用户已有文件
+                int counter = 1;
+                finalPath = baseDir.resolve(baseFileName + ".json");
+                finalFileName = baseFileName;
+                while (Files.exists(finalPath)) {
+                    finalFileName = baseFileName + "_" + counter;
+                    finalPath = baseDir.resolve(finalFileName + ".json");
+                    counter++;
+                }
+            }
 
             // 写入JSON文件
+            Files.createDirectories(finalPath.getParent());
             try (FileWriter writer = new FileWriter(finalPath.toFile())) {
                 GSON.toJson(recipeJson, writer);
             }
 
             LOGGER.info("配方已保存: {} -> {}", recipeId, finalPath);
 
-            // 返回带namespace的完整文件名
-            String fullFileName = namespace + ":" + finalFileName;
+            String fullFileName = isCustomRecipeType(recipeType)
+                    ? getCustomRecipeCategory(recipeType) + "/" + finalFileName
+                    : namespace + ":" + finalFileName;
             return new SaveResult(true, fullFileName, finalPath);
 
         } catch (Exception e) {
@@ -186,12 +233,60 @@ public record CreateRecipeJsonPacket(
         }
     }
 
+    private static Path findExistingRecipePath(ResourceLocation recipeId,
+                                                String recipeType,
+                                                Path baseDir) {
+        String path = recipeId.getPath();
+        if (path.isBlank() || path.contains("..") || path.startsWith("/")) {
+            return null;
+        }
+
+        if (isCustomRecipeType(recipeType) && path.startsWith("custom_") && path.contains("/")) {
+            String category = path.substring("custom_".length(), path.indexOf('/'));
+            String fileName = path.substring(path.indexOf('/') + 1);
+            if (category.equals(getCustomRecipeCategory(recipeType))
+                    && !fileName.isBlank() && !fileName.contains("/")) {
+                Path candidate = baseDir.resolve(fileName + ".json");
+                return Files.isRegularFile(candidate) ? candidate : null;
+            }
+        }
+
+        if (path.startsWith("custom_")) {
+            Path candidate = baseDir.resolve(path + ".json").normalize();
+            if (candidate.startsWith(baseDir.normalize()) && Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static String stripJsonExtension(String fileName) {
+        return fileName.endsWith(".json")
+                ? fileName.substring(0, fileName.length() - ".json".length())
+                : fileName;
+    }
+
+    private static boolean isCustomRecipeType(String type) {
+        return type.contains("brewing") || type.contains("anvil")
+                || type.equals("registerhelper:brewing") || type.equals("registerhelper:anvil");
+    }
+
+    private static String getCustomRecipeCategory(String type) {
+        if (type.contains("brewing")) {
+            return "brewing";
+        }
+        if (type.contains("anvil")) {
+            return "anvil";
+        }
+        return "other";
+    }
+
     /**
      * 生成优化的文件名
      * 格式: custom_<类型简写>_<结果物品>
      * 例如: custom_av_shaped_diamond_sword
      */
-    private static String generateOptimizedFileName(String path, JsonObject recipeJson) {
+    public static String generateOptimizedFileName(String path, JsonObject recipeJson) {
         StringBuilder fileName = new StringBuilder("custom");
 
         // 添加简化的配方类型
@@ -211,6 +306,11 @@ public record CreateRecipeJsonPacket(
         if (result.length() > 80) {
             result = result.substring(0, 80);
         }
+
+        result = result.toLowerCase()
+                .replaceAll("[^a-z0-9/._-]", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("_$", "");
 
         return result;
     }
@@ -333,11 +433,26 @@ public record CreateRecipeJsonPacket(
 
             // 1.21 新标准
             if (obj.has("id")) {
-                return obj.get("id").getAsString();
+                JsonElement idElement = obj.get("id");
+                if (idElement.isJsonPrimitive()) {
+                    return idElement.getAsString();
+                }
             }
-            // 旧兼容
+
             if (obj.has("item")) {
-                return obj.get("item").getAsString();
+                JsonElement itemElement = obj.get("item");
+                if (itemElement.isJsonPrimitive()) {
+                    return itemElement.getAsString();
+                }
+                if (itemElement.isJsonObject()) {
+                    JsonObject itemObject = itemElement.getAsJsonObject();
+                    if (itemObject.has("item")) {
+                        return itemObject.get("item").getAsString();
+                    }
+                    if (itemObject.has("tag")) {
+                        return "#" + itemObject.get("tag").getAsString();
+                    }
+                }
             }
             if (obj.has("block")) {
                 return obj.get("block").getAsString();

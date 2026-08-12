@@ -21,10 +21,20 @@ public class LabelRenderer implements ComponentRenderer {
     @Override
     public void render(GuiGraphics guiGraphics, Font font, int mouseX, int mouseY) {
         if (!active) return;
-        
-        guiGraphics.drawString(font, component.getText(), 
-            component.getX(), component.getY(), 
-            component.getColor(), false);
+
+        int textWidth = Math.max(1, font.width(component.getText()));
+        float scale = Math.min(1.0F, Math.min(
+                component.getWidth() / (float) textWidth,
+                component.getHeight() / (float) font.lineHeight));
+        guiGraphics.pose().pushPose();
+        try {
+            guiGraphics.pose().translate(component.getX(), component.getY(), 0);
+            guiGraphics.pose().scale(scale, scale, 1.0F);
+            guiGraphics.drawString(font, component.getText(), 0, 0,
+                    component.getColor(), false);
+        } finally {
+            guiGraphics.pose().popPose();
+        }
     }
     
     @Override

@@ -1,10 +1,10 @@
 package com.wzz.registerhelper.recipe.integration.module;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
-import com.wzz.registerhelper.util.ModLogger;
 import com.wzz.registerhelper.util.RecipeUtil;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.fml.ModList;
@@ -27,11 +27,14 @@ public class FarmersDelightProcessor implements ModRecipeProcessor {
 
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {
-        String recipeType = request.recipeType;
-        ModLogger.getLogger().info("Type {}", recipeType);
-        return switch (recipeType) {
-            case "farmersdelight:cooking" -> createCookingRecipe(request);
-            default -> createCuttingRecipe(request);
+        String type = request.recipeType.toLowerCase();
+        if (type.contains(":")) {
+            type = type.substring(type.indexOf(":") + 1);
+        }
+        return switch (type) {
+            case "cutting" -> createCuttingRecipe(request);
+            case "cooking" -> createCookingRecipe(request);
+            default -> null;
         };
     }
 
@@ -42,7 +45,7 @@ public class FarmersDelightProcessor implements ModRecipeProcessor {
      *   "type": "farmersdelight:cutting",
      *   "ingredients": [...],
      *   "result": [...],
-     *   "tool": { "tag": "forge:tools/knives" }
+     *   "tool": { "tag": "c:tools/knife" }
      * }
      */
     private JsonObject createCuttingRecipe(RecipeRequest request) {
@@ -63,18 +66,11 @@ public class FarmersDelightProcessor implements ModRecipeProcessor {
         // 添加 result（输出结果数组，可以有多个）
         JsonArray resultArray = new JsonArray();
 
-        // 主要输出
-        if (request.result != null) {
-            JsonObject mainResult = new JsonObject();
-            String itemId = RecipeUtil.getItemResourceLocation(request.result.getItem()).toString();
-            mainResult.addProperty("id", itemId);
-
+        // Farmer's Delight wraps every cutting output in ChanceResult.
+        if (request.result != null && !request.result.isEmpty()) {
             int count = request.resultCount > 0 ? request.resultCount : request.result.getCount();
-            if (count > 1) {
-                mainResult.addProperty("count", count);
-            }
-
-            resultArray.add(mainResult);
+            resultArray.add(createChanceResult(request.result, count,
+                    request.properties.get("resultChance")));
         }
 
         // 额外输出（从properties中获取）
@@ -82,27 +78,27 @@ public class FarmersDelightProcessor implements ModRecipeProcessor {
         if (extraResults instanceof ItemStack[] extraStacks) {
             for (ItemStack stack : extraStacks) {
                 if (!stack.isEmpty()) {
-                    JsonObject extraResult = new JsonObject();
-                    String itemId = RecipeUtil.getItemResourceLocation(stack.getItem()).toString();
-                    extraResult.addProperty("id", itemId);
-
-                    if (stack.getCount() > 1) {
-                        extraResult.addProperty("count", stack.getCount());
-                    }
-
-                    // 可以添加概率（可选）
-                    // extraResult.addProperty("chance", 0.5f);
-
-                    resultArray.add(extraResult);
+                    resultArray.add(createChanceResult(stack, stack.getCount(),
+                            request.properties.get("chance_" + stack.getItem())));
+                }
+            }
+        } else if (extraResults instanceof Object[] values) {
+            for (Object value : values) {
+                if (value instanceof ItemStack stack && !stack.isEmpty()) {
+                    resultArray.add(createChanceResult(stack, stack.getCount(),
+                            request.properties.get("chance_" + stack.getItem())));
                 }
             }
         }
 
         recipe.add("result", resultArray);
 
-        // 添加 tool（工具标签，默认为刀具）
+        // The 1.21 tag is the common knife tag, not the old Forge tag.
         JsonObject tool = new JsonObject();
-        String toolTag = (String) request.properties.getOrDefault("toolTag", "forge:tools/knives");
+        String toolTag = (String) request.properties.getOrDefault("toolTag", "c:tools/knife");
+        if (toolTag.startsWith("#")) {
+            toolTag = toolTag.substring(1);
+        }
         tool.addProperty("tag", toolTag);
         recipe.add("tool", tool);
 
@@ -145,16 +141,8 @@ public class FarmersDelightProcessor implements ModRecipeProcessor {
 
         // 添加 result（单个输出）
         if (request.result != null) {
-            JsonObject resultJson = new JsonObject();
-            String itemId = RecipeUtil.getItemResourceLocation(request.result.getItem()).toString();
-            resultJson.addProperty("id", itemId);
-
             int count = request.resultCount > 0 ? request.resultCount : request.result.getCount();
-            if (count > 1) {
-                resultJson.addProperty("count", count);
-            }
-
-            recipe.add("result", resultJson);
+            recipe.add("result", RecipeUtil.createResultJson(request.result, count));
         }
 
         // 添加 cookingtime（烹饪时间，默认200 ticks = 10秒）
@@ -166,12 +154,8 @@ public class FarmersDelightProcessor implements ModRecipeProcessor {
         recipe.addProperty("cookingtime", cookingTime);
 
         // 添加 experience（经验值，默认1.0）
-        Number v = (Number) request.properties.get("experience");
-        if (v == null) {
-            Double expDouble = (Double) request.properties.get("experience");
-            v = expDouble != null ? expDouble.floatValue() : 1.0f;
-        }
-        float experience = v.floatValue();
+        Number value = (Number) request.properties.get("experience");
+        float experience = value != null ? value.floatValue() : 1.0f;
         recipe.addProperty("experience", experience);
 
         // 添加 recipe_book_tab（配方书标签页，可选）
@@ -180,15 +164,51 @@ public class FarmersDelightProcessor implements ModRecipeProcessor {
             recipe.addProperty("recipe_book_tab", recipeBookTab);
         }
 
-        // 添加 container（容器物品，可选 - 如碗）
+        // Container is an ItemStack, rather than an Ingredient.
         Object container = request.properties.get("container");
         if (container != null) {
-            JsonObject containerJson = RecipeUtil.createIngredientJson(container);
+            JsonObject containerJson = createStackJson(container);
             if (containerJson != null) {
                 recipe.add("container", containerJson);
             }
         }
 
         return recipe;
+    }
+
+    private JsonObject createChanceResult(ItemStack stack, int count, Object chanceValue) {
+        JsonObject chanceResult = new JsonObject();
+        chanceResult.add("item", RecipeUtil.createResultJson(stack, count));
+        if (chanceValue instanceof Number chance && chance.floatValue() < 1.0f) {
+            chanceResult.addProperty("chance", chance.floatValue());
+        }
+        return chanceResult;
+    }
+
+    private JsonObject createStackJson(Object value) {
+        if (value instanceof ItemStack stack && !stack.isEmpty()) {
+            return RecipeUtil.createResultJson(stack, stack.getCount());
+        }
+        if (value instanceof String id && !id.isBlank() && !id.startsWith("#")) {
+            JsonObject stack = new JsonObject();
+            stack.addProperty("id", id);
+            return stack;
+        }
+        if (value instanceof java.util.Map<?, ?> map) {
+            Object id = map.containsKey("id") ? map.get("id") : map.get("item");
+            if (id instanceof String itemId && !itemId.isBlank()) {
+                JsonObject stack = new JsonObject();
+                stack.addProperty("id", itemId);
+                if (map.get("count") instanceof Number count && count.intValue() > 1) {
+                    stack.addProperty("count", count.intValue());
+                }
+                if (map.get("components") instanceof JsonElement components
+                        && components.isJsonObject()) {
+                    stack.add("components", components.deepCopy());
+                }
+                return stack;
+            }
+        }
+        return null;
     }
 }

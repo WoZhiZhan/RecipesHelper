@@ -1,216 +1,193 @@
 package com.wzz.registerhelper.util;
 
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
-import net.minecraft.core.component.DataComponents;
-
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * 用于模拟 1.20.x Forge 的 ItemStack NBT API
- * 目的：
- * - 减少移植成本
- * - 让旧代码尽量不改
- * - 后续可持续扩展
- */
+/** Compatibility helpers for code that still presents item data as legacy NBT. */
 public final class OldUtils {
-
-    private OldUtils() {}
-
-    /**
-     * 等价于 1.20.x 的 ItemStack.hasTag()
-     * 语义：是否存在任何"非默认数据"
-     */
-    public static boolean hasTag(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) {
-            return false;
-        }
-        CustomData custom = stack.get(DataComponents.CUSTOM_DATA);
-        if (custom != null && !custom.isEmpty()) {
-            return true;
-        }
-        if (stack.has(DataComponents.ENCHANTMENTS)) {
-            ItemEnchantments ench = stack.get(DataComponents.ENCHANTMENTS);
-            if (ench != null && !ench.isEmpty()) {
-                return true;
-            }
-        }
-        if (stack.has(DataComponents.DAMAGE)) {
-            Integer damage = stack.get(DataComponents.DAMAGE);
-            if (damage != null && damage > 0) {
-                return true;
-            }
-        }
-        if (stack.has(DataComponents.CUSTOM_NAME)) {
-            return true;
-        }
-        if (stack.has(DataComponents.LORE)) {
-            return true;
-        }
-        if (stack.has(DataComponents.DYED_COLOR)) {
-            return true;
-        }
-        return false;
+    private OldUtils() {
     }
 
+    /** Equivalent to the old hasTag() concept: any explicit non-default data. */
+    public static boolean hasTag(ItemStack stack) {
+        return stack != null && !stack.isEmpty() && !stack.isComponentsPatchEmpty();
+    }
+
+    /**
+     * Returns a legacy-shaped view for existing GUI code. Recipe serialization
+     * must use DataComponentsHelper instead of this compatibility projection.
+     */
     @Nullable
     public static CompoundTag getTag(ItemStack stack) {
         return buildLegacyTagForJson(stack);
     }
 
+    /** Returns only minecraft:custom_data, without synthesizing legacy fields. */
+    @Nullable
+    public static CompoundTag getCustomDataTag(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return null;
+        }
+        CustomData customData = stack.get(DataComponents.CUSTOM_DATA);
+        return customData == null || customData.isEmpty() ? null : customData.copyTag();
+    }
+
     /**
-     * 等价于 1.20.x 的 ItemStack.setTag(CompoundTag)。
-     *
-     * <p>1.21 没有统一的 NBT 容器，这里采取的策略是：
-     * 把整个旧版 NBT 原样塞进 CUSTOM_DATA 组件。对于大多数"自定义物品 / 模组物品"
-     * （它们的数据本来就读写在物品 NBT 根节点）这是等价的；对于 vanilla 的
-     * display/Enchantments/Damage 等结构化字段，本方法不会自动拆解成对应的
-     * DataComponents（如需精确还原 vanilla 字段，应直接用对应组件）。
-     *
-     * @param stack 目标物品
-     * @param tag   旧版 NBT，传 null 等价于清空 CUSTOM_DATA
+     * Legacy setTag() data maps to minecraft:custom_data in 1.21.1. Structured
+     * vanilla components should be supplied through the standard stack codec.
      */
     public static void setTag(ItemStack stack, @Nullable CompoundTag tag) {
         if (stack == null || stack.isEmpty()) {
             return;
         }
-        if (tag == null || tag.isEmpty()) {
-            stack.remove(DataComponents.CUSTOM_DATA);
-            return;
-        }
-        stack.set(DataComponents.CUSTOM_DATA, CustomData.of(tag.copy()));
+        CustomData.set(DataComponents.CUSTOM_DATA, stack, tag == null ? new CompoundTag() : tag);
     }
 
     @Nullable
     public static CompoundTag buildLegacyTagForJson(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) {
+        if (stack == null || stack.isEmpty() || !hasTag(stack)) {
             return null;
         }
 
         CompoundTag tag = new CompoundTag();
-
-        // 获取 RegistryAccess（用于序列化Component）
         HolderLookup.Provider registries = getRegistryAccess();
 
-        // 自定义数据
-        CustomData custom = stack.get(DataComponents.CUSTOM_DATA);
-        if (custom != null && !custom.isEmpty()) {
-            tag.merge(custom.copyTag());
+        CompoundTag customData = getCustomDataTag(stack);
+        if (customData != null) {
+            tag.merge(customData);
         }
 
-        // 耐久度
-        if (stack.has(DataComponents.DAMAGE)) {
-            Integer damage = stack.get(DataComponents.DAMAGE);
-            if (damage != null && damage > 0) {
-                tag.putInt("Damage", damage);
-            }
+        Integer damage = stack.get(DataComponents.DAMAGE);
+        if (damage != null && damage > 0) {
+            tag.putInt("Damage", damage);
         }
 
-        // 附魔（修复Bug #1）
-        writeLegacyEnchantments(stack, tag);
+        Integer repairCost = stack.get(DataComponents.REPAIR_COST);
+        if (repairCost != null && repairCost > 0) {
+            tag.putInt("RepairCost", repairCost);
+        }
 
-        // 自定义名称（修复Bug #2）
+        writeLegacyEnchantments(stack.get(DataComponents.ENCHANTMENTS), tag, "Enchantments");
+        writeLegacyEnchantments(stack.get(DataComponents.STORED_ENCHANTMENTS), tag, "StoredEnchantments");
+
         if (stack.has(DataComponents.CUSTOM_NAME)) {
             Component name = stack.get(DataComponents.CUSTOM_NAME);
             CompoundTag display = tag.contains("display") ? tag.getCompound("display") : new CompoundTag();
-            // 使用正确的序列化方法
-            if (registries != null) {
-                display.putString("Name", Component.Serializer.toJson(name, registries));
-            } else {
-                // 降级处理：如果无法获取registries，使用简化格式
-                display.putString("Name", "{\"text\":\"" + name.getString() + "\"}");
-            }
+            display.putString("Name", Component.Serializer.toJson(name, registries));
             tag.put("display", display);
         }
 
-        // Lore
         if (stack.has(DataComponents.LORE)) {
-            ListTag loreList = new ListTag();
-            for (Component c : stack.get(DataComponents.LORE).lines()) {
-                if (registries != null) {
-                    loreList.add(StringTag.valueOf(Component.Serializer.toJson(c, registries)));
-                } else {
-                    // 降级处理
-                    loreList.add(StringTag.valueOf("{\"text\":\"" + c.getString() + "\"}"));
-                }
+            ListTag lore = new ListTag();
+            for (Component line : stack.get(DataComponents.LORE).lines()) {
+                lore.add(StringTag.valueOf(Component.Serializer.toJson(line, registries)));
             }
             CompoundTag display = tag.contains("display") ? tag.getCompound("display") : new CompoundTag();
-            display.put("Lore", loreList);
+            display.put("Lore", lore);
             tag.put("display", display);
         }
 
-        // 染色（皮革盔甲等）
         if (stack.has(DataComponents.DYED_COLOR)) {
-            var dyedColor = stack.get(DataComponents.DYED_COLOR);
             CompoundTag display = tag.contains("display") ? tag.getCompound("display") : new CompoundTag();
-            display.putInt("color", dyedColor.rgb());
+            display.putInt("color", stack.get(DataComponents.DYED_COLOR).rgb());
             tag.put("display", display);
         }
 
-        // 无法破坏
         if (stack.has(DataComponents.UNBREAKABLE)) {
             tag.putBoolean("Unbreakable", true);
+        }
+        if (stack.has(DataComponents.CUSTOM_MODEL_DATA)) {
+            tag.putInt("CustomModelData", stack.get(DataComponents.CUSTOM_MODEL_DATA).value());
+        }
+
+        // Preserve a codec-backed snapshot for components that have no 1.20
+        // projection. Existing GUI checks can still use the legacy keys above.
+        try {
+            Tag serialized = stack.save(registries);
+            if (serialized instanceof CompoundTag stackTag
+                    && stackTag.get("components") instanceof CompoundTag components
+                    && !components.isEmpty()) {
+                tag.put("components", components.copy());
+            }
+        } catch (RuntimeException ignored) {
+            // Dynamic registry data may not be available during early setup.
         }
 
         return tag.isEmpty() ? null : tag;
     }
 
-    /**
-     * 写入附魔到NBT
-     */
-    private static void writeLegacyEnchantments(ItemStack stack, CompoundTag tag) {
-        if (!stack.has(DataComponents.ENCHANTMENTS)) {
-            return;
-        }
-        ItemEnchantments ench = stack.get(DataComponents.ENCHANTMENTS);
-
-        if (ench == null || ench.isEmpty()) {
+    private static void writeLegacyEnchantments(@Nullable ItemEnchantments enchantments,
+                                                 CompoundTag tag,
+                                                 String key) {
+        if (enchantments == null || enchantments.isEmpty()) {
             return;
         }
 
         ListTag list = new ListTag();
-        for (Object2IntMap.Entry<Holder<Enchantment>> entry : ench.entrySet()) {
-            Holder<Enchantment> holder = entry.getKey();
-            int level = entry.getIntValue();
-
-            holder.unwrapKey().ifPresent(key -> {
-                CompoundTag enchTag = new CompoundTag();
-                enchTag.putString("id", key.location().toString());
-                enchTag.putShort("lvl", (short) level);
-                list.add(enchTag);
+        for (Object2IntMap.Entry<Holder<Enchantment>> entry : enchantments.entrySet()) {
+            entry.getKey().unwrapKey().ifPresent(enchantmentKey -> {
+                CompoundTag enchantment = new CompoundTag();
+                enchantment.putString("id", enchantmentKey.location().toString());
+                enchantment.putShort("lvl", (short) entry.getIntValue());
+                list.add(enchantment);
             });
         }
-
         if (!list.isEmpty()) {
-            tag.put("Enchantments", list);
+            tag.put(key, list);
         }
     }
 
-    /**
-     * 获取RegistryAccess（用于Component序列化）
-     */
-    @Nullable
-    private static HolderLookup.Provider getRegistryAccess() {
+    /** Returns the live server/client registry provider, with built-ins as fallback. */
+    public static HolderLookup.Provider getRegistryAccess() {
         try {
             MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
             if (server != null) {
                 return server.registryAccess();
             }
-        } catch (Exception e) {
-            // 在某些情况下可能无法获取server
+        } catch (RuntimeException ignored) {
         }
-        return null;
+
+        try {
+            HolderLookup.Provider clientRegistries = ClientRegistryAccess.get();
+            if (clientRegistries != null) {
+                return clientRegistries;
+            }
+        } catch (Throwable ignored) {
+            // Client classes are absent on a dedicated server.
+        }
+
+        return RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
+    }
+
+    /** Isolates client linkage so dedicated servers do not load Minecraft. */
+    private static final class ClientRegistryAccess {
+        @Nullable
+        private static HolderLookup.Provider get() {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft == null) {
+                return null;
+            }
+            if (minecraft.getConnection() != null) {
+                return minecraft.getConnection().registryAccess();
+            }
+            return minecraft.level != null ? minecraft.level.registryAccess() : null;
+        }
     }
 }

@@ -10,8 +10,6 @@ import net.neoforged.fml.ModList;
 
 import java.util.Map;
 
-import static com.wzz.registerhelper.util.RecipeUtil.createIngredientJson;
-
 public class CreateRecipeProcessor implements ModRecipeProcessor {
     @Override
     public boolean isModLoaded() {
@@ -20,13 +18,17 @@ public class CreateRecipeProcessor implements ModRecipeProcessor {
 
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {
-        return switch (request.recipeType.toLowerCase()) {
-            case "create:emptying" -> createEmptyingRecipe(request);
-            case "create:cutting" -> createCuttingRecipe(request);
-            case "create:compacting" -> createCompactingRecipe(request);
-            case "create:pressing" -> createPressingRecipe(request);
-            case "create:filling" -> createFillingRecipe(request);
-            case "create:mixing" -> creatMixingRecipe(request);
+        String type = request.recipeType.toLowerCase();
+        if (type.contains(":")) {
+            type = type.substring(type.indexOf(":") + 1);
+        }
+        return switch (type) {
+            case "emptying" -> createEmptyingRecipe(request);
+            case "cutting" -> createCuttingRecipe(request);
+            case "compacting" -> createCompactingRecipe(request);
+            case "pressing" -> createPressingRecipe(request);
+            case "filling" -> createFillingRecipe(request);
+            case "mixing" -> createMixingRecipe(request);
             default -> null;
         };
     }
@@ -39,7 +41,7 @@ public class CreateRecipeProcessor implements ModRecipeProcessor {
     private JsonObject createEmptyingRecipe(RecipeRequest request) {
         JsonObject recipe = new JsonObject();
         recipe.addProperty("type", "create:emptying");
-        recipe.add("ingredients", buildIngredients(request.ingredients, false));
+        recipe.add("ingredients", buildIngredients(request.ingredients, false, request));
         recipe.add("results", buildResults(request));
         return recipe;
     }
@@ -47,24 +49,24 @@ public class CreateRecipeProcessor implements ModRecipeProcessor {
     private JsonObject createCuttingRecipe(RecipeRequest request) {
         JsonObject recipe = new JsonObject();
         recipe.addProperty("type", "create:cutting");
-        recipe.add("ingredients", buildIngredients(request.ingredients, false));
+        recipe.add("ingredients", buildIngredients(request.ingredients, false, request));
         recipe.add("results", buildResults(request));
-        recipe.addProperty("processingTime", (int) request.properties.getOrDefault("processingTime", 200));
+        recipe.addProperty("processing_time", getNumber(request, "processing_time", "processingTime", 100));
         return recipe;
     }
 
     private JsonObject createCompactingRecipe(RecipeRequest request) {
         JsonObject recipe = new JsonObject();
         recipe.addProperty("type", "create:compacting");
-        recipe.add("ingredients", buildIngredients(request.ingredients, true));
+        recipe.add("ingredients", buildIngredients(request.ingredients, true, request));
         recipe.add("results", buildResults(request));
         return recipe;
     }
 
-    private JsonObject creatMixingRecipe(RecipeRequest request) {
+    private JsonObject createMixingRecipe(RecipeRequest request) {
         JsonObject recipe = new JsonObject();
         recipe.addProperty("type", "create:mixing");
-        recipe.add("ingredients", buildIngredients(request.ingredients, true));
+        recipe.add("ingredients", buildIngredients(request.ingredients, true, request));
         recipe.add("results", buildResults(request));
         return recipe;
     }
@@ -72,7 +74,7 @@ public class CreateRecipeProcessor implements ModRecipeProcessor {
     private JsonObject createPressingRecipe(RecipeRequest request) {
         JsonObject recipe = new JsonObject();
         recipe.addProperty("type", "create:pressing");
-        recipe.add("ingredients", buildIngredients(request.ingredients, false));
+        recipe.add("ingredients", buildIngredients(request.ingredients, false, request));
         recipe.add("results", buildResults(request));
         return recipe;
     }
@@ -80,58 +82,52 @@ public class CreateRecipeProcessor implements ModRecipeProcessor {
     private JsonObject createFillingRecipe(RecipeRequest request) {
         JsonObject recipe = new JsonObject();
         recipe.addProperty("type", "create:filling");
-
-        JsonArray ingredientsArray = new JsonArray();
-        boolean hasFluid = false;
-
-        if (request.ingredients != null) {
-            for (Object ingredient : request.ingredients) {
-                JsonObject obj = createIngredientJson(ingredient); // 处理物品 + NBT
-                if (obj != null) {
-                    ingredientsArray.add(obj);
-                    if (obj.has("fluid")) hasFluid = true;
-                }
-            }
-        }
-
-        // 如果没有流体输入，给一个默认流体（可以是水，也可以从 properties 读取）
-        if (!hasFluid) {
-            JsonObject defaultFluid = new JsonObject();
-            defaultFluid.addProperty("fluid", "minecraft:water"); // 默认流体
-            defaultFluid.addProperty("amount", 250);
-            defaultFluid.add("nbt", new JsonObject());
-            ingredientsArray.add(defaultFluid);
-        }
-
-        recipe.add("ingredients", ingredientsArray);
-
-        // 输出结果
+        recipe.add("ingredients", buildIngredients(request.ingredients, true, request));
         recipe.add("results", buildResults(request));
-
         return recipe;
     }
 
-    @SuppressWarnings("unchecked")
-    private JsonArray buildIngredients(Object[] ingredients, boolean allowFluid) {
+    private JsonArray buildIngredients(Object[] ingredients, boolean allowFluid, RecipeRequest request) {
         JsonArray array = new JsonArray();
-        if (ingredients == null) return array;
-        for (Object ingredient : ingredients) {
-            JsonObject obj;
-            // 物品 / tag / NBT
-            obj = RecipeUtil.createIngredientJson(ingredient);
-            if (allowFluid && ingredient instanceof Map map && map.containsKey("fluid")) {
-                obj = new JsonObject();
-                String fluidId = (String) map.get("fluid");
-                int amount = (int) map.getOrDefault("amount", 100);
-                obj.addProperty("fluid", fluidId);
-                obj.addProperty("amount", amount);
-                if (map.containsKey("nbt") && map.get("nbt") instanceof JsonElement json) {
-                    obj.add("nbt", json);
+        boolean hasFluid = false;
+
+        if (ingredients != null) {
+            for (Object ingredient : ingredients) {
+                JsonObject object = null;
+                if (allowFluid && ingredient instanceof Map<?, ?> map && map.containsKey("fluid")) {
+                    object = createFluidIngredient(map, 250);
+                    hasFluid = object != null;
                 } else {
-                    obj.add("nbt", new JsonObject());
+                    object = RecipeUtil.createIngredientJson(ingredient);
+                }
+                if (object != null) {
+                    array.add(object);
                 }
             }
-            if (obj != null) array.add(obj);
+        }
+
+        if (allowFluid && !hasFluid) {
+            Object fluid = request.properties.get("fluid");
+            if (fluid instanceof String fluidId && !fluidId.isBlank()) {
+                Map<String, Object> fluidData = new java.util.HashMap<>();
+                fluidData.put("fluid", fluidId);
+                fluidData.put("amount", request.properties.getOrDefault("amount", 250));
+                copyJsonProperty(request.properties.get("components"), fluidData, "components");
+                JsonObject fluidIngredient = createFluidIngredient(fluidData, 250);
+                if (fluidIngredient != null) {
+                    array.add(fluidIngredient);
+                    hasFluid = true;
+                }
+            }
+        }
+
+        // Filling has always offered a usable default in the editor. Keep that
+        // default while still emitting the 1.21 typed fluid ingredient shape.
+        if (allowFluid && !hasFluid && request.recipeType.toLowerCase().contains("filling")) {
+            Map<String, Object> fluidData = new java.util.HashMap<>();
+            fluidData.put("fluid", "minecraft:water");
+            fluidData.put("amount", 250);
+            array.add(createFluidIngredient(fluidData, 250));
         }
         return array;
     }
@@ -140,22 +136,93 @@ public class CreateRecipeProcessor implements ModRecipeProcessor {
         JsonArray array = new JsonArray();
 
         if (request.result != null && !request.result.isEmpty()) {
-            JsonObject resultItem = new JsonObject();
-            resultItem.addProperty("item", RecipeUtil.getItemResourceLocation(request.result.getItem()).toString());
-            if (request.resultCount > 1) resultItem.addProperty("count", request.resultCount);
-            array.add(resultItem);
+            array.add(RecipeUtil.createResultJson(request.result, request.resultCount));
         }
 
         if (request.properties.containsKey("fluidOutput")) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> fluidOutput = (Map<String, Object>) request.properties.get("fluidOutput");
-            JsonObject fluidResult = new JsonObject();
-            fluidResult.addProperty("fluid", (String) fluidOutput.get("fluid"));
-            fluidResult.addProperty("amount", (Integer) fluidOutput.getOrDefault("amount", 250));
-            fluidResult.add("nbt", new JsonObject());
-            array.add(fluidResult);
+            Object value = request.properties.get("fluidOutput");
+            if (value instanceof Map<?, ?> fluidOutput) {
+                JsonObject fluidResult = createFluidResult(fluidOutput);
+                if (fluidResult != null) {
+                    array.add(fluidResult);
+                }
+            }
         }
 
         return array;
     }
+
+    private JsonObject createFluidIngredient(Map<?, ?> data, int defaultAmount) {
+        String id = stringValue(data.get("fluid"), stringValue(data.get("id"), ""));
+        if (id.isBlank()) return null;
+
+        JsonObject ingredient = new JsonObject();
+        JsonElement components = jsonValue(data.get("components"));
+        if (components != null && components.isJsonObject()) {
+            ingredient.addProperty("type", "neoforge:components");
+            JsonArray fluids = new JsonArray();
+            fluids.add(id.startsWith("#") ? id : ensureNamespace(id));
+            ingredient.add("fluids", fluids);
+            ingredient.add("components", components.deepCopy());
+            if (Boolean.TRUE.equals(data.get("strict"))) {
+                ingredient.addProperty("strict", true);
+            }
+        } else if (id.startsWith("#")) {
+            ingredient.addProperty("type", "neoforge:tag");
+            ingredient.addProperty("tag", ensureNamespace(id.substring(1)));
+        } else {
+            ingredient.addProperty("type", "neoforge:single");
+            ingredient.addProperty("fluid", ensureNamespace(id));
+        }
+        ingredient.addProperty("amount", Math.max(1, numberValue(data.get("amount"), defaultAmount)));
+        return ingredient;
+    }
+
+    private JsonObject createFluidResult(Map<?, ?> data) {
+        String id = stringValue(data.get("fluid"), stringValue(data.get("id"), ""));
+        if (id.isBlank()) return null;
+
+        JsonObject result = new JsonObject();
+        result.addProperty("id", ensureNamespace(id));
+        result.addProperty("amount", Math.max(1, numberValue(data.get("amount"), 250)));
+        JsonElement components = jsonValue(data.get("components"));
+        if (components != null && components.isJsonObject()) {
+            result.add("components", components.deepCopy());
+        }
+        return result;
+    }
+
+    private int getNumber(RecipeRequest request, String primary, String fallback, int defaultValue) {
+        Object value = request.properties.get(primary);
+        if (!(value instanceof Number)) {
+            value = request.properties.get(fallback);
+        }
+        return numberValue(value, defaultValue);
+    }
+
+    private int numberValue(Object value, int defaultValue) {
+        return value instanceof Number number ? number.intValue() : defaultValue;
+    }
+
+    private String stringValue(Object value, String defaultValue) {
+        return value instanceof String string ? string : defaultValue;
+    }
+
+    private JsonElement jsonValue(Object value) {
+        return value instanceof JsonElement json ? json : null;
+    }
+
+    private String ensureNamespace(String id) {
+        if (id == null || id.isEmpty() || id.contains(":")) {
+            return id == null || id.isEmpty() ? "minecraft:empty" : id;
+        }
+        return "minecraft:" + id;
+    }
+
+    private void copyJsonProperty(Object value, Map<String, Object> destination, String key) {
+        if (value instanceof JsonElement) {
+            destination.put(key, value);
+        }
+    }
+
 }

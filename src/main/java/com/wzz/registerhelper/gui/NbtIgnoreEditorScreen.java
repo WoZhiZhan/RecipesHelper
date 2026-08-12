@@ -6,189 +6,178 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
-import net.minecraft.core.registries.BuiltInRegistries;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @OnlyIn(Dist.CLIENT)
 public class NbtIgnoreEditorScreen extends Screen {
-
-    // ── NBT Key 含义注释 ────────────────────────────────────────
-    // key → 说明文字（不含颜色码，渲染时统一加灰色）
     private static final Map<String, String> KEY_COMMENTS = new LinkedHashMap<>();
+    private static final List<String> SLASHBLADE_QUICK_KEYS = List.of(
+            "bladeState.lastActionTime", "bladeState.TargetEntity", "bladeState.Damage",
+            "bladeState.currentCombo", "bladeState._onClick", "bladeState.killCount",
+            "bladeState.proudSoul", "bladeState.RepairCounter");
+
     static {
-        KEY_COMMENTS.put("bladeState.lastActionTime",     "最后使用时间戳，每次挥砍后更新");
-        KEY_COMMENTS.put("bladeState.TargetEntity",       "锁定目标的实体ID，无目标时为-1或0");
-        KEY_COMMENTS.put("bladeState.Damage",             "当前耐久损耗值");
-        KEY_COMMENTS.put("bladeState.currentCombo",       "当前连击动作状态");
-        KEY_COMMENTS.put("bladeState._onClick",           "点击标志位，瞬时状态");
-        KEY_COMMENTS.put("bladeState.killCount",          "累计击杀数");
-        KEY_COMMENTS.put("bladeState.proudSoul",          "耀魂值");
-        KEY_COMMENTS.put("bladeState.RepairCounter",      "已修复次数");
-        KEY_COMMENTS.put("bladeState.ComboRoot",          "连击根节点配置");
-        KEY_COMMENTS.put("bladeState.AttackAmplifier",    "攻击倍率修正");
-        KEY_COMMENTS.put("bladeState.ModelName",          "刀身3D模型路径");
-        KEY_COMMENTS.put("bladeState.TextureName",        "贴图路径");
-        KEY_COMMENTS.put("bladeState.SummonedSwordColor", "召唤剑颜色（ARGB整数）");
-        KEY_COMMENTS.put("bladeState.SummonedSwordColorInverse", "召唤剑颜色反转标志");
-        KEY_COMMENTS.put("bladeState.baseAttackModifier", "基础攻击力修正值");
-        KEY_COMMENTS.put("bladeState.StandbyRenderType",  "待机渲染模式编号");
-        KEY_COMMENTS.put("bladeState.translationKey",     "多语言翻译键");
-        KEY_COMMENTS.put("bladeState.isSealed",           "封印状态标志");
-        KEY_COMMENTS.put("bladeState.isBroken",           "破损状态标志");
-        KEY_COMMENTS.put("bladeState.maxDamage",          "最大耐久上限");
-        KEY_COMMENTS.put("bladeState.isDefaultBewitched", "是否使用默认魔咒配置");
-        KEY_COMMENTS.put("bladeState.fallDecreaseRate",   "下落速度衰减率");
-        KEY_COMMENTS.put("bladeState.adjustXYZ",          "位置微调偏移量");
-        KEY_COMMENTS.put("bladeState.SpecialAttackType",  "特殊攻击类型");
-        // 通用
-        KEY_COMMENTS.put("Damage",                        "原版物品耐久损耗");
-        KEY_COMMENTS.put("RepairCost",                    "铁砧修复费用");
-        KEY_COMMENTS.put("display.Name",                  "自定义显示名称");
-        KEY_COMMENTS.put("HideFlags",                     "隐藏属性标志位");
-        KEY_COMMENTS.put("CustomModelData",               "资源包自定义模型数据");
-        KEY_COMMENTS.put("Enchantments",                  "附魔列表（通常不忽略）");
+        String[][] comments = {
+                {"bladeState.lastActionTime", "last_action_time"}, {"bladeState.TargetEntity", "target_entity"},
+                {"bladeState.Damage", "damage"}, {"bladeState.currentCombo", "current_combo"},
+                {"bladeState._onClick", "on_click"}, {"bladeState.killCount", "kill_count"},
+                {"bladeState.proudSoul", "proud_soul"}, {"bladeState.RepairCounter", "repair_counter"},
+                {"bladeState.ComboRoot", "combo_root"}, {"bladeState.AttackAmplifier", "attack_amplifier"},
+                {"bladeState.ModelName", "model_name"}, {"bladeState.TextureName", "texture_name"},
+                {"bladeState.SummonedSwordColor", "summoned_color"},
+                {"bladeState.SummonedSwordColorInverse", "summoned_color_inverse"},
+                {"bladeState.baseAttackModifier", "base_attack_modifier"},
+                {"bladeState.StandbyRenderType", "standby_render_type"},
+                {"bladeState.translationKey", "translation_key"}, {"bladeState.isSealed", "is_sealed"},
+                {"bladeState.isBroken", "is_broken"}, {"bladeState.maxDamage", "max_damage"},
+                {"bladeState.isDefaultBewitched", "default_bewitched"},
+                {"bladeState.fallDecreaseRate", "fall_decrease_rate"}, {"bladeState.adjustXYZ", "adjust_xyz"},
+                {"bladeState.SpecialAttackType", "special_attack_type"}, {"Damage", "vanilla_damage"},
+                {"RepairCost", "repair_cost"}, {"display.Name", "display_name"},
+                {"HideFlags", "hide_flags"}, {"CustomModelData", "custom_model_data"},
+                {"Enchantments", "enchantments"}
+        };
+        for (String[] comment : comments) {
+            KEY_COMMENTS.put(comment[0], "registerhelper.gui.nbt_ignore.comment." + comment[1]);
+        }
     }
 
-    // ── 布局 ─────────────────────────────────────────────────────
-    private static final int W = 520;
-    private static final int H = 440;
+    private static final int PREFERRED_WIDTH = 640;
+    private static final int PREFERRED_HEIGHT = 480;
+    private static final int MIN_WIDTH = 360;
+    private static final int MIN_HEIGHT = 300;
     private static final int PAD = 12;
     private static final int ROW_H = 16;
-    private static final int KEY_VISIBLE    = 12;
-    private static final int PRESET_VISIBLE = 8;
+    private static final int COLUMN_GAP = 16;
 
-    // ── 分割：左230 | 间隔16 | 右其余 ───────────────────────────
-    private static final int LEFT_W = 230;
-
-    // ── 状态 ─────────────────────────────────────────────────────
     private final Screen parent;
     private final IngredientData targetData;
     private final Runnable onConfirm;
     private final String itemNamespace;
-
     private final List<String> keyList = new ArrayList<>();
-    private int keyListScroll  = 0;
-    private int selectedKeyIdx = -1;  // 左侧选中行
-
-    private int presetScroll       = 0;
-    private int selectedPresetIdx  = -1;
-
+    private int keyListScroll;
+    private int selectedKeyIdx = -1;
+    private int presetScroll;
+    private int selectedPresetIdx = -1;
+    private int draggingScrollbar = -1;
+    private double scrollbarGrabOffset;
     private EditBox keyInputBox;
     private EditBox presetNameBox;
-    private boolean showPresetNameInput = false;
-
-    // 面板坐标（init后有效）
-    private int px, py;
-    // 左侧
-    private int leftX, listY, listH;
-    // 右侧
-    private int rightX, presetY, rightW, presetH;
-    // 说明面板（左侧列表下方）
+    private boolean showPresetNameInput;
+    private int px, py, panelW, panelH;
+    private int leftX, leftW, listY, listH, keyVisible;
+    private int rightX, presetY, rightW, presetH, presetVisible;
     private int descY, descH;
 
     public NbtIgnoreEditorScreen(Screen parent, IngredientData data, Runnable onConfirm) {
-        super(Component.literal("编辑忽略 NBT Key"));
-        this.parent      = parent;
-        this.targetData  = data;
-        this.onConfirm   = onConfirm;
-        this.keyList.addAll(data.getIgnoreNbtKeys());
-        String ns = "";
-        var key = BuiltInRegistries.ITEM.getKey(data.getItemStack().getItem());
-        if (key != null) ns = key.getNamespace();
-        this.itemNamespace = ns;
+        super(GuiText.component("registerhelper.gui.nbt_ignore.title"));
+        this.parent = parent;
+        this.targetData = data;
+        this.onConfirm = onConfirm;
+        keyList.addAll(data.getIgnoreNbtKeys());
+        ResourceLocationKey itemKey = new ResourceLocationKey(
+                BuiltInRegistries.ITEM.getKey(data.getItemStack().getItem()));
+        itemNamespace = itemKey.namespace();
     }
 
     @Override
     protected void init() {
-        px = (this.width  - W) / 2;
-        py = (this.height - H) / 2;
-
-        // 左侧坐标
+        String pendingKey = keyInputBox != null ? keyInputBox.getValue() : "";
+        String pendingPresetName = presetNameBox != null ? presetNameBox.getValue() : "";
+        boolean presetWasFocused = showPresetNameInput && presetNameBox != null && presetNameBox.isFocused();
+        GuiLayoutHelper.Bounds panel = GuiLayoutHelper.centered(width, height,
+                PREFERRED_WIDTH, PREFERRED_HEIGHT, MIN_WIDTH, MIN_HEIGHT, 8, 8);
+        px = panel.x(); py = panel.y(); panelW = panel.width(); panelH = panel.height();
         leftX = px + PAD;
+        int columnsWidth = panelW - PAD * 2 - COLUMN_GAP;
+        leftW = GuiLayoutHelper.clamp(columnsWidth * 46 / 100,
+                140, Math.max(140, columnsWidth - 140));
         listY = py + 52;
-        listH = KEY_VISIBLE * ROW_H;
-
-        // 右侧坐标
-        rightX   = px + PAD + LEFT_W + 16;
-        rightW   = W - LEFT_W - PAD * 3 - 16;
-        presetY  = py + 52;
-        presetH  = PRESET_VISIBLE * ROW_H;
-
-        // 说明面板：紧贴列表下方，高约50px
+        keyVisible = GuiLayoutHelper.clamp((panelH - 230) / ROW_H, 3, 14);
+        listH = keyVisible * ROW_H;
+        rightX = leftX + leftW + COLUMN_GAP;
+        rightW = panelW - (rightX - px) - PAD;
+        presetY = py + 52;
+        presetVisible = GuiLayoutHelper.clamp((panelH - 240) / ROW_H, 3, 10);
+        presetH = presetVisible * ROW_H;
         descY = listY + listH + 4;
         descH = 50;
 
-        // ── 左侧控件 ─────────────────────────────────────────────
         int inputY = descY + descH + 4;
-        keyInputBox = new EditBox(this.font, leftX, inputY, LEFT_W - 60, 14,
-                Component.literal("key"));
+        keyInputBox = new EditBox(font, leftX, inputY, leftW - 60,
+                14, GuiText.component("registerhelper.gui.nbt_ignore.key_field"));
+        GuiTheme.styleInput(keyInputBox);
         keyInputBox.setMaxLength(256);
-        keyInputBox.setHint(Component.literal("§8如: bladeState.lastActionTime"));
+        keyInputBox.setHint(GuiText.component("registerhelper.gui.nbt_ignore.key_example"));
+        keyInputBox.setValue(pendingKey);
         addWidget(keyInputBox);
-        keyInputBox.setFocused(true);
-
-        addRenderableWidget(Button.builder(Component.literal("§a+添加"),
-                        btn -> doAddKey())
-                .bounds(leftX + LEFT_W - 56, inputY, 56, 14).build());
-
-        addRenderableWidget(Button.builder(Component.literal("§c删除选中"),
-                        btn -> doRemoveSelected())
-                .bounds(leftX, inputY + 18, 72, 14).build());
-
-        addRenderableWidget(Button.builder(Component.literal("§8清空"),
+        keyInputBox.setFocused(!presetWasFocused);
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.nbt_ignore.add"),
+                        btn -> doAddKey()).bounds(leftX + leftW - 56, inputY, 56, 14).build());
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.nbt_ignore.remove_selected"),
+                        btn -> doRemoveSelected()).bounds(leftX, inputY + 18, 72, 14).build());
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.common.clear"),
                         btn -> { keyList.clear(); selectedKeyIdx = -1; })
                 .bounds(leftX + 76, inputY + 18, 44, 14).build());
 
-        // ── 右侧预设控件 ────────────────────────────────────────
-        addRenderableWidget(Button.builder(Component.literal("§b←加载"),
-                        btn -> doLoadPreset())
-                .bounds(rightX, presetY + presetH + 6, 64, 14).build());
-
-        addRenderableWidget(Button.builder(Component.literal("§c删除"),
-                        btn -> doDeletePreset())
-                .bounds(rightX + 68, presetY + presetH + 6, 64, 14).build());
-
-        addRenderableWidget(Button.builder(Component.literal("§e另存为预设"),
-                        btn -> { showPresetNameInput = !showPresetNameInput; if (showPresetNameInput) presetNameBox.setValue(""); })
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.nbt_ignore.load"),
+                        btn -> doLoadPreset()).bounds(rightX, presetY + presetH + 6, 64, 14).build());
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.nbt_ignore.delete"),
+                        btn -> doDeletePreset()).bounds(rightX + 68, presetY + presetH + 6, 64, 14).build());
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.nbt_ignore.save_as_preset"),
+                        btn -> { showPresetNameInput = !showPresetNameInput;
+                            if (showPresetNameInput) presetNameBox.setValue(""); })
                 .bounds(rightX, presetY + presetH + 24, 90, 14).build());
 
-        presetNameBox = new EditBox(this.font,
-                rightX, presetY + presetH + 42, rightW - 30, 14,
-                Component.literal("名称"));
+        presetNameBox = new EditBox(font, rightX, presetY + presetH + 42,
+                rightW - 30, 14, GuiText.component("registerhelper.gui.nbt_ignore.name"));
+        GuiTheme.styleInput(presetNameBox);
         presetNameBox.setMaxLength(64);
-        presetNameBox.setHint(Component.literal("§8输入预设名称后按 Enter 保存"));
+        presetNameBox.setHint(GuiText.component("registerhelper.gui.nbt_ignore.preset_name_hint"));
+        presetNameBox.setValue(pendingPresetName);
         addWidget(presetNameBox);
-
-        addRenderableWidget(Button.builder(Component.literal("§a✔"),
-                        btn -> doSavePreset())
+        presetNameBox.setFocused(presetWasFocused);
+        addRenderableWidget(Button.builder(Component.literal("§a✔"), btn -> doSavePreset())
                 .bounds(rightX + rightW - 26, presetY + presetH + 42, 26, 14).build());
 
-        // 拔刀剑快速预设
-        if ("slashblade".equals(itemNamespace)) {
-            addRenderableWidget(Button.builder(Component.literal("§b⚡ 拔刀剑快速忽略"),
-                            btn -> doSlashbladeQuickFill())
-                    .bounds(px + PAD, py + H - 52, 132, 16).build());
+        boolean showQuickFill = "slashblade".equals(itemNamespace);
+        int footerGap = 8;
+        int footerButtonWidth = Math.min(90, Math.max(56,
+                (panelW - 40 - (showQuickFill ? 2 : 1) * footerGap) / (showQuickFill ? 3 : 2)));
+        int quickFillWidth = showQuickFill
+                ? Math.min(132, Math.max(80, panelW - footerButtonWidth * 2 - footerGap * 2 - 24)) : 0;
+        int footerWidth = footerButtonWidth * 2 + footerGap
+                + (showQuickFill ? quickFillWidth + footerGap : 0);
+        int footerStartX = px + (panelW - footerWidth) / 2;
+        if (showQuickFill) {
+            addRenderableWidget(Button.builder(GuiText.component(
+                            "registerhelper.gui.nbt_ignore.slashblade_quick"), btn -> doSlashbladeQuickFill())
+                    .bounds(footerStartX, py + panelH - 26, quickFillWidth, 20).build());
+            footerStartX += quickFillWidth + footerGap;
         }
-
-        // 底部
-        addRenderableWidget(Button.builder(Component.literal("§a确认"),
-                        btn -> doConfirm())
-                .bounds(px + W / 2 - 92, py + H - 26, 80, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("§c取消"),
-                        btn -> onClose())
-                .bounds(px + W / 2 + 12, py + H - 26, 80, 20).build());
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.common.confirm"),
+                        btn -> doConfirm()).bounds(footerStartX, py + panelH - 26,
+                        footerButtonWidth, 20).build());
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.common.cancel"),
+                        btn -> onClose()).bounds(footerStartX + footerButtonWidth + footerGap,
+                        py + panelH - 26, footerButtonWidth, 20).build());
     }
 
     private void doAddKey() {
-        String v = keyInputBox.getValue().trim();
-        if (v.isEmpty()) return;
-        for (String k : v.split(",")) {
-            String key = k.trim();
+        String value = keyInputBox.getValue().trim();
+        if (value.isEmpty()) return;
+        for (String part : value.split(",")) {
+            String key = part.trim();
             if (!key.isEmpty() && !keyList.contains(key)) keyList.add(key);
         }
         keyInputBox.setValue("");
@@ -214,26 +203,30 @@ public class NbtIgnoreEditorScreen extends Screen {
         var all = NbtIgnorePresetManager.getAll();
         if (selectedPresetIdx >= 0 && selectedPresetIdx < all.size()) {
             NbtIgnorePresetManager.remove(all.get(selectedPresetIdx).name());
-            selectedPresetIdx = Math.min(selectedPresetIdx, NbtIgnorePresetManager.getAll().size() - 1);
+            selectedPresetIdx = Math.min(selectedPresetIdx,
+                    NbtIgnorePresetManager.getAll().size() - 1);
         }
     }
 
     private void doSavePreset() {
         String name = presetNameBox.getValue().trim();
-        if (name.isEmpty() || keyList.isEmpty()) { showPresetNameInput = false; return; }
+        if (name.isEmpty() || keyList.isEmpty()) {
+            showPresetNameInput = false;
+            return;
+        }
         NbtIgnorePresetManager.addOrUpdate(name, List.copyOf(keyList));
         showPresetNameInput = false;
     }
 
     private void doSlashbladeQuickFill() {
         keyList.clear();
-        keyList.addAll(List.of(
-                "bladeState.lastActionTime", "bladeState.TargetEntity",
-                "bladeState.Damage",         "bladeState.currentCombo",
-                "bladeState._onClick",       "bladeState.killCount",
-                "bladeState.proudSoul",      "bladeState.RepairCounter"
-        ));
+        keyList.addAll(SLASHBLADE_QUICK_KEYS);
         selectedKeyIdx = -1;
+    }
+
+    private String presetDisplayName(NbtIgnorePresetManager.Preset preset) {
+        return preset.keys().equals(SLASHBLADE_QUICK_KEYS)
+                ? GuiText.string("registerhelper.gui.nbt_ignore.preset.slashblade") : preset.name();
     }
 
     private void doConfirm() {
@@ -244,253 +237,279 @@ public class NbtIgnoreEditorScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-    }
-
-    @Override
-    public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float pt) {
-        // 主面板
-        g.fill(px-1, py-1, px+W+1, py+H+1, 0xFF080808);
-        g.fill(px,   py,   px+W,   py+H,   0xFF1E1E1E);
-
-        // 标题栏
-        g.fill(px, py, px+W, py+28, 0xFF1A2A4A);
-        g.fill(px, py+27, px+W, py+28, 0xFF3A5A8A);
-        g.drawCenteredString(font, "§b编辑忽略 NBT Key", px+W/2, py+10, 0xFFFFFF);
-
-        // 警告
-        g.drawString(font,
-                "§c⚠ 部分匹配配方仅支持本模组加载",
-                px+PAD, py+32, 0xFF5555, false);
-
-        g.drawString(font,
-                "§e当前忽略 Key  §8(" + keyList.size() + " 项)  §7↑↓选择 | Del删除",
-                leftX, listY-12, 0xAAAAAA, false);
-
-        // 列表背景
-        g.fill(leftX-1, listY-1, leftX+LEFT_W+1, listY+listH+1, 0xFF444444);
-        g.fill(leftX,   listY,   leftX+LEFT_W,   listY+listH,   0xFF0F1F0F);
-
-        int maxKS = Math.max(0, keyList.size() - KEY_VISIBLE);
-        keyListScroll = clamp(keyListScroll, 0, maxKS);
-
-        for (int i = 0; i < KEY_VISIBLE; i++) {
-            int idx  = i + keyListScroll;
-            if (idx >= keyList.size()) break;
-            String k = keyList.get(idx);
+    public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        renderBackground(g, mouseX, mouseY, partialTick);
+        GuiTheme.drawBackdrop(g, width, height);
+        GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(px, py, panelW, panelH);
+        GuiTheme.drawPanel(g, panel, 28, GuiTheme.INFO);
+        g.drawCenteredString(font, GuiText.component("registerhelper.gui.nbt_ignore.title"),
+                px + panelW / 2, py + 10, GuiTheme.TEXT_ON_HEADER);
+        g.drawString(font, GuiLayoutHelper.ellipsis(font,
+                GuiText.string("registerhelper.gui.nbt_ignore.warning"), panelW - PAD * 2),
+                px + PAD, py + 32, GuiTheme.DANGER, false);
+        g.drawString(font, GuiText.string("registerhelper.gui.nbt_ignore.current_keys", keyList.size()),
+                leftX, listY - 12, GuiTheme.TEXT_MUTED, false);
+        GuiTheme.drawSurface(g, new GuiLayoutHelper.Bounds(leftX, listY, leftW, listH), false);
+        keyListScroll = clamp(keyListScroll, 0, Math.max(0, keyList.size() - keyVisible));
+        for (int i = 0; i < keyVisible; i++) {
+            int index = i + keyListScroll;
+            if (index >= keyList.size()) break;
             int rowY = listY + i * ROW_H;
-            boolean sel = idx == selectedKeyIdx;
-            boolean hov = inBounds(mouseX, mouseY, leftX, rowY, LEFT_W-3, ROW_H);
-            g.fill(leftX, rowY, leftX+LEFT_W, rowY+ROW_H-1,
-                    sel ? 0xFF2A5A2A : hov ? 0xFF1A3A1A : 0xFF0F1F0F);
-            // 只绘制 key 本身，注释在下方说明面板里显示
-            g.drawString(font, "§a" + k, leftX+4, rowY+4, 0xFFFFFF, false);
+            boolean selected = index == selectedKeyIdx;
+            boolean hovered = inBounds(mouseX, mouseY, leftX, rowY, leftW - 3, ROW_H);
+            GuiTheme.drawRow(g, leftX, rowY, leftW, ROW_H - 1, i, hovered, selected);
+            g.drawString(font, GuiLayoutHelper.ellipsis(font, "§a" + keyList.get(index), leftW - 10),
+                    leftX + 4, rowY + 4, GuiTheme.TEXT, false);
         }
-        renderScrollbar(g, leftX+LEFT_W-3, listY, 3, listH,
-                keyList.size(), KEY_VISIBLE, keyListScroll);
+        renderScrollbar(g, leftX + leftW - 3, listY, 3, listH,
+                keyList.size(), keyVisible, keyListScroll);
 
-        // ════ 说明面板（列表下方，显示选中/悬停行的注释）══════════
-        g.fill(leftX-1, descY-1, leftX+LEFT_W+1, descY+descH+1, 0xFF333333);
-        g.fill(leftX,   descY,   leftX+LEFT_W,   descY+descH,   0xFF0A0A18);
-
-        // 标题行
-        g.fill(leftX, descY, leftX+LEFT_W, descY+10, 0xFF111130);
-        g.drawString(font, "§7说明", leftX+3, descY+1, 0x888888, false);
-
-        // 确定显示哪个 key 的说明
-        // 优先：选中行；其次：鼠标悬停行
-        int hoverIdx = -1;
-        if (inBounds(mouseX, mouseY, leftX, listY, LEFT_W-3, listH)) {
-            hoverIdx = (mouseY - listY) / ROW_H + keyListScroll;
-            if (hoverIdx >= keyList.size()) hoverIdx = -1;
+        GuiTheme.drawSurface(g, new GuiLayoutHelper.Bounds(leftX, descY, leftW, descH), true);
+        g.fill(leftX, descY, leftX + leftW, descY + 10, GuiTheme.SECTION);
+        g.drawString(font, GuiText.string("registerhelper.gui.nbt_ignore.description"),
+                leftX + 3, descY + 1, GuiTheme.TEXT_MUTED, false);
+        int hoverIndex = -1;
+        if (inBounds(mouseX, mouseY, leftX, listY, leftW - 3, listH)) {
+            hoverIndex = (mouseY - listY) / ROW_H + keyListScroll;
+            if (hoverIndex >= keyList.size()) hoverIndex = -1;
         }
-        int showIdx = (selectedKeyIdx >= 0) ? selectedKeyIdx : hoverIdx;
-
-        if (showIdx >= 0 && showIdx < keyList.size()) {
-            String k = keyList.get(showIdx);
-            String comment = KEY_COMMENTS.getOrDefault(k, "（暂无说明）");
-            // key 名
-            g.drawString(font, "§f" + k, leftX+4, descY+12, 0xFFFFFF, false);
-            // 注释（灰色，支持超出宽度换行）
-            renderWrappedText(g, comment, leftX+4, descY+23, LEFT_W-8, 0x999999);
+        int showIndex = selectedKeyIdx >= 0 ? selectedKeyIdx : hoverIndex;
+        if (showIndex >= 0 && showIndex < keyList.size()) {
+            String key = keyList.get(showIndex);
+            String commentKey = KEY_COMMENTS.get(key);
+            String comment = commentKey == null
+                    ? GuiText.string("registerhelper.gui.nbt_ignore.no_description")
+                    : GuiText.string(commentKey);
+            g.drawString(font, GuiLayoutHelper.ellipsis(font, key, leftW - 8),
+                    leftX + 4, descY + 12, GuiTheme.TEXT, false);
+            renderWrappedText(g, comment, leftX + 4, descY + 23, leftW - 8, GuiTheme.TEXT_MUTED);
         } else {
-            g.drawString(font, "§8点击左侧列表中的 Key 查看说明",
-                    leftX+4, descY+22, 0x666666, false);
+            g.drawString(font, GuiText.string("registerhelper.gui.nbt_ignore.select_key_help"),
+                    leftX + 4, descY + 22, GuiTheme.TEXT_MUTED, false);
         }
 
-        // 输入框标签
         int inputY = descY + descH + 4;
-        g.drawString(font, "§7添加（支持逗号批量）:", leftX, inputY-10, 0x888888, false);
-        keyInputBox.render(g, mouseX, mouseY, pt);
+        g.drawString(font, GuiText.string("registerhelper.gui.nbt_ignore.batch_add"),
+                leftX, inputY - 10, GuiTheme.TEXT_MUTED, false);
+        GuiTheme.drawInput(g, keyInputBox);
+        keyInputBox.render(g, mouseX, mouseY, partialTick);
 
-        // ════ 右侧预设列表 ══════════════════════════════════════════
-
-        var allPresets = NbtIgnorePresetManager.getAll();
-        g.drawString(font, "§6预设  §8(" + allPresets.size() + ")  §7单击选中",
-                rightX, presetY-12, 0xAAAAAA, false);
-
-        g.fill(rightX-1, presetY-1, rightX+rightW+1, presetY+presetH+1, 0xFF444444);
-        g.fill(rightX,   presetY,   rightX+rightW,   presetY+presetH,   0xFF1A1A0F);
-
-        int maxPS = Math.max(0, allPresets.size() - PRESET_VISIBLE);
-        presetScroll = clamp(presetScroll, 0, maxPS);
-
-        for (int i = 0; i < PRESET_VISIBLE; i++) {
-            int idx = i + presetScroll;
-            if (idx >= allPresets.size()) break;
-            var p = allPresets.get(idx);
+        var presets = NbtIgnorePresetManager.getAll();
+        g.drawString(font, GuiText.string("registerhelper.gui.nbt_ignore.presets", presets.size()),
+                rightX, presetY - 12, GuiTheme.TEXT_MUTED, false);
+        GuiTheme.drawSurface(g, new GuiLayoutHelper.Bounds(rightX, presetY, rightW, presetH), false);
+        presetScroll = clamp(presetScroll, 0, Math.max(0, presets.size() - presetVisible));
+        for (int i = 0; i < presetVisible; i++) {
+            int index = i + presetScroll;
+            if (index >= presets.size()) break;
+            var preset = presets.get(index);
             int rowY = presetY + i * ROW_H;
-            boolean sel = idx == selectedPresetIdx;
-            boolean hov = inBounds(mouseX, mouseY, rightX, rowY, rightW-3, ROW_H);
-            g.fill(rightX, rowY, rightX+rightW, rowY+ROW_H-1,
-                    sel ? 0xFF4A3A00 : hov ? 0xFF2A2A00 : 0xFF1A1A0F);
-            g.drawString(font, "§6" + p.name(), rightX+4, rowY+4, 0xFFFFFF, false);
-            g.drawString(font, "§8" + p.keys().size() + "项",
-                    rightX+rightW-36, rowY+4, 0xFFFFFF, false);
+            boolean selected = index == selectedPresetIdx;
+            boolean hovered = inBounds(mouseX, mouseY, rightX, rowY, rightW - 3, ROW_H);
+            GuiTheme.drawRow(g, rightX, rowY, rightW, ROW_H - 1, i, hovered, selected);
+            g.drawString(font, GuiLayoutHelper.ellipsis(font, presetDisplayName(preset),
+                    Math.max(1, rightW - 42)), rightX + 4, rowY + 4, GuiTheme.TEXT, false);
+            g.drawString(font, GuiText.string("registerhelper.gui.nbt_ignore.item_count", preset.keys().size()),
+                    rightX + rightW - 36, rowY + 4, GuiTheme.TEXT_MUTED, false);
         }
-        renderScrollbar(g, rightX+rightW-3, presetY, 3, presetH,
-                allPresets.size(), PRESET_VISIBLE, presetScroll);
+        renderScrollbar(g, rightX + rightW - 3, presetY, 3, presetH,
+                presets.size(), presetVisible, presetScroll);
 
-        // ── 选中预设的 key 预览（逐行，带注释）────────────────────
-        int pvY = presetY + presetH + 62;
-        int pvBottom = py + H - 32;
-        if (selectedPresetIdx >= 0 && selectedPresetIdx < allPresets.size()
-                && !showPresetNameInput) {
-            var sel = allPresets.get(selectedPresetIdx);
-            g.drawString(font, "§7「" + sel.name() + "」预览:", rightX, pvY-10, 0x888888, false);
-            // 背景
-            g.fill(rightX-1, pvY-1, rightX+rightW+1, pvBottom+1, 0xFF222222);
-            g.fill(rightX,   pvY,   rightX+rightW,   pvBottom,   0xFF0D0D15);
-            int ly = pvY + 2;
-            for (String k : sel.keys()) {
-                if (ly + 9 > pvBottom) {
-                    g.drawString(font, "§8... 还有更多", rightX+4, ly, 0x666666, false);
+        int previewY = presetY + presetH + 62;
+        int previewBottom = py + panelH - 32;
+        if (selectedPresetIdx >= 0 && selectedPresetIdx < presets.size() && !showPresetNameInput) {
+            var preset = presets.get(selectedPresetIdx);
+            g.drawString(font, GuiLayoutHelper.ellipsis(font,
+                    GuiText.string("registerhelper.gui.nbt_ignore.preset_preview", presetDisplayName(preset)),
+                    rightW), rightX, previewY - 10, GuiTheme.TEXT_MUTED, false);
+            GuiTheme.drawSurface(g, new GuiLayoutHelper.Bounds(rightX, previewY, rightW,
+                    Math.max(1, previewBottom - previewY)), true);
+            int lineY = previewY + 2;
+            for (String key : preset.keys()) {
+                if (lineY + 9 > previewBottom) {
+                    g.drawString(font, GuiText.string("registerhelper.gui.nbt_ignore.more"),
+                            rightX + 4, lineY, GuiTheme.TEXT_MUTED, false);
                     break;
                 }
-                String comment = KEY_COMMENTS.getOrDefault(k, "");
-                // key 用绿色，注释用灰色，分两段绘制
-                int kw = font.width("§a" + k);
-                g.drawString(font, "§a" + k, rightX+4, ly, 0xFFFFFF, false);
-                if (!comment.isEmpty()) {
-                    // 注释放在 key 右侧，超出则截断
-                    int maxCommentW = rightW - kw - 14;
-                    String commentDisp = comment;
-                    while (font.width("§8  " + commentDisp) > maxCommentW && commentDisp.length() > 4)
-                        commentDisp = commentDisp.substring(0, commentDisp.length()-1);
-                    if (!commentDisp.equals(comment)) commentDisp += "…";
-                    g.drawString(font, "§8  " + commentDisp, rightX+4+kw, ly, 0xFFFFFF, false);
+                String commentKey = KEY_COMMENTS.get(key);
+                String comment = commentKey == null ? "" : GuiText.string(commentKey);
+                int available = Math.max(1, rightW - 8);
+                String keyDisplay = GuiLayoutHelper.ellipsis(font, "§a" + key, available);
+                int keyWidth = font.width(keyDisplay);
+                g.drawString(font, keyDisplay, rightX + 4, lineY, GuiTheme.TEXT, false);
+                int commentWidth = available - keyWidth - 4;
+                if (!comment.isEmpty() && commentWidth > font.width("...")) {
+                    g.drawString(font, GuiLayoutHelper.ellipsis(font, "§8  " + comment, commentWidth),
+                            rightX + 8 + keyWidth, lineY, GuiTheme.TEXT, false);
                 }
-                ly += 10;
+                lineY += 10;
             }
         }
-
-        // 另存为预设输入区
         if (showPresetNameInput) {
-            g.fill(rightX-2, presetY+presetH+38, rightX+rightW+2,
-                    presetY+presetH+60, 0xFF222200);
-            g.drawString(font, "§e预设名称:", rightX, presetY+presetH+30, 0xAAAAAA, false);
-            presetNameBox.render(g, mouseX, mouseY, pt);
+            g.fill(rightX - 2, presetY + presetH + 38, rightX + rightW + 2,
+                    presetY + presetH + 60, GuiTheme.SECTION);
+            g.drawString(font, GuiText.string("registerhelper.gui.nbt_ignore.preset_name"),
+                    rightX, presetY + presetH + 30, GuiTheme.TEXT_MUTED, false);
+            GuiTheme.drawInput(g, presetNameBox);
+            presetNameBox.render(g, mouseX, mouseY, partialTick);
         }
-
-        super.render(g, mouseX, mouseY, pt);
+        super.render(g, mouseX, mouseY, partialTick);
     }
 
-    /** 简单换行绘制，超宽时换到下一行 */
-    private void renderWrappedText(GuiGraphics g, String text, int x, int y, int maxW, int color) {
-        if (font.width(text) <= maxW) {
+    private void renderWrappedText(GuiGraphics g, String text, int x, int y, int maxWidth, int color) {
+        if (font.width(text) <= maxWidth) {
             g.drawString(font, text, x, y, color, false);
             return;
         }
-        // 按空格/汉字分行（简化：按字符逐字切割）
         StringBuilder line = new StringBuilder();
-        int curY = y;
-        for (char c : text.toCharArray()) {
-            if (font.width(line + String.valueOf(c)) > maxW) {
-                g.drawString(font, line.toString(), x, curY, color, false);
+        int currentY = y;
+        for (char character : text.toCharArray()) {
+            if (font.width(line + String.valueOf(character)) > maxWidth) {
+                g.drawString(font, line.toString(), x, currentY, color, false);
                 line.setLength(0);
-                curY += 10;
-                if (curY + 10 > y + descH - 14) break; // 超出说明框高度
+                currentY += 10;
+                if (currentY + 10 > y + descH - 14) break;
             }
-            line.append(c);
+            line.append(character);
         }
-        if (line.length() > 0) g.drawString(font, line.toString(), x, curY, color, false);
+        if (!line.isEmpty()) g.drawString(font, line.toString(), x, currentY, color, false);
     }
 
     private void renderScrollbar(GuiGraphics g, int x, int y, int w, int h,
                                  int total, int visible, int scroll) {
-        if (total <= visible) return;
-        int thumbH = Math.max(8, h * visible / total);
-        int maxS   = total - visible;
-        int thumbY = y + (maxS > 0 ? scroll * (h - thumbH) / maxS : 0);
-        g.fill(x, y, x+w, y+h, 0xFF333333);
-        g.fill(x, thumbY, x+w, thumbY+thumbH, 0xFF88AAFF);
+        GuiLayoutHelper.Scrollbar scrollbar = GuiLayoutHelper.scrollbar(
+                new GuiLayoutHelper.Bounds(x, y, w, h), total, visible, scroll, 8);
+        GuiTheme.drawScrollbar(g, scrollbar, -1, -1);
     }
 
-    // ── 输入处理 ─────────────────────────────────────────────────
-
     @Override
-    public boolean mouseClicked(double mx, double my, int btn) {
-        if (inBounds((int)mx, (int)my, leftX, listY, LEFT_W, listH)) {
-            int row = ((int)my - listY) / ROW_H;
-            int idx = row + keyListScroll;
-            if (idx >= 0 && idx < keyList.size()) { selectedKeyIdx = idx; return true; }
-        }
-        if (inBounds((int)mx, (int)my, rightX, presetY, rightW, presetH)) {
-            int row = ((int)my - presetY) / ROW_H;
-            int idx = row + presetScroll;
-            if (idx >= 0 && idx < NbtIgnorePresetManager.getAll().size()) {
-                selectedPresetIdx = idx; return true;
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0) {
+            GuiLayoutHelper.Scrollbar leftScrollbar = currentScrollbar(0);
+            if (leftScrollbar.contains(mouseX, mouseY)) {
+                draggingScrollbar = 0;
+                scrollbarGrabOffset = leftScrollbar.grabOffset(mouseY);
+                keyListScroll = leftScrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+                return true;
+            }
+            GuiLayoutHelper.Scrollbar rightScrollbar = currentScrollbar(1);
+            if (rightScrollbar.contains(mouseX, mouseY)) {
+                draggingScrollbar = 1;
+                scrollbarGrabOffset = rightScrollbar.grabOffset(mouseY);
+                presetScroll = rightScrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+                return true;
             }
         }
-        return super.mouseClicked(mx, my, btn);
+        if (inBounds((int) mouseX, (int) mouseY, leftX, listY, leftW, listH)) {
+            int index = (int) ((mouseY - listY) / ROW_H) + keyListScroll;
+            if (index >= 0 && index < keyList.size()) {
+                selectedKeyIdx = index;
+                return true;
+            }
+        }
+        if (inBounds((int) mouseX, (int) mouseY, rightX, presetY, rightW, presetH)) {
+            int index = (int) ((mouseY - presetY) / ROW_H) + presetScroll;
+            if (index >= 0 && index < NbtIgnorePresetManager.getAll().size()) {
+                selectedPresetIdx = index;
+                return true;
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private GuiLayoutHelper.Scrollbar currentScrollbar(int side) {
+        if (side == 0) {
+            return GuiLayoutHelper.scrollbar(new GuiLayoutHelper.Bounds(
+                            leftX + leftW - 3, listY, 3, listH),
+                    keyList.size(), keyVisible, keyListScroll, 8);
+        }
+        return GuiLayoutHelper.scrollbar(new GuiLayoutHelper.Bounds(
+                        rightX + rightW - 3, presetY, 3, presetH),
+                NbtIgnorePresetManager.getAll().size(), presetVisible, presetScroll, 8);
     }
 
     @Override
-    public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
-        if (inBounds((int)mx, (int)my, leftX, listY, LEFT_W, listH)) {
-            keyListScroll = clamp(keyListScroll-(int)scrollY, 0,
-                    Math.max(0, keyList.size()-KEY_VISIBLE)); return true;
+    public boolean mouseDragged(double mouseX, double mouseY, int button,
+                                double dragX, double dragY) {
+        if (draggingScrollbar >= 0 && button == 0) {
+            GuiLayoutHelper.Scrollbar scrollbar = currentScrollbar(draggingScrollbar);
+            if (draggingScrollbar == 0) keyListScroll = scrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+            else presetScroll = scrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+            return true;
         }
-        if (inBounds((int)mx, (int)my, rightX, presetY, rightW, presetH)) {
-            presetScroll = clamp(presetScroll-(int)scrollY, 0,
-                    Math.max(0, NbtIgnorePresetManager.getAll().size()-PRESET_VISIBLE)); return true;
-        }
-        return super.mouseScrolled(mx, my, scrollX, scrollY);
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
     }
 
     @Override
-    public boolean keyPressed(int kc, int sc, int mods) {
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (draggingScrollbar >= 0) {
+            draggingScrollbar = -1;
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (inBounds((int) mouseX, (int) mouseY, leftX, listY, leftW, listH)) {
+            keyListScroll = clamp(keyListScroll - (int) scrollY, 0,
+                    Math.max(0, keyList.size() - keyVisible));
+            return true;
+        }
+        if (inBounds((int) mouseX, (int) mouseY, rightX, presetY, rightW, presetH)) {
+            presetScroll = clamp(presetScroll - (int) scrollY, 0,
+                    Math.max(0, NbtIgnorePresetManager.getAll().size() - presetVisible));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (showPresetNameInput && presetNameBox.isFocused()) {
-            if (kc == 257 || kc == 335) { doSavePreset(); return true; }
-            if (kc == 256) { showPresetNameInput = false; return true; }
-            return presetNameBox.keyPressed(kc, sc, mods);
+            if (keyCode == 257 || keyCode == 335) { doSavePreset(); return true; }
+            if (keyCode == 256) { showPresetNameInput = false; return true; }
+            return presetNameBox.keyPressed(keyCode, scanCode, modifiers);
         }
         if (keyInputBox.isFocused()) {
-            if (kc == 257 || kc == 335) { doAddKey(); return true; }
-            return keyInputBox.keyPressed(kc, sc, mods);
+            if (keyCode == 257 || keyCode == 335) { doAddKey(); return true; }
+            return keyInputBox.keyPressed(keyCode, scanCode, modifiers);
         }
-        if (kc == 264 && selectedKeyIdx < keyList.size()-1) { selectedKeyIdx++; return true; }
-        if (kc == 265 && selectedKeyIdx > 0)                { selectedKeyIdx--; return true; }
-        if (kc == 261)                                       { doRemoveSelected(); return true; }
-        if (kc == 256) { onClose(); return true; }
-        return super.keyPressed(kc, sc, mods);
+        if (keyCode == 264 && selectedKeyIdx < keyList.size() - 1) { selectedKeyIdx++; return true; }
+        if (keyCode == 265 && selectedKeyIdx > 0) { selectedKeyIdx--; return true; }
+        if (keyCode == 261) { doRemoveSelected(); return true; }
+        if (keyCode == 256) { onClose(); return true; }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
-    public boolean charTyped(char c, int mods) {
-        if (showPresetNameInput && presetNameBox.isFocused()) return presetNameBox.charTyped(c, mods);
-        if (keyInputBox.isFocused()) return keyInputBox.charTyped(c, mods);
-        return super.charTyped(c, mods);
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (showPresetNameInput && presetNameBox.isFocused()) return presetNameBox.charTyped(codePoint, modifiers);
+        if (keyInputBox.isFocused()) return keyInputBox.charTyped(codePoint, modifiers);
+        return super.charTyped(codePoint, modifiers);
     }
 
     @Override
-    public void onClose() { if (minecraft != null) minecraft.setScreen(parent); }
+    public void onClose() {
+        if (minecraft != null) minecraft.setScreen(parent);
+    }
 
     @Override
-    public boolean isPauseScreen() { return false; }
+    public boolean isPauseScreen() {
+        return false;
+    }
 
-    private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
-    private static boolean inBounds(int mx, int my, int x, int y, int w, int h) {
-        return mx >= x && mx < x+w && my >= y && my < y+h;
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static boolean inBounds(int mouseX, int mouseY, int x, int y, int w, int h) {
+        return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
+    }
+
+    private record ResourceLocationKey(ResourceLocation value) {
+        String namespace() {
+            return value == null ? "" : value.getNamespace();
+        }
     }
 }

@@ -30,13 +30,14 @@ public class RecipeReloadHelper {
 
     /**
      * 重载数据包
-     * 先以服务器身份执行，再让所有玩家执行
+     * 由服务器执行一次，资源重载流程负责同步客户端
      */
     public static boolean reloadDataPacks(CommandSourceStack source) {
         try {
             MinecraftServer server = source.getServer();
             if (server == null) {
-                source.sendFailure(Component.literal("§c无法获取服务器实例"));
+                source.sendFailure(Component.translatable("registerhelper.server.unavailable")
+                        .withStyle(net.minecraft.ChatFormatting.RED));
                 return false;
             }
 
@@ -44,7 +45,7 @@ public class RecipeReloadHelper {
 
             PackRepository packRepository = server.getPackRepository();
             WorldData worldData = server.getWorldData();
-            Collection<String> selectedIds = packRepository.getSelectedIds();
+            Collection<String> selectedIds = Lists.newArrayList(packRepository.getSelectedIds());
 
             // 完全按照原版 ReloadCommand.discoverNewPacks 的逻辑
             packRepository.reload();
@@ -63,9 +64,7 @@ public class RecipeReloadHelper {
 
             // 第一步：服务器身份执行 reloadResources
             server.reloadResources(newPacks).thenRunAsync(() -> {
-                LOGGER.info("服务器 reload 完成，开始让所有玩家同步...");
-                // 第二步：让所有玩家执行 reload
-                reloadForAllPlayers(server);
+                LOGGER.info("服务器 reload 完成，所有客户端将使用本次重载结果");
             }, server).exceptionally((throwable) -> {
                 LOGGER.warn("Failed to execute reload", throwable);
                 source.sendFailure(Component.translatable("commands.reload.failure"));
@@ -76,36 +75,10 @@ public class RecipeReloadHelper {
 
         } catch (Exception e) {
             LOGGER.error("重载数据包时出错", e);
-            source.sendFailure(Component.literal("§c重载失败: " + e.getMessage()));
+            source.sendFailure(Component.translatable("registerhelper.command.reload.failed", e.getMessage())
+                    .withStyle(net.minecraft.ChatFormatting.RED));
             return false;
         }
-    }
-
-    /**
-     * 让所有在线玩家执行 reload 命令
-     */
-    private static void reloadForAllPlayers(MinecraftServer server) {
-        List<ServerPlayer> players = server.getPlayerList().getPlayers();
-
-        if (players.isEmpty()) {
-            LOGGER.info("没有在线玩家需要同步");
-            return;
-        }
-
-        LOGGER.info("开始为 {} 个玩家执行 reload...", players.size());
-
-        for (ServerPlayer player : players) {
-            try {
-                // 以玩家身份执行 reload（提升权限）
-                CommandSourceStack playerSource = player.createCommandSourceStack().withPermission(4);
-                server.getCommands().performPrefixedCommand(playerSource, "reload");
-                LOGGER.debug("玩家 {} 执行 reload 完成", player.getName().getString());
-            } catch (Exception e) {
-                LOGGER.error("玩家 {} 执行 reload 失败", player.getName().getString(), e);
-            }
-        }
-
-        LOGGER.info("所有玩家 reload 完成");
     }
 
     /**

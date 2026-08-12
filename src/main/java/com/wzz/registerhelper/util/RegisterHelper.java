@@ -54,17 +54,36 @@ public class RegisterHelper {
      * 注册带自定义布局的配方类型
      */
     public static void registerRecipeTypeWithLayout(String modID, String type, String displayName,
-                                                    ModRecipeProcessor processor, String layoutId) {
-        registerRecipeTypeWithLayout(modID, type, displayName, 9, processor, layoutId);
+                                                     ModRecipeProcessor processor, String layoutId) {
+        registerRecipeTypeWithLayout(modID, type, displayName, 9, processor, layoutId, false);
+    }
+
+    public static void registerRecipeTypeWithLayout(String modID, String type, String displayName,
+                                                     ModRecipeProcessor processor, String layoutId,
+                                                     boolean supportsTiers) {
+        registerRecipeTypeWithLayout(modID, type, displayName, 9, processor, layoutId, supportsTiers);
     }
 
     public static void registerRecipeTypeWithLayout(String modID, String type, String displayName, int gridSize,
-                                                    ModRecipeProcessor processor, String layoutId) {
-        registerRecipeTypeWithLayout(modID, type, displayName, gridSize, gridSize, processor, layoutId);
+                                                     ModRecipeProcessor processor, String layoutId) {
+        registerRecipeTypeWithLayout(modID, type, displayName, gridSize, gridSize, processor, layoutId, false);
+    }
+
+    public static void registerRecipeTypeWithLayout(String modID, String type, String displayName, int gridSize,
+                                                     ModRecipeProcessor processor, String layoutId,
+                                                     boolean supportsTiers) {
+        registerRecipeTypeWithLayout(modID, type, displayName, gridSize, gridSize, processor, layoutId,
+                supportsTiers);
     }
 
     public static void registerRecipeTypeWithLayout(String modID, String type, String displayName, int gridWidth, int gridHeight,
-                                                    ModRecipeProcessor processor, String layoutId) {
+                                                     ModRecipeProcessor processor, String layoutId) {
+        registerRecipeTypeWithLayout(modID, type, displayName, gridWidth, gridHeight, processor, layoutId, false);
+    }
+
+    public static void registerRecipeTypeWithLayout(String modID, String type, String displayName, int gridWidth, int gridHeight,
+                                                     ModRecipeProcessor processor, String layoutId,
+                                                     boolean supportsTiers) {
         DynamicRecipeTypeConfig.registerRecipeType(
                 new DynamicRecipeTypeConfig.RecipeTypeDefinition.Builder(modID + ":" + type, displayName)
                         .modId(modID)
@@ -73,6 +92,7 @@ public class RegisterHelper {
                         .property("category", modID)
                         .property("mode", type.replace("crafting", ""))
                         .property("layout", layoutId)
+                        .property("supportsTiers", supportsTiers)
                         .processor(processor)
                         .build()
         );

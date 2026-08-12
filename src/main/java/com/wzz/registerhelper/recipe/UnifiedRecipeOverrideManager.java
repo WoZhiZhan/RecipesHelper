@@ -8,6 +8,7 @@ import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.util.ResourceUtil;
 import net.minecraft.resources.ResourceLocation;
+import net.neoforged.fml.loading.FMLPaths;
 import org.slf4j.Logger;
 
 import java.io.File;
@@ -26,11 +27,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class UnifiedRecipeOverrideManager {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final String OVERRIDES_FILE = "config/registerhelper/recipe_overrides.json";
+    private static final String OVERRIDES_FILE = FMLPaths.CONFIGDIR.get()
+            .resolve("registerhelper/recipe_overrides.json").toAbsolutePath().normalize().toString();
     
     // 内存中的覆盖映射：原配方ID -> 覆盖JSON
     private static final Map<ResourceLocation, JsonObject> recipeOverrides = new ConcurrentHashMap<>();
-    private static boolean initialized = false;
+    private static volatile boolean initialized = false;
     
     /**
      * 覆盖数据类
@@ -52,7 +54,7 @@ public class UnifiedRecipeOverrideManager {
     /**
      * 初始化覆盖管理器
      */
-    public static void initialize() {
+    public static synchronized void initialize() {
         if (initialized) {
             return;
         }
@@ -72,6 +74,9 @@ public class UnifiedRecipeOverrideManager {
      */
     public static boolean addOverride(ResourceLocation recipeId, JsonObject overrideJson) {
         try {
+            if (recipeId == null || overrideJson == null) {
+                return false;
+            }
             initialize();
             
             recipeOverrides.put(recipeId, overrideJson.deepCopy());
@@ -91,6 +96,9 @@ public class UnifiedRecipeOverrideManager {
      */
     public static boolean removeOverride(ResourceLocation recipeId) {
         try {
+            if (recipeId == null) {
+                return false;
+            }
             initialize();
             
             JsonObject removed = recipeOverrides.remove(recipeId);
@@ -170,12 +178,17 @@ public class UnifiedRecipeOverrideManager {
      * 批量添加覆盖
      */
     public static int addMultipleOverrides(Map<ResourceLocation, JsonObject> overrides) {
+        if (overrides == null || overrides.isEmpty()) {
+            return 0;
+        }
         initialize();
         
         int addedCount = 0;
         for (Map.Entry<ResourceLocation, JsonObject> entry : overrides.entrySet()) {
-            recipeOverrides.put(entry.getKey(), entry.getValue().deepCopy());
-            addedCount++;
+            if (entry.getKey() != null && entry.getValue() != null) {
+                recipeOverrides.put(entry.getKey(), entry.getValue().deepCopy());
+                addedCount++;
+            }
         }
         
         if (addedCount > 0) {
@@ -190,6 +203,9 @@ public class UnifiedRecipeOverrideManager {
      * 批量移除覆盖
      */
     public static int removeMultipleOverrides(Set<ResourceLocation> recipeIds) {
+        if (recipeIds == null || recipeIds.isEmpty()) {
+            return 0;
+        }
         initialize();
         
         int removedCount = 0;

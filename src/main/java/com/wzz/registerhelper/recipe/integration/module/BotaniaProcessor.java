@@ -1,11 +1,23 @@
 package com.wzz.registerhelper.recipe.integration.module;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.wzz.registerhelper.gui.recipe.IngredientData;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
+import com.wzz.registerhelper.util.RecipeUtil;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.fml.ModList;
 
+import java.util.Map;
+
+import static com.wzz.registerhelper.util.RecipeUtil.createIngredientJson;
+import static com.wzz.registerhelper.util.RecipeUtil.createResultJson;
+import static com.wzz.registerhelper.util.RecipeUtil.getItemResourceLocation;
+
+/** Botania recipe processor for the 1.21.1 recipe codecs. */
 public class BotaniaProcessor implements ModRecipeProcessor {
     @Override
     public boolean isModLoaded() {
@@ -15,304 +27,405 @@ public class BotaniaProcessor implements ModRecipeProcessor {
     @Override
     public String[] getSupportedRecipeTypes() {
         return new String[]{
-                "botania:runic_altar",
-                "botania:mana_infusion",
-                "botania:elven_trade",
-                "botania:terra_plate",
-                "botania:petal_apothecary",
-                "botania:pure_daisy",
-                "botania:brew",
-                "botania:orechid",
-                "botania:orechid_ignem",
-                "botania:marimorphosis"
+                "runic_altar", "mana_infusion", "elven_trade", "terra_plate",
+                "petal_apothecary", "pure_daisy", "brew", "orechid",
+                "orechid_ignem", "marimorphosis"
         };
     }
 
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {
-        JsonObject recipe = new JsonObject();
-        recipe.addProperty("type", request.recipeType);
-
-        switch (request.recipeType) {
-            case "botania:runic_altar" -> createRunicAltarRecipe(recipe, request);
-            case "botania:mana_infusion" -> createManaInfusionRecipe(recipe, request);
-            case "botania:elven_trade" -> createElvenTradeRecipe(recipe, request);
-            case "botania:terra_plate" -> createTerraPlateRecipe(recipe, request);
-            case "botania:petal_apothecary" -> createPetalApothecaryRecipe(recipe, request);
-            case "botania:pure_daisy" -> createPureDaisyRecipe(recipe, request);
-            case "botania:brew" -> createBrewRecipe(recipe, request);
-            case "botania:orechid" -> createOrechidRecipe(recipe, request);
-            case "botania:orechid_ignem" -> createOrechidIgnemRecipe(recipe, request);
-            case "botania:marimorphosis" -> createMarimorphosisRecipe(recipe, request);
+        String type = request.recipeType.toLowerCase();
+        if (type.contains(":")) {
+            type = type.substring(type.indexOf(":") + 1);
         }
 
-        return recipe;
-    }
-
-    private void createRunicAltarRecipe(JsonObject recipe, RecipeRequest request) {
-        // 符文祭坛：使用 ingredients（官方格式）
-        JsonArray ingredients = new JsonArray();
-        for (Object ingredient : request.ingredients) {
-            JsonObject input = createIngredientObject(ingredient);
-            ingredients.add(input);
-        }
-        recipe.add("ingredients", ingredients);
-
-        JsonObject result = new JsonObject();
-        result.addProperty("item", ensureValidItemId(request.result.getItem().toString()));
-        if (request.resultCount > 1) {
-            result.addProperty("count", request.resultCount);
-        }
-        recipe.add("output", result);
-
-        Integer mana = (Integer) request.properties.get("mana");
-        recipe.addProperty("mana", mana != null ? mana : 5200);
-    }
-
-    private void createManaInfusionRecipe(JsonObject recipe, RecipeRequest request) {
-        // 魔力灌注：单材料 + 魔力 -> 输出
-        JsonObject input = createIngredientObject(request.ingredients[0]);
-        recipe.add("input", input);
-
-        JsonObject result = new JsonObject();
-        result.addProperty("id", ensureValidItemId(request.result.getItem().toString()));
-        if (request.resultCount > 1) {
-            result.addProperty("count", request.resultCount);
-        }
-        recipe.add("output", result);
-
-        Integer mana = (Integer) request.properties.get("mana");
-        recipe.addProperty("mana", mana != null ? mana : 1000);
-
-        Object catalyst = request.properties.get("catalyst");
-        if (catalyst != null) {
-            JsonObject catalystObj = new JsonObject();
-            catalystObj.addProperty("type", "block");
-            catalystObj.addProperty("id", ensureValidItemId(catalyst.toString()));
-            recipe.add("catalyst", catalystObj);
-        }
-    }
-
-    private void createElvenTradeRecipe(JsonObject recipe, RecipeRequest request) {
-        // 精灵贸易：使用 ingredients 和 output（单数）
-        JsonArray ingredients = new JsonArray();
-        for (Object ingredient : request.ingredients) {
-            JsonObject input = createIngredientObject(ingredient);
-            ingredients.add(input);
-        }
-        recipe.add("ingredients", ingredients);
-
-        JsonArray outputs = new JsonArray();
-        JsonObject mainOutput = new JsonObject();
-        mainOutput.addProperty("id", ensureValidItemId(request.result.getItem().toString()));
-        if (request.resultCount > 1) {
-            mainOutput.addProperty("count", request.resultCount);
-        }
-        outputs.add(mainOutput);
-
-        // 额外输出
-        Object[] extraOutputs = (Object[]) request.properties.get("extraOutputs");
-        if (extraOutputs != null) {
-            for (Object extra : extraOutputs) {
-                JsonObject extraOutput = new JsonObject();
-                extraOutput.addProperty("id", ensureValidItemId(extra.toString()));
-                outputs.add(extraOutput);
-            }
-        }
-
-        recipe.add("output", outputs);
-    }
-
-    private void createTerraPlateRecipe(JsonObject recipe, RecipeRequest request) {
-        // 泰拉凝聚板：使用 ingredients 和 result
-        JsonArray ingredients = new JsonArray();
-        for (Object ingredient : request.ingredients) {
-            JsonObject input = createIngredientObject(ingredient);
-            ingredients.add(input);
-        }
-        recipe.add("ingredients", ingredients);
-
-        JsonObject result = new JsonObject();
-        result.addProperty("id", ensureValidItemId(request.result.getItem().toString()));
-        if (request.resultCount > 1) {
-            result.addProperty("count", request.resultCount);
-        }
-        recipe.add("result", result);
-
-        Integer mana = (Integer) request.properties.get("mana");
-        recipe.addProperty("mana", mana != null ? mana : 500000);
-    }
-
-    private void createPetalApothecaryRecipe(JsonObject recipe, RecipeRequest request) {
-        // 花瓣药剂师：使用 ingredients
-        JsonArray ingredients = new JsonArray();
-        for (Object ingredient : request.ingredients) {
-            JsonObject input = createIngredientObject(ingredient);
-            ingredients.add(input);
-        }
-        recipe.add("ingredients", ingredients);
-
-        JsonObject result = new JsonObject();
-        result.addProperty("id", ensureValidItemId(request.result.getItem().toString()));
-        recipe.add("output", result);
-
-        // 必须的试剂字段
-        String reagent = (String) request.properties.get("reagent");
-        if (reagent != null) {
-            JsonObject reagentObj = createIngredientObject(reagent);
-            recipe.add("reagent", reagentObj);
-        } else {
-            // 默认试剂
-            JsonObject reagentObj = new JsonObject();
-            reagentObj.addProperty("tag", "botania:seed_apothecary_reagent");
-            recipe.add("reagent", reagentObj);
-        }
-    }
-
-    private void createPureDaisyRecipe(JsonObject recipe, RecipeRequest request) {
-        // 纯洁雏菊：方块转换，输出使用 name，只能用方块
-        JsonObject input = new JsonObject();
-        input.addProperty("type", "block");
-        input.addProperty("item", ensureValidItemId(request.ingredients[0].toString()));
-        recipe.add("input", input);
-
-        JsonObject result = new JsonObject();
-        result.addProperty("name", ensureValidItemId(request.result.getItem().toString()));
-        recipe.add("output", result);
-    }
-
-    private void createBrewRecipe(JsonObject recipe, RecipeRequest request) {
-        // 酿造：ingredients + brew字段
-        JsonArray ingredients = new JsonArray();
-        for (Object ingredient : request.ingredients) {
-            if (ingredient != null && !ingredient.toString().isEmpty()) {
-                JsonObject input = createIngredientObject(ingredient);
-                ingredients.add(input);
-            }
-        }
-        recipe.add("ingredients", ingredients);
-
-        // 必须的brew字段 - 这是酿造效果，不是输出物品
-        String brew = (String) request.properties.get("brew");
-        if (brew != null) {
-            recipe.addProperty("brew", ensureValidItemId(brew));
-        } else {
-            // 默认酿造效果或从result推导
-            String brewId = "botania:speed"; // 默认
-            if (request.result != null) {
-                // 可以从结果物品推导酿造效果
-                brewId = convertItemToBrew(request.result.getItem().toString());
-            }
-            recipe.addProperty("brew", brewId);
-        }
-
-    }
-
-    /**
-     * 将物品转换为对应的酿造效果
-     */
-    private String convertItemToBrew(String itemId) {
-        // 这里可以建立物品到酿造效果的映射
-        return switch (itemId) {
-            case "minecraft:golden_apple" -> "botania:absorption";
-            case "minecraft:magma_cream" -> "botania:fire_resistance";
-            default -> "botania:speed";
+        return switch (type) {
+            case "runic_altar" -> createRunicAltarRecipe(request, "runic_altar");
+            case "mana_infusion" -> createManaInfusionRecipe(request);
+            case "elven_trade" -> createElvenTradeRecipe(request);
+            case "terra_plate" -> createTerraPlateRecipe(request);
+            case "petal_apothecary" -> createPetalApothecaryRecipe(request);
+            case "pure_daisy" -> createPureDaisyRecipe(request);
+            case "brew" -> createBrewRecipe(request);
+            case "orechid" -> createOrechidRecipe(request, "minecraft:stone", "minecraft:iron_ore",
+                    100, 17500);
+            case "orechid_ignem" -> createOrechidRecipe(request, "minecraft:netherrack", "minecraft:nether_gold_ore",
+                    100, 20000);
+            case "marimorphosis" -> createOrechidRecipe(request,
+                    "#botania:marimorphosis_convertable", "minecraft:stone", 0, 12);
+            default -> null;
         };
     }
 
-    private void createOrechidRecipe(JsonObject recipe, RecipeRequest request) {
-        // 矿石兰：石头 + 魔力 -> 矿石
-        JsonObject input = new JsonObject();
-        input.addProperty("type", "block");
-        input.addProperty("item", ensureValidItemId(request.ingredients[0].toString()));
-        recipe.add("input", input);
+    private JsonObject createRunicAltarRecipe(RecipeRequest request, String recipeType) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "botania:" + recipeType);
+        recipe.add("ingredients", createIngredients(request.ingredients));
+        recipe.add("catalysts", createIngredients(request.properties.get("catalysts")));
 
-        JsonObject result = new JsonObject();
-        result.addProperty("type", "block");
-        result.addProperty("id", ensureValidItemId(request.result.getItem().toString()));
-        recipe.add("output", result);
-
-        Integer weight = (Integer) request.properties.get("weight");
-        recipe.addProperty("weight", weight != null ? weight : 67415); // 必须有weight
+        Object reagent = request.properties.getOrDefault("reagent", "botania:livingrock");
+        JsonObject reagentJson = createIngredient(reagent);
+        recipe.add("reagent", reagentJson == null ? createIngredient("botania:livingrock") : reagentJson);
+        recipe.addProperty("mana", numberValue(request.properties.get("mana"), 5200));
+        recipe.add("output", createResult(request));
+        return recipe;
     }
 
-    private void createOrechidIgnemRecipe(JsonObject recipe, RecipeRequest request) {
-        // 下界矿石兰：下界岩 + 魔力 -> 下界矿石
-        JsonObject input = new JsonObject();
-        input.addProperty("type", "block");
-        input.addProperty("item", ensureValidItemId(request.ingredients[0].toString()));
-        recipe.add("input", input);
+    private JsonObject createManaInfusionRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "botania:mana_infusion");
+        if (request.ingredients != null && request.ingredients.length > 0) {
+            JsonObject input = createIngredient(request.ingredients[0]);
+            if (input != null) {
+                recipe.add("input", input);
+            }
+        }
+        recipe.add("output", createResult(request));
+        recipe.addProperty("mana", numberValue(request.properties.get("mana"), 1000));
 
-        JsonObject result = new JsonObject();
-        result.addProperty("type", "block");
-        result.addProperty("id", ensureValidItemId(request.result.getItem().toString()));
-        recipe.add("output", result);
-
-        Integer weight = (Integer) request.properties.get("weight");
-        recipe.addProperty("weight", weight != null ? weight : 148); // 必须有weight
+        Object catalyst = request.properties.get("catalyst");
+        if (catalyst != null) {
+            recipe.add("catalyst", createStateIngredient(catalyst, "minecraft:air"));
+        }
+        return recipe;
     }
 
-    private void createMarimorphosisRecipe(JsonObject recipe, RecipeRequest request) {
-        // 石之变换：石头类型转换，只能用方块
-        JsonObject input = new JsonObject();
+    private JsonObject createElvenTradeRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "botania:elven_trade");
+        recipe.add("ingredients", createIngredients(request.ingredients));
 
-        // 检查是否是tag
-        String inputStr = request.ingredients[0].toString();
-        if (inputStr.startsWith("#")) {
-            input.addProperty("type", "tag");
-            input.addProperty("tag", inputStr.substring(1));
+        JsonArray outputs = new JsonArray();
+        JsonObject result = createResult(request);
+        if (result != null) {
+            outputs.add(result);
+        }
+        Object extraOutputs = request.properties.get("extraOutputs");
+        if (extraOutputs instanceof Object[] values) {
+            for (Object value : values) {
+                JsonObject output = value instanceof ItemStack stack
+                        ? createResult(stack, stack.getCount())
+                        : createStack(value);
+                if (output != null) {
+                    outputs.add(output);
+                }
+            }
+        }
+        recipe.add("output", outputs);
+        return recipe;
+    }
+
+    private JsonObject createTerraPlateRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "botania:terra_plate");
+        recipe.add("ingredients", createIngredients(request.ingredients));
+        recipe.add("result", createResult(request));
+        recipe.addProperty("mana", numberValue(request.properties.get("mana"), 500000));
+        return recipe;
+    }
+
+    private JsonObject createPetalApothecaryRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "botania:petal_apothecary");
+        recipe.add("ingredients", createIngredients(request.ingredients));
+        recipe.add("output", createResult(request));
+
+        Object reagent = request.properties.getOrDefault("reagent", "#botania:seed_apothecary_reagent");
+        JsonObject reagentJson = createIngredient(reagent);
+        recipe.add("reagent", reagentJson == null
+                ? createIngredient("#botania:seed_apothecary_reagent") : reagentJson);
+        return recipe;
+    }
+
+    private JsonObject createPureDaisyRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "botania:pure_daisy");
+        Object input = request.ingredients != null && request.ingredients.length > 0
+                ? request.ingredients[0] : "minecraft:stone";
+        recipe.add("input", createStateIngredient(input, "minecraft:stone"));
+        Object output = request.properties.getOrDefault("output", request.result);
+        recipe.add("output", createStateIngredient(output, "minecraft:air"));
+        addBlockStateProperties(recipe, request);
+        return recipe;
+    }
+
+    private JsonObject createBrewRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "botania:brew");
+        recipe.add("ingredients", createIngredients(request.ingredients));
+        recipe.addProperty("brew", ensureNamespace(stringValue(request.properties.get("brew"), "speed"), "botania"));
+        return recipe;
+    }
+
+    private JsonObject createOrechidRecipe(RecipeRequest request, String defaultInput,
+                                           String defaultOutput, int defaultCooldown,
+                                           int defaultMana) {
+        JsonObject recipe = new JsonObject();
+        String type = request.recipeType.toLowerCase();
+        if (type.contains(":")) {
+            type = type.substring(type.indexOf(":") + 1);
+        }
+        recipe.addProperty("type", "botania:" + type);
+
+        Object input = request.ingredients != null && request.ingredients.length > 0
+                ? request.ingredients[0] : defaultInput;
+        recipe.add("input", createStateIngredient(input, defaultInput));
+        Object output = request.properties.getOrDefault("output", request.result);
+        recipe.add("output", createStateIngredient(output, defaultOutput));
+        recipe.addProperty("cooldown", numberValue(request.properties.get("cooldown"), defaultCooldown));
+        recipe.addProperty("mana", numberValue(request.properties.get("mana"), defaultMana));
+        recipe.addProperty("weight", numberValue(request.properties.get("weight"),
+                "marimorphosis".equals(type) ? 1 : "orechid_ignem".equals(type) ? 148 : 67415));
+
+        Object bonus = request.properties.containsKey("biome_bonus_weight")
+                ? request.properties.get("biome_bonus_weight") : request.properties.get("biome_bonus");
+        Object bonusTag = request.properties.get("biome_bonus_tag");
+        if ("marimorphosis".equals(type) && bonus == null) {
+            bonus = 11;
+        }
+        if (bonus != null) {
+            recipe.addProperty("biome_bonus_weight", numberValue(bonus, 0));
+        }
+        if (bonusTag != null) {
+            recipe.addProperty("biome_bonus_tag",
+                    ensureNamespace(stringValue(bonusTag, "marimorphosis_desert_bonus"), "botania"));
+        } else if ("marimorphosis".equals(type)) {
+            recipe.addProperty("biome_bonus_tag", "botania:marimorphosis_desert_bonus");
+        }
+        return recipe;
+    }
+
+    private JsonArray createIngredients(Object[] values) {
+        JsonArray ingredients = new JsonArray();
+        if (values == null) {
+            return ingredients;
+        }
+        for (Object value : values) {
+            JsonObject ingredient = createIngredient(value);
+            if (ingredient != null) {
+                ingredients.add(ingredient);
+            }
+        }
+        return ingredients;
+    }
+
+    private JsonArray createIngredients(Object value) {
+        if (value instanceof Object[] values) {
+            return createIngredients(values);
+        }
+        JsonArray ingredients = new JsonArray();
+        if (value instanceof JsonArray values) {
+            values.forEach(element -> {
+                JsonObject ingredient = createIngredient(element);
+                if (ingredient != null) {
+                    ingredients.add(ingredient);
+                }
+            });
+        } else if (value != null) {
+            JsonObject ingredient = createIngredient(value);
+            if (ingredient != null) {
+                ingredients.add(ingredient);
+            }
+        }
+        return ingredients;
+    }
+
+    private JsonObject createIngredient(Object value) {
+        if (value instanceof JsonElement element && element.isJsonObject()) {
+            return element.getAsJsonObject().deepCopy();
+        }
+        if (value instanceof JsonElement element && element.isJsonPrimitive()) {
+            return createIngredientJson(element.getAsString());
+        }
+        return createIngredientJson(value);
+    }
+
+    private JsonObject createResult(RecipeRequest request) {
+        return request.result == null ? new JsonObject()
+                : createResult(request.result, Math.max(1, request.resultCount));
+    }
+
+    private JsonObject createResult(ItemStack stack, int count) {
+        return stack == null || stack.isEmpty() ? null : createResultJson(stack, count);
+    }
+
+    private JsonObject createStack(Object value) {
+        if (value instanceof ItemStack stack) {
+            return createResult(stack, stack.getCount());
+        }
+        if (value instanceof IngredientData data && data.getType() == IngredientData.Type.ITEM) {
+            return createResult(data.getItemStack(), data.getItemStack().getCount());
+        }
+        if (value instanceof JsonObject object) {
+            JsonObject result = object.deepCopy();
+            if (!result.has("id") && result.has("item")) {
+                result.add("id", result.remove("item"));
+            }
+            return result.has("id") ? result : null;
+        }
+        if (value instanceof String id && !id.isBlank() && !id.startsWith("#")) {
+            JsonObject result = new JsonObject();
+            result.addProperty("id", ensureNamespace(id, "minecraft"));
+            return result;
+        }
+        return null;
+    }
+
+    private JsonObject createStateIngredient(Object value, String defaultBlock) {
+        if (value instanceof JsonObject object) {
+            return normalizeStateIngredient(object, defaultBlock);
+        }
+        if (value instanceof Map<?, ?> map) {
+            JsonObject object = new JsonObject();
+            map.forEach((key, mapValue) -> {
+                if (key instanceof String name && mapValue instanceof JsonElement element) {
+                    object.add(name, element.deepCopy());
+                } else if (key instanceof String name && mapValue != null) {
+                    object.addProperty(name, String.valueOf(mapValue));
+                }
+            });
+            return normalizeStateIngredient(object, defaultBlock);
+        }
+
+        String id = getIngredientString(value);
+        if (id.startsWith("#")) {
+            JsonObject result = new JsonObject();
+            result.addProperty("type", "botania:tag");
+            result.addProperty("tag", "#" + ensureNamespace(id.substring(1), "minecraft"));
+            return result;
+        }
+        if (id.contains("[")) {
+            JsonObject result = new JsonObject();
+            result.addProperty("type", "botania:state");
+            result.add("state", blockStateFromString(id));
+            return result;
+        }
+        JsonObject result = new JsonObject();
+        result.addProperty("type", "botania:block");
+        result.addProperty("block", ensureNamespace(id.isBlank() ? defaultBlock : id, "minecraft"));
+        return result;
+    }
+
+    private JsonObject normalizeStateIngredient(JsonObject source, String defaultBlock) {
+        JsonObject result = source.deepCopy();
+        String type = stringValue(result.get("type"), "");
+        if (type.isBlank()) {
+            if (result.has("tag")) type = "botania:tag";
+            else if (result.has("state") || result.has("Name")) type = "botania:state";
+            else type = "botania:block";
+        } else if (!type.contains(":")) {
+            type = "botania:" + type;
+        }
+        result.addProperty("type", type);
+
+        if (type.endsWith(":tag")) {
+            String tag = stringValue(result.get("tag"), defaultBlock);
+            result.addProperty("tag", "#" + ensureNamespace(tag.startsWith("#") ? tag.substring(1) : tag,
+                    "minecraft"));
+        } else if (type.endsWith(":state")) {
+            JsonElement state = result.get("state");
+            if (state == null && result.has("Name")) {
+                state = result;
+            }
+            result.add("state", state != null && state.isJsonPrimitive()
+                    ? blockStateFromString(state.getAsString()) : normalizeBlockState(state, defaultBlock));
+            result.remove("Name");
+            result.remove("Properties");
         } else {
-            input.addProperty("type", "block");
-            input.addProperty("item", ensureValidItemId(inputStr));
+            String block = stringValue(result.get("block"), defaultBlock);
+            result.addProperty("block", ensureNamespace(block, "minecraft"));
         }
-        recipe.add("input", input);
-
-        JsonObject result = new JsonObject();
-        result.addProperty("type", "block");
-        result.addProperty("id", ensureValidItemId(request.result.getItem().toString()));
-        recipe.add("output", result);
-
-        // 必须字段
-        Integer weight = (Integer) request.properties.get("weight");
-        recipe.addProperty("weight", weight != null ? weight : 1);
-
-        Integer biomeBonus = (Integer) request.properties.get("biome_bonus");
-        recipe.addProperty("biome_bonus", biomeBonus != null ? biomeBonus : 11);
-
-        String biomeBonusTag = (String) request.properties.get("biome_bonus_tag");
-        recipe.addProperty("biome_bonus_tag", biomeBonusTag != null ? biomeBonusTag : "botania:marimorphosis_desert_bonus");
+        return result;
     }
 
-    /**
-     * 创建材料对象，支持tag和item
-     */
-    private JsonObject createIngredientObject(Object ingredient) {
-        JsonObject obj = new JsonObject();
-        String str = ingredient.toString();
-
-        if (str.startsWith("#")) {
-            // Tag格式
-            obj.addProperty("tag", str.substring(1));
-        } else {
-            // Item格式
-            obj.addProperty("item", str);
+    private JsonObject normalizeBlockState(JsonElement value, String defaultBlock) {
+        if (value != null && value.isJsonObject()) {
+            JsonObject state = value.getAsJsonObject().deepCopy();
+            if (state.has("name") && !state.has("Name")) {
+                state.add("Name", state.remove("name"));
+            }
+            if (state.has("Name")) {
+                state.addProperty("Name", ensureNamespace(state.get("Name").getAsString(), "minecraft"));
+            } else {
+                state.addProperty("Name", ensureNamespace(defaultBlock, "minecraft"));
+            }
+            return state;
         }
-
-        return obj;
+        return blockStateFromString(defaultBlock);
     }
 
-    /**
-     * 确保物品ID包含命名空间
-     */
-    private String ensureValidItemId(String itemId) {
-        if (itemId == null) {
-            return "minecraft:air";
+    private JsonObject blockStateFromString(String value) {
+        int propertiesStart = value.indexOf('[');
+        String block = propertiesStart >= 0 ? value.substring(0, propertiesStart) : value;
+        JsonObject state = new JsonObject();
+        state.addProperty("Name", ensureNamespace(block, "minecraft"));
+        if (propertiesStart >= 0 && value.endsWith("]")) {
+            JsonObject properties = new JsonObject();
+            String body = value.substring(propertiesStart + 1, value.length() - 1);
+            for (String pair : body.split(",")) {
+                String[] parts = pair.split("=", 2);
+                if (parts.length == 2) {
+                    properties.addProperty(parts[0], parts[1]);
+                }
+            }
+            if (properties.size() > 0) {
+                state.add("Properties", properties);
+            }
         }
+        return state;
+    }
 
-        if (itemId.contains(":")) {
-            return itemId;
+    private void addBlockStateProperties(JsonObject recipe, RecipeRequest request) {
+        if (request.properties.get("copy_properties") instanceof Boolean copyProperties) {
+            recipe.addProperty("copy_properties", copyProperties);
         }
+        if (request.properties.get("time") instanceof Number time) {
+            recipe.addProperty("time", time.intValue());
+        }
+    }
 
-        return "minecraft:" + itemId;
+    private String getIngredientString(Object ingredient) {
+        if (ingredient instanceof IngredientData data) {
+            if (data.getType() == IngredientData.Type.ITEM) {
+                return getItemId(data.getItemStack());
+            }
+            return data.getTagId() == null ? "" : "#" + data.getTagId();
+        }
+        if (ingredient instanceof ItemStack stack) {
+            return getItemId(stack);
+        }
+        if (ingredient instanceof Item item) {
+            return getItemResourceLocation(item).toString();
+        }
+        if (ingredient instanceof String string) {
+            return string;
+        }
+        return "";
+    }
+
+    private String getItemId(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return "";
+        }
+        return getItemResourceLocation(stack.getItem()).toString();
+    }
+
+    private int numberValue(Object value, int defaultValue) {
+        return value instanceof Number number ? number.intValue() : defaultValue;
+    }
+
+    private String stringValue(Object value, String defaultValue) {
+        if (value instanceof JsonElement element && element.isJsonPrimitive()) {
+            return element.getAsString();
+        }
+        return value instanceof String string ? string : defaultValue;
+    }
+
+    private String ensureNamespace(String id, String defaultNamespace) {
+        if (id == null || id.isBlank()) {
+            return defaultNamespace + ":air";
+        }
+        return id.contains(":") ? id : defaultNamespace + ":" + id;
     }
 }

@@ -7,242 +7,215 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
+import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeManager;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.client.Minecraft;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.function.Consumer;
-import net.minecraft.world.item.crafting.RecipeHolder;
 
-/**
- * 配方克隆向导
- * 布局（固定三栏）：
- * ┌──────────────────────────────────────────────────────┐
- * │  标题栏                                               │
- * ├──────────────┬──────────────────┬───────────────────┤
- * │ 【物品选择】  │  【配方列表】      │  【配方预览】      │
- * │  搜索框       │  ─ 作为原料(N)   │  材料槽 3x3       │
- * │  背包物品     │  ─ 作为产物(N)   │  → 产物槽         │
- * │  （图标网格） │  （可滚动列表）   │  ID/来源信息       │
- * ├──────────────┴──────────────────┴───────────────────┤
- * │  [克隆此配方为模板]           [重选物品]  [关闭]       │
- * └──────────────────────────────────────────────────────┘
- */
+/** Three-step recipe clone wizard with responsive columns and draggable lists. */
 @OnlyIn(Dist.CLIENT)
 public class RecipeCloneWizardScreen extends Screen {
-
-    // ── 尺寸常量 ─────────────────────────────────────────────────
-    private static final int W  = 700;
-    private static final int H  = 440;
+    private static final int PREFERRED_WIDTH = 820;
+    private static final int PREFERRED_HEIGHT = 520;
+    private static final int MIN_WIDTH = 480;
+    private static final int MIN_HEIGHT = 280;
     private static final int PAD = 8;
-
-    // 三栏宽度
-    private static final int COL1_W = 180;   // 物品选择
-    private static final int COL2_W = 220;   // 配方列表
-    // COL3 = 剩余宽度
-
-    private static final int SLOT   = 18;
-    private static final int ROW_H  = 20;
+    private static final int SLOT = 18;
+    private static final int ROW_H = 20;
     private static final int TITLE_H = 28;
-    private static final int FOOT_H  = 30;
-    private static final int CONTENT_Y_OFFSET = TITLE_H + 6; // 内容区起始偏移
+    private static final int FOOT_H = 30;
+    private static final int CONTENT_Y_OFFSET = TITLE_H + 30;
 
-    // ── 回调 ─────────────────────────────────────────────────────
     private final Screen parent;
     private final Consumer<ResourceLocation> onClone;
-
-    // ── Step 1：物品选择 ──────────────────────────────────────────
-    private final List<ItemStack> allItems      = new ArrayList<>();
+    private final List<ItemStack> allItems = new ArrayList<>();
     private final List<ItemStack> filteredItems = new ArrayList<>();
     private EditBox searchBox;
-    private int itemScroll = 0;
+    private int itemScroll;
+    private int draggingScrollbar = -1;
+    private double scrollbarGrabOffset;
     private ItemStack targetItem = ItemStack.EMPTY;
-
-    // 拼音搜索助手
     private final PinyinSearchHelper<ItemStack> searchHelper;
-
-    private static final int ITEM_COLS = 8;
-    private static final int ITEM_ROWS = 7;
-
-    // ── Step 2：配方列表 ──────────────────────────────────────────
-    private final List<RecipeEntry> recipeList = new ArrayList<>();  // 合并列表（原料在前，产物在后）
-    private int recipeScroll  = 0;
-    private int selectedIdx   = -1;
-    private int listVisRows;   // 计算后赋值
-
-    // ── Step 3：预览 ──────────────────────────────────────────────
-    private final List<int[]> previewSlots = new ArrayList<>();  // [x,y,stackIdx]
+    private int itemCols = 8;
+    private int itemRows = 7;
+    private final List<RecipeEntry> recipeList = new ArrayList<>();
+    private int recipeScroll;
+    private int selectedIdx = -1;
+    private int listVisRows;
+    private final List<int[]> previewSlots = new ArrayList<>();
     private final List<ItemStack> previewItems = new ArrayList<>();
     private ItemStack previewResult = ItemStack.EMPTY;
-
-    // ── 面板坐标（init后有效）────────────────────────────────────
-    private int px, py;
+    private int previewSlotSize = SLOT;
+    private int previewSlotStep = SLOT + 3;
+    private int px, py, panelW, panelH;
     private int c1x, c2x, c3x, contentY, contentH;
-    private int col3W;
+    private int col1W, col2W, col3W;
 
     public RecipeCloneWizardScreen(Screen parent, Consumer<ResourceLocation> onClone) {
-        super(Component.literal("配方克隆向导"));
-        this.parent  = parent;
+        super(GuiText.component("registerhelper.gui.recipe_clone.title"));
+        this.parent = parent;
         this.onClone = onClone;
-        this.searchHelper = new PinyinSearchHelper<>(
+        searchHelper = new PinyinSearchHelper<>(
                 item -> item.getHoverName().getString(),
                 item -> {
-                    ResourceLocation rl = BuiltInRegistries.ITEM.getKey(item.getItem());
-                    return rl != null ? rl.toString() : "";
-                }
-        );
+                    ResourceLocation id = BuiltInRegistries.ITEM.getKey(item.getItem());
+                    return id != null ? id.toString() : "";
+                });
         loadItems();
     }
 
-    // ── 物品加载 ─────────────────────────────────────────────────
     private void loadItems() {
-        // 背包物品优先（方便选当前拿着的素材）
         var player = Minecraft.getInstance().player;
         if (player != null) {
-            for (ItemStack s : player.getInventory().items) {
-                if (!s.isEmpty()) addUnique(s.copy());
-            }
+            for (ItemStack stack : player.getInventory().items) if (!stack.isEmpty()) addUnique(stack.copy());
         }
-        // 全部注册物品
-        for (var item : BuiltInRegistries.ITEM.stream().toList()) addUnique(new ItemStack(item));
+        for (var item : BuiltInRegistries.ITEM) addUnique(new ItemStack(item));
         filteredItems.addAll(allItems);
-        // 构建拼音缓存
         searchHelper.buildCache(allItems);
     }
 
-    private void addUnique(ItemStack s) {
-        for (ItemStack x : allItems) if (ItemStack.isSameItem(x, s)) return;
-        allItems.add(s);
+    private void addUnique(ItemStack stack) {
+        for (ItemStack existing : allItems) if (ItemStack.isSameItem(existing, stack)) return;
+        allItems.add(stack);
     }
 
-    // ── 搜索（支持中文名称、拼音、首字母、mod过滤） ───────────────
     private void onSearch(String text) {
         filteredItems.clear();
-        if (text.isBlank()) {
-            filteredItems.addAll(allItems);
-        } else {
-            for (ItemStack s : allItems) {
-                if (searchHelper.matches(s, text)) {
-                    filteredItems.add(s);
-                }
-            }
-        }
+        if (text.isBlank()) filteredItems.addAll(allItems);
+        else for (ItemStack stack : allItems) if (searchHelper.matches(stack, text)) filteredItems.add(stack);
         itemScroll = 0;
     }
 
-    // ── 选中物品 → 加载配方 ──────────────────────────────────────
     private void pickItem(ItemStack item) {
         targetItem = item.copy();
-        recipeList.clear();
-        selectedIdx   = -1;
-        recipeScroll  = 0;
-        previewItems.clear();
-        previewSlots.clear();
-        previewResult = ItemStack.EMPTY;
-
-        RecipeManager rm = getRM();
-        if (rm == null) return;
-
+        recipeList.clear(); selectedIdx = -1; recipeScroll = 0;
+        previewItems.clear(); previewSlots.clear(); previewResult = ItemStack.EMPTY;
+        RecipeManager recipeManager = getRecipeManager();
+        if (recipeManager == null || minecraft.level == null) return;
         Set<ResourceLocation> seen = new LinkedHashSet<>();
-        for (RecipeHolder<?> holder : rm.getRecipes()) {
+        for (RecipeHolder<?> holder : recipeManager.getRecipes()) {
             try {
-                Recipe<?> r = holder.value();
-                boolean asIng = false, asRes = false;
-                ItemStack res = r.getResultItem(Minecraft.getInstance().level.registryAccess());
-                if (ItemStack.isSameItem(res, item)) asRes = true;
-                for (Ingredient ing : r.getIngredients()) {
-                    if (!ing.isEmpty()) for (ItemStack m : ing.getItems())
-                        if (ItemStack.isSameItem(m, item)) { asIng = true; break; }
-                    if (asIng) break;
+                Recipe<?> recipe = holder.value();
+                boolean asIngredient = false;
+                boolean asResult = ItemStack.isSameItem(
+                        recipe.getResultItem(minecraft.level.registryAccess()), item);
+                for (Ingredient ingredient : recipe.getIngredients()) {
+                    if (!ingredient.isEmpty()) for (ItemStack material : ingredient.getItems()) {
+                        if (ItemStack.isSameItem(material, item)) { asIngredient = true; break; }
+                    }
+                    if (asIngredient) break;
                 }
-                if ((asIng || asRes) && seen.add(holder.id()))
-                    recipeList.add(new RecipeEntry(holder, asIng, asRes));
-            } catch (Exception ignored) {}
-        }
-        // 排序：产物在前，原料在后
-        recipeList.sort(Comparator.comparingInt(e -> (e.asResult ? 0 : 1)));
-    }
-
-    // ── 选中配方 → 更新预览 ──────────────────────────────────────
-    private void selectRecipe(int idx) {
-        selectedIdx = idx;
-        previewItems.clear();
-        previewSlots.clear();
-        previewResult = ItemStack.EMPTY;
-        if (idx < 0 || idx >= recipeList.size()) return;
-        Recipe<?> r = recipeList.get(idx).recipe;
-        try {
-            previewResult = r.getResultItem(Minecraft.getInstance().level.registryAccess()).copy();
-            List<Ingredient> ings = r.getIngredients();
-            int cols = ings.size() <= 9 ? 3 : ings.size() <= 16 ? 4 : 5;
-            for (int i = 0; i < ings.size(); i++) {
-                ItemStack it = ItemStack.EMPTY;
-                if (!ings.get(i).isEmpty()) {
-                    ItemStack[] arr = ings.get(i).getItems();
-                    if (arr.length > 0) it = arr[0].copy();
+                if ((asIngredient || asResult) && seen.add(holder.id())) {
+                    recipeList.add(new RecipeEntry(holder, asIngredient, asResult));
                 }
-                previewItems.add(it);
-                previewSlots.add(new int[]{ i % cols, i / cols });
+            } catch (Exception ignored) {
             }
-        } catch (Exception ignored) {}
+        }
+        recipeList.sort(Comparator.comparingInt(entry -> entry.asResult ? 0 : 1));
     }
 
-    private RecipeManager getRM() {
-        MinecraftServer s = Minecraft.getInstance().getSingleplayerServer();
-        if (s != null) return s.getRecipeManager();
-        if (Minecraft.getInstance().level != null)
-            return Minecraft.getInstance().level.getRecipeManager();
-        return null;
+    private void selectRecipe(int index) {
+        selectedIdx = index;
+        previewItems.clear(); previewSlots.clear(); previewResult = ItemStack.EMPTY;
+        if (index < 0 || index >= recipeList.size() || minecraft.level == null) return;
+        Recipe<?> recipe = recipeList.get(index).recipe;
+        try {
+            previewResult = recipe.getResultItem(minecraft.level.registryAccess()).copy();
+            List<Ingredient> ingredients = recipe.getIngredients();
+            int naturalCols = ingredients.size() <= 9 ? 3 : ingredients.size() <= 16 ? 4 : 5;
+            int resultReserve = Math.min(36, Math.max(20, col3W / 3));
+            int gridWidth = Math.max(4, col3W - 16 - resultReserve);
+            int gridHeight = Math.max(4, contentH - 64);
+            int maxCols = Math.max(1, gridWidth / 4);
+            int maxRows = Math.max(1, gridHeight / 4);
+            int neededCols = (ingredients.size() + maxRows - 1) / maxRows;
+            int cols = Math.max(1, Math.min(maxCols, Math.max(naturalCols, neededCols)));
+            int rows = Math.max(1, (ingredients.size() + cols - 1) / cols);
+            previewSlotStep = Math.max(3, Math.min(SLOT + 3,
+                    Math.min(gridWidth / cols, gridHeight / rows)));
+            previewSlotSize = Math.max(2, Math.min(SLOT, previewSlotStep - 1));
+            for (int i = 0; i < ingredients.size(); i++) {
+                ItemStack item = ItemStack.EMPTY;
+                if (!ingredients.get(i).isEmpty()) {
+                    ItemStack[] choices = ingredients.get(i).getItems();
+                    if (choices.length > 0) item = choices[0].copy();
+                }
+                previewItems.add(item);
+                previewSlots.add(new int[]{i % cols, i / cols});
+            }
+        } catch (Exception ignored) {
+        }
     }
 
-    // ── init ─────────────────────────────────────────────────────
+    private RecipeManager getRecipeManager() {
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null) return server.getRecipeManager();
+        return minecraft.level == null ? null : minecraft.level.getRecipeManager();
+    }
+
     @Override
     protected void init() {
-        px = (width  - W) / 2;
-        py = (height - H) / 2;
-
+        String currentSearch = searchBox != null ? searchBox.getValue() : "";
+        GuiLayoutHelper.Bounds panel = GuiLayoutHelper.centered(width, height,
+                PREFERRED_WIDTH, PREFERRED_HEIGHT, MIN_WIDTH, MIN_HEIGHT, 8, 8);
+        px = panel.x(); py = panel.y(); panelW = panel.width(); panelH = panel.height();
         contentY = py + CONTENT_Y_OFFSET;
-        contentH = H - CONTENT_Y_OFFSET - FOOT_H;
-        listVisRows = (contentH - 4) / ROW_H;
+        contentH = panelH - CONTENT_Y_OFFSET - FOOT_H;
+        listVisRows = Math.max(1, (contentH - 4) / ROW_H);
 
-        c1x = px + PAD;
-        c2x = c1x + COL1_W + PAD;
-        c3x = c2x + COL2_W + PAD;
-        col3W = W - (c3x - px) - PAD;
+        int columnsWidth = panelW - PAD * 4;
+        int minCol1Width = Math.min(110, Math.max(60, columnsWidth * 25 / 100));
+        int minCol2Width = Math.min(140, Math.max(80, columnsWidth * 30 / 100));
+        int minCol3Width = Math.min(120, Math.max(70, columnsWidth * 25 / 100));
+        col1W = GuiLayoutHelper.clamp(columnsWidth * 26 / 100, minCol1Width,
+                Math.max(minCol1Width, columnsWidth - minCol2Width - minCol3Width));
+        col2W = GuiLayoutHelper.clamp(columnsWidth * 32 / 100, minCol2Width,
+                Math.max(minCol2Width, columnsWidth - col1W - minCol3Width));
+        c1x = px + PAD; c2x = c1x + col1W + PAD; c3x = c2x + col2W + PAD;
+        col3W = panelW - (c3x - px) - PAD;
+        itemCols = Math.max(1, (col1W - 4) / (SLOT + 2));
+        itemRows = Math.max(1, (contentH - 18) / (SLOT + 2));
 
-        // 搜索框（栏1顶部）
-        searchBox = new EditBox(font, c1x, contentY + 2, COL1_W, 14,
-                Component.literal("搜索"));
+        searchBox = new EditBox(font, c1x, contentY - 18, col1W, 16,
+                GuiText.component("registerhelper.gui.common.search"));
+        GuiTheme.styleInput(searchBox);
         searchBox.setMaxLength(64);
-        searchBox.setHint(Component.literal("§8名称/拼音/首字母/@mod"));
+        searchBox.setHint(GuiText.component("registerhelper.gui.recipe_clone.search_hint"));
+        searchBox.setValue(currentSearch);
         searchBox.setResponder(this::onSearch);
         addWidget(searchBox);
         searchBox.setFocused(true);
 
-        // 底部按钮
-        int footY = py + H - FOOT_H + 5;
-        addRenderableWidget(Button.builder(
-                Component.literal("§a⬡ 克隆此配方为模板"),
-                btn -> doClone()
-        ).bounds(c3x, footY, col3W, 20).build());
-
-        addRenderableWidget(Button.builder(Component.literal("§7重选物品"),
-                        btn -> { targetItem = ItemStack.EMPTY; recipeList.clear(); selectedIdx=-1; })
-                .bounds(c2x, footY, 70, 20).build());
-
-        addRenderableWidget(Button.builder(Component.literal("§c关闭"),
-                        btn -> onClose())
-                .bounds(c2x + 74, footY, 50, 20).build());
+        int footY = py + panelH - FOOT_H + 5;
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.recipe_clone.clone"),
+                        btn -> doClone()).bounds(c3x, footY, col3W, 20).build());
+        int footerGap = 4;
+        int closeWidth = Math.min(50, Math.max(30, col2W / 3));
+        int resetWidth = Math.max(30, col2W - closeWidth - footerGap);
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.recipe_clone.reselect"),
+                        btn -> { targetItem = ItemStack.EMPTY; recipeList.clear(); selectedIdx = -1; })
+                .bounds(c2x, footY, resetWidth, 20).build());
+        addRenderableWidget(Button.builder(GuiText.component("registerhelper.gui.common.close"),
+                        btn -> onClose()).bounds(c2x + resetWidth + footerGap, footY,
+                        closeWidth, 20).build());
+        if (selectedIdx >= 0 && selectedIdx < recipeList.size()) selectRecipe(selectedIdx);
     }
 
     private void doClone() {
@@ -253,301 +226,313 @@ public class RecipeCloneWizardScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        renderBackground(g, mouseX, mouseY, partialTick);
+        GuiTheme.drawBackdrop(g, width, height);
+        GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(px, py, panelW, panelH);
+        GuiTheme.drawPanel(g, panel, TITLE_H, GuiTheme.INFO);
+        g.drawCenteredString(font, GuiText.component("registerhelper.gui.recipe_clone.title"),
+                px + panelW / 2, py + 10, GuiTheme.TEXT_ON_HEADER);
+        g.fill(c2x - PAD / 2, contentY, c2x - PAD / 2 + 1, contentY + contentH, GuiTheme.DIVIDER);
+        g.fill(c3x - PAD / 2, contentY, c3x - PAD / 2 + 1, contentY + contentH, GuiTheme.DIVIDER);
+        g.fill(px, py + panelH - FOOT_H, px + panelW, py + panelH - FOOT_H + 1, GuiTheme.DIVIDER);
+        renderCol1(g, mouseX, mouseY);
+        renderCol2(g, mouseX, mouseY);
+        renderCol3(g, mouseX, mouseY);
+        GuiTheme.drawInput(g, searchBox);
+        searchBox.render(g, mouseX, mouseY, partialTick);
+        super.render(g, mouseX, mouseY, partialTick);
     }
 
-    @Override
-    public void render(@NotNull GuiGraphics g, int mx, int my, float pt) {
-        // 外框 + 背景
-        g.fill(px-1, py-1, px+W+1, py+H+1, 0xFF060606);
-        g.fill(px, py, px+W, py+H, 0xFF181820);
-
-        // 标题栏
-        g.fill(px, py, px+W, py+TITLE_H, 0xFF1A3050);
-        g.fill(px, py+TITLE_H-1, px+W, py+TITLE_H, 0xFF3A70A0);
-        g.drawCenteredString(font, "§b配方克隆向导", px+W/2, py+10, 0xFFFFFF);
-
-        // 三栏分割线
-        int divColor = 0xFF2A2A3A;
-        g.fill(c2x-PAD/2, contentY, c2x-PAD/2+1, contentY+contentH, divColor);
-        g.fill(c3x-PAD/2, contentY, c3x-PAD/2+1, contentY+contentH, divColor);
-
-        // 底栏分割线
-        g.fill(px, py+H-FOOT_H, px+W, py+H-FOOT_H+1, divColor);
-
-        renderCol1(g, mx, my);    // 物品选择
-        renderCol2(g, mx, my);    // 配方列表
-        renderCol3(g, mx, my);    // 预览
-        searchBox.render(g, mx, my, pt);
-        super.render(g, mx, my, pt);
-    }
-
-    // ── 栏1：物品选择 ────────────────────────────────────────────
-    private void renderCol1(GuiGraphics g, int mx, int my) {
-        g.drawString(font, targetItem.isEmpty()
-                        ? "§7① 选择目标物品"
-                        : "§a✔ 已选: §f" + targetItem.getHoverName().getString(),
-                c1x, contentY - 10, 0xAAAAAA, false);
-
-        int gridTop = contentY + 18;
-        int maxItemScroll = Math.max(0,
-                (filteredItems.size() + ITEM_COLS - 1) / ITEM_COLS - ITEM_ROWS);
-        itemScroll = clamp(itemScroll, 0, maxItemScroll);
-
-        // 网格背景
-        int gridW = ITEM_COLS * (SLOT+2);
-        int gridH = ITEM_ROWS * (SLOT+2);
-        g.fill(c1x-1, gridTop-1, c1x+gridW+1, gridTop+gridH+1, 0xFF333340);
-        g.fill(c1x,   gridTop,   c1x+gridW,   gridTop+gridH,   0xFF0C0C18);
-
-        for (int row = 0; row < ITEM_ROWS; row++) {
-            for (int col = 0; col < ITEM_COLS; col++) {
-                int idx = (row + itemScroll) * ITEM_COLS + col;
-                if (idx >= filteredItems.size()) break;
-                ItemStack it = filteredItems.get(idx);
-                int sx = c1x + col*(SLOT+2);
-                int sy = gridTop + row*(SLOT+2);
-                boolean hov = mx>=sx && mx<sx+SLOT && my>=sy && my<sy+SLOT;
-                boolean sel = ItemStack.isSameItem(it, targetItem);
-                if (sel) g.fill(sx, sy, sx+SLOT, sy+SLOT, 0xFF3A6A3A);
-                else if (hov) g.fill(sx, sy, sx+SLOT, sy+SLOT, 0xFF3A3A6A);
-                RenderSystem.enableDepthTest();
-                g.renderItem(it, sx+1, sy+1);
-                RenderSystem.disableDepthTest();
-                if (hov) g.renderTooltip(font, it, mx, my);
-            }
+    private void renderCol1(GuiGraphics g, int mouseX, int mouseY) {
+        String title = targetItem.isEmpty()
+                ? GuiText.string("registerhelper.gui.recipe_clone.select_item")
+                : GuiText.string("registerhelper.gui.recipe_clone.selected_item", targetItem.getHoverName());
+        g.drawString(font, GuiLayoutHelper.ellipsis(font, title, col1W),
+                c1x, contentY - 28, GuiTheme.TEXT_MUTED, false);
+        int gridTop = contentY + 4;
+        int maxScroll = Math.max(0, (filteredItems.size() + itemCols - 1) / itemCols - itemRows);
+        itemScroll = clamp(itemScroll, 0, maxScroll);
+        int gridW = itemCols * (SLOT + 2), gridH = itemRows * (SLOT + 2);
+        GuiTheme.drawSurface(g, new GuiLayoutHelper.Bounds(c1x, gridTop, gridW, gridH), false);
+        for (int row = 0; row < itemRows; row++) for (int col = 0; col < itemCols; col++) {
+            int index = (row + itemScroll) * itemCols + col;
+            if (index >= filteredItems.size()) break;
+            int sx = c1x + col * (SLOT + 2), sy = gridTop + row * (SLOT + 2);
+            ItemStack item = filteredItems.get(index);
+            boolean hovered = mouseX >= sx && mouseX < sx + SLOT
+                    && mouseY >= sy && mouseY < sy + SLOT;
+            boolean selected = ItemStack.isSameItem(item, targetItem);
+            GuiTheme.drawSlot(g, sx, sy, SLOT, SLOT, hovered || selected);
+            if (selected) g.fill(sx, sy, sx + 2, sy + SLOT, GuiTheme.SELECTED_EDGE);
+            RenderSystem.enableDepthTest();
+            g.renderItem(item, sx + 1, sy + 1);
+            RenderSystem.disableDepthTest();
+            if (hovered) g.renderTooltip(font, item, mouseX, mouseY);
         }
-
-        // 滚动条
-        renderSB(g, c1x+gridW+1, gridTop, 3, gridH,
-                (filteredItems.size()+ITEM_COLS-1)/ITEM_COLS, ITEM_ROWS, itemScroll);
-
-        // 计数
-        g.drawString(font, "§8共 " + filteredItems.size() + " 项",
-                c1x, gridTop + gridH + 2, 0x666666, false);
+        renderScrollbar(g, c1x + gridW + 1, gridTop, 3, gridH,
+                (filteredItems.size() + itemCols - 1) / itemCols, itemRows, itemScroll);
+        g.drawString(font, GuiText.string("registerhelper.gui.recipe_clone.item_count", filteredItems.size()),
+                c1x, gridTop + gridH + 2, GuiTheme.TEXT_MUTED, false);
     }
 
-    // ── 栏2：配方列表 ────────────────────────────────────────────
-    private void renderCol2(GuiGraphics g, int mx, int my) {
+    private void renderCol2(GuiGraphics g, int mouseX, int mouseY) {
         if (targetItem.isEmpty()) {
-            g.drawCenteredString(font, "§8← 先选择物品",
-                    c2x+COL2_W/2, contentY+contentH/2, 0x444455);
+            g.drawCenteredString(font, GuiText.component("registerhelper.gui.recipe_clone.select_item_first"),
+                    c2x + col2W / 2, contentY + contentH / 2, GuiTheme.TEXT_MUTED);
             return;
         }
-
-        g.drawString(font,
-                "§7② 选择配方  §8(" + recipeList.size() + "个)",
-                c2x, contentY-10, 0xAAAAAA, false);
-
-        // 列表背景
-        g.fill(c2x-1, contentY-1, c2x+COL2_W+1, contentY+contentH+1, 0xFF333340);
-        g.fill(c2x,   contentY,   c2x+COL2_W,   contentY+contentH,   0xFF0C0C18);
-
+        g.drawString(font, GuiText.string("registerhelper.gui.recipe_clone.select_recipe", recipeList.size()),
+                c2x, contentY - 28, GuiTheme.TEXT_MUTED, false);
+        GuiTheme.drawSurface(g, new GuiLayoutHelper.Bounds(c2x, contentY, col2W, contentH), false);
         if (recipeList.isEmpty()) {
-            g.drawCenteredString(font, "§8无含此物品的配方",
-                    c2x+COL2_W/2, contentY+contentH/2, 0x444455);
+            g.drawCenteredString(font, GuiText.component("registerhelper.gui.recipe_clone.no_recipe"),
+                    c2x + col2W / 2, contentY + contentH / 2, GuiTheme.TEXT_MUTED);
             return;
         }
-
-        int maxS = Math.max(0, recipeList.size() - listVisRows);
-        recipeScroll = clamp(recipeScroll, 0, maxS);
-
-        // 分组标题（产物组 / 原料组）
-        boolean shownResTitle = false, shownIngTitle = false;
+        int maxScroll = Math.max(0, recipeList.size() - recipeVisibleItems());
+        recipeScroll = clamp(recipeScroll, 0, maxScroll);
+        boolean shownResult = false, shownIngredient = false;
         int drawn = 0;
         for (int i = recipeScroll; i < recipeList.size() && drawn < listVisRows; i++) {
-            RecipeEntry e = recipeList.get(i);
-            int ry = contentY + drawn * ROW_H;
-
-            // 分组标题行（占1行）
-            if (e.asResult && !shownResTitle) {
-                shownResTitle = true;
-                g.fill(c2x, ry, c2x+COL2_W, ry+ROW_H, 0xFF1A1A30);
-                g.drawString(font, "§b▶ 作为产物", c2x+4, ry+6, 0x88AAFF, false);
-                drawn++; ry = contentY + drawn * ROW_H;
+            RecipeEntry entry = recipeList.get(i);
+            int rowY = contentY + drawn * ROW_H;
+            if (entry.asResult && !shownResult) {
+                shownResult = true;
+                g.fill(c2x, rowY, c2x + col2W, rowY + ROW_H, GuiTheme.SECTION);
+                g.drawString(font, GuiText.string("registerhelper.gui.recipe_clone.as_result"),
+                        c2x + 4, rowY + 6, GuiTheme.INFO, false);
+                drawn++; rowY = contentY + drawn * ROW_H;
                 if (drawn >= listVisRows) break;
             }
-            if (!e.asResult && !shownIngTitle) {
-                shownIngTitle = true;
-                g.fill(c2x, ry, c2x+COL2_W, ry+ROW_H, 0xFF1A1A30);
-                g.drawString(font, "§e▶ 作为原料", c2x+4, ry+6, 0xFFCC44, false);
-                drawn++; ry = contentY + drawn * ROW_H;
+            if (!entry.asResult && !shownIngredient) {
+                shownIngredient = true;
+                g.fill(c2x, rowY, c2x + col2W, rowY + ROW_H, GuiTheme.SECTION);
+                g.drawString(font, GuiText.string("registerhelper.gui.recipe_clone.as_ingredient"),
+                        c2x + 4, rowY + 6, GuiTheme.WARNING, false);
+                drawn++; rowY = contentY + drawn * ROW_H;
                 if (drawn >= listVisRows) break;
             }
-
-            boolean sel = i == selectedIdx;
-            boolean hov = mx>=c2x && mx<c2x+COL2_W-3 && my>=ry && my<ry+ROW_H;
-            g.fill(c2x, ry, c2x+COL2_W, ry+ROW_H-1,
-                    sel ? 0xFF1E3A5A : hov ? 0xFF1A2030 : 0xFF0C0C18);
-
-            // 左色条
-            g.fill(c2x, ry, c2x+3, ry+ROW_H-1,
-                    e.asResult ? 0xFF4488FF : 0xFFFFCC44);
-
-            // 产物图标
-            if (!e.result.isEmpty()) {
+            boolean selected = i == selectedIdx;
+            boolean hovered = mouseX >= c2x && mouseX < c2x + col2W - 3
+                    && mouseY >= rowY && mouseY < rowY + ROW_H;
+            GuiTheme.drawRow(g, c2x, rowY, col2W, ROW_H - 1, drawn, hovered, selected);
+            g.fill(c2x, rowY, c2x + 3, rowY + ROW_H - 1,
+                    entry.asResult ? GuiTheme.INFO : GuiTheme.WARNING);
+            if (!entry.result.isEmpty()) {
                 RenderSystem.enableDepthTest();
-                g.renderItem(e.result, c2x+5, ry+1);
+                g.renderItem(entry.result, c2x + 5, rowY + 1);
                 RenderSystem.disableDepthTest();
             }
-
-            // 配方ID（截断）
-            String label = e.id.getPath();
-            int maxTW = COL2_W - SLOT - 14;
-            while (font.width(label) > maxTW && label.length() > 4)
-                label = label.substring(0, label.length()-1);
-            if (!label.equals(e.id.getPath())) label += "…";
-            g.drawString(font, "§f" + label, c2x+SLOT+9, ry+3, 0xFFFFFF, false);
-            g.drawString(font, "§8" + e.typeName + "  §7" + e.id.getNamespace(),
-                    c2x+SLOT+9, ry+12, 0xFFFFFF, false);
+            int maxTextWidth = col2W - SLOT - 14;
+            g.drawString(font, GuiLayoutHelper.ellipsis(font, entry.id.getPath(), Math.max(1, maxTextWidth)),
+                    c2x + SLOT + 9, rowY + 3, GuiTheme.TEXT, false);
+            g.drawString(font, GuiLayoutHelper.ellipsis(font,
+                            entry.typeName + "  " + entry.id.getNamespace(), Math.max(1, maxTextWidth)),
+                    c2x + SLOT + 9, rowY + 12, GuiTheme.TEXT_MUTED, false);
             drawn++;
         }
-
-        // 滚动条（基于行数，包含分组标题）
-        renderSB(g, c2x+COL2_W-3, contentY, 3, contentH,
-                recipeList.size() + 2, listVisRows, recipeScroll);
+        renderScrollbar(g, c2x + col2W - 3, contentY, 3, contentH,
+                recipeList.size(), recipeVisibleItems(), recipeScroll);
     }
 
-    // ── 栏3：配方预览 ────────────────────────────────────────────
-    private void renderCol3(GuiGraphics g, int mx, int my) {
-        g.drawString(font, "§7③ 预览", c3x, contentY-10, 0xAAAAAA, false);
-
-        // 背景
-        g.fill(c3x-1, contentY-1, c3x+col3W+1, contentY+contentH+1, 0xFF333340);
-        g.fill(c3x,   contentY,   c3x+col3W,   contentY+contentH,   0xFF0C0C18);
-
+    private void renderCol3(GuiGraphics g, int mouseX, int mouseY) {
+        g.drawString(font, GuiText.string("registerhelper.gui.recipe_clone.preview"),
+                c3x, contentY - 28, GuiTheme.TEXT_MUTED, false);
+        GuiTheme.drawSurface(g, new GuiLayoutHelper.Bounds(c3x, contentY, col3W, contentH), true);
         if (selectedIdx < 0 || selectedIdx >= recipeList.size()) {
-            g.drawCenteredString(font, "§8← 选择配方",
-                    c3x+col3W/2, contentY+contentH/2, 0x444455);
+            g.drawCenteredString(font,
+                    GuiText.component("registerhelper.gui.recipe_clone.select_recipe_first"),
+                    c3x + col3W / 2, contentY + contentH / 2, GuiTheme.TEXT_MUTED);
             return;
         }
-
         RecipeEntry entry = recipeList.get(selectedIdx);
-
-        // 配方类型标题
-        g.fill(c3x, contentY, c3x+col3W, contentY+14, 0xFF111130);
-        g.drawString(font, "§7" + entry.typeName + "  §8" + entry.id.getNamespace(),
-                c3x+4, contentY+3, 0xAAAAAA, false);
-
-        // 材料槽网格
-        int slotOff = (SLOT+3);
-        int gsx = c3x + 8;
-        int gsy = contentY + 20;
+        g.fill(c3x, contentY, c3x + col3W, contentY + 14, GuiTheme.SECTION);
+        g.drawString(font, GuiLayoutHelper.ellipsis(font,
+                        entry.typeName + "  " + entry.id.getNamespace(), col3W - 8),
+                c3x + 4, contentY + 3, GuiTheme.TEXT_MUTED, false);
+        int slotStep = previewSlotStep, gridX = c3x + 8, gridY = contentY + 20;
         for (int i = 0; i < previewSlots.size(); i++) {
-            int[] pos = previewSlots.get(i);
-            int sx = gsx + pos[0]*slotOff;
-            int sy = gsy + pos[1]*slotOff;
-            renderSlot(g, sx, sy, i < previewItems.size() ? previewItems.get(i) : ItemStack.EMPTY, false);
+            int[] position = previewSlots.get(i);
+            renderSlot(g, gridX + position[0] * slotStep, gridY + position[1] * slotStep,
+                    previewSlotSize, i < previewItems.size() ? previewItems.get(i) : ItemStack.EMPTY, false);
         }
-
-        // 箭头 + 产物
         if (!previewResult.isEmpty()) {
-            int rows = previewSlots.isEmpty() ? 0 :
-                    previewSlots.stream().mapToInt(p -> p[1]).max().orElse(0) + 1;
-            int arrowY = gsy + rows * slotOff / 2 - 4;
-            int cols   = previewSlots.isEmpty() ? 0 :
-                    previewSlots.stream().mapToInt(p -> p[0]).max().orElse(0) + 1;
-            int arrowX = gsx + cols * slotOff + 4;
-            g.drawString(font, "§7→", arrowX, arrowY, 0x888888, false);
-            renderSlot(g, arrowX+14, arrowY-5, previewResult, true);
-            // 产物名称
-            g.drawString(font, "§f" + previewResult.getHoverName().getString(),
-                    arrowX+14, arrowY + SLOT + 2, 0xFFFFFF, false);
+            int resultX = c3x + col3W - previewSlotSize - 6;
+            int resultY = gridY;
+            int arrowX = Math.max(gridX, resultX - 11);
+            int arrowY = resultY + Math.max(0, previewSlotSize / 2 - 4);
+            g.drawString(font, "→", arrowX, arrowY, GuiTheme.TEXT_MUTED, false);
+            renderSlot(g, resultX, resultY, previewSlotSize, previewResult, true);
+            g.drawString(font, GuiLayoutHelper.ellipsis(font, previewResult.getHoverName().getString(),
+                    Math.max(1, col3W - 8)), c3x + 4, contentY + contentH - 38, GuiTheme.TEXT, false);
         }
-
-        // 完整 ID 信息（底部）
         int infoY = contentY + contentH - 28;
-        g.fill(c3x, infoY, c3x+col3W, contentY+contentH, 0xFF0A0A16);
-        g.drawString(font, "§8ID: §7" + entry.id, c3x+4, infoY+2, 0xFFFFFF, false);
-        g.drawString(font, "§8材料: §7" + entry.recipe.getIngredients().size() + " 格",
-                c3x+4, infoY+12, 0xFFFFFF, false);
+        g.fill(c3x, infoY, c3x + col3W, contentY + contentH, GuiTheme.SECTION);
+        g.drawString(font, GuiLayoutHelper.ellipsis(font, "ID: " + entry.id,
+                Math.max(1, col3W - 8)), c3x + 4, infoY + 2, GuiTheme.TEXT_MUTED, false);
+        g.drawString(font, GuiText.string("registerhelper.gui.recipe_clone.ingredient_slots",
+                entry.recipe.getIngredients().size()), c3x + 4, infoY + 12, GuiTheme.TEXT, false);
     }
 
-    private void renderSlot(GuiGraphics g, int x, int y, ItemStack item, boolean result) {
-        g.fill(x-1, y-1, x+SLOT+1, y+SLOT+1, result ? 0xFF6666FF : 0xFF555555);
-        g.fill(x, y, x+SLOT, y+SLOT, 0xFF373737);
+    private void renderSlot(GuiGraphics g, int x, int y, int size, ItemStack item, boolean result) {
+        GuiTheme.drawSlot(g, x, y, size, size, result);
+        if (result) g.fill(x, y, x + size, y + 2, GuiTheme.INFO);
         if (!item.isEmpty()) {
             RenderSystem.enableDepthTest();
-            g.renderItem(item, x+1, y+1);
+            float scale = Math.min(1.0F, Math.max(0.125F, (size - 2) / 16.0F));
+            g.pose().pushPose();
+            try {
+                g.pose().translate(x + 1, y + 1, 0);
+                g.pose().scale(scale, scale, 1.0F);
+                g.renderItem(item, 0, 0);
+            } finally {
+                g.pose().popPose();
+            }
             RenderSystem.disableDepthTest();
-        }
-    }
-
-    private void renderSB(GuiGraphics g, int x, int y, int w, int h,
-                          int total, int visible, int scroll) {
-        if (total <= visible) return;
-        int maxS   = total - visible;
-        int thumbH = Math.max(8, h * visible / total);
-        int thumbY = y + (maxS > 0 ? scroll * (h-thumbH) / maxS : 0);
-        g.fill(x, y, x+w, y+h, 0xFF333333);
-        g.fill(x, thumbY, x+w, thumbY+thumbH, 0xFF7799FF);
-    }
-
-    // ── 输入 ─────────────────────────────────────────────────────
-    @Override
-    public boolean mouseClicked(double mx, double my, int btn) {
-        // 物品网格
-        int gridTop = contentY + 18;
-        int gridW   = ITEM_COLS*(SLOT+2);
-        int gridH   = ITEM_ROWS*(SLOT+2);
-        if (mx>=c1x && mx<c1x+gridW && my>=gridTop && my<gridTop+gridH) {
-            int col = ((int)mx-c1x)/(SLOT+2);
-            int row = ((int)my-gridTop)/(SLOT+2);
-            int idx = (row+itemScroll)*ITEM_COLS+col;
-            if (idx >= 0 && idx < filteredItems.size()) {
-                pickItem(filteredItems.get(idx)); return true;
+            if (item.getCount() > 1 && size >= 10) {
+                String count = String.valueOf(item.getCount());
+                g.pose().pushPose();
+                try {
+                    g.pose().translate(0, 0, 300);
+                    g.drawString(font, count, x + size - font.width(count), y + size - 8,
+                            0xFFFFFF, true);
+                } finally {
+                    g.pose().popPose();
+                }
             }
         }
-        // 配方列表（需要把显示行映射回数据行）
-        if (!targetItem.isEmpty() && mx>=c2x && mx<c2x+COL2_W-3
-                && my>=contentY && my<contentY+contentH) {
-            int clickRow = ((int)my-contentY)/ROW_H;
-            // 重建 drawn→dataIdx 映射
-            int drawn=0; boolean shownR=false, shownI=false;
-            for (int i=recipeScroll; i<recipeList.size() && drawn<listVisRows; i++) {
-                RecipeEntry e = recipeList.get(i);
-                if (e.asResult && !shownR) { shownR=true; drawn++; if(drawn>listVisRows) break; }
-                if (!e.asResult && !shownI) { shownI=true; drawn++; if(drawn>listVisRows) break; }
-                if (drawn-1 == clickRow || drawn == clickRow) {
-                    if (i == selectedIdx && btn==0) { doClone(); return true; }
-                    selectRecipe(i); return true;
+    }
+
+    private void renderScrollbar(GuiGraphics g, int x, int y, int w, int h,
+                                 int total, int visible, int scroll) {
+        GuiLayoutHelper.Scrollbar scrollbar = GuiLayoutHelper.scrollbar(
+                new GuiLayoutHelper.Bounds(x, y, w, h), total, visible, scroll, 8);
+        GuiTheme.drawScrollbar(g, scrollbar, -1, -1);
+    }
+
+    private GuiLayoutHelper.Scrollbar itemScrollbar() {
+        int gridW = itemCols * (SLOT + 2), gridH = itemRows * (SLOT + 2);
+        return GuiLayoutHelper.scrollbar(new GuiLayoutHelper.Bounds(
+                        c1x + gridW + 1, contentY + 4, 3, gridH),
+                (filteredItems.size() + itemCols - 1) / itemCols,
+                itemRows, itemScroll, 8);
+    }
+
+    private GuiLayoutHelper.Scrollbar recipeScrollbar() {
+        return GuiLayoutHelper.scrollbar(new GuiLayoutHelper.Bounds(
+                        c2x + col2W - 3, contentY, 3, contentH),
+                recipeList.size(), recipeVisibleItems(), recipeScroll, 8);
+    }
+
+    private int recipeVisibleItems() {
+        return Math.max(1, listVisRows - 2);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0) {
+            GuiLayoutHelper.Scrollbar itemScrollbar = itemScrollbar();
+            if (itemScrollbar.contains(mouseX, mouseY)) {
+                draggingScrollbar = 0;
+                scrollbarGrabOffset = itemScrollbar.grabOffset(mouseY);
+                itemScroll = itemScrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+                return true;
+            }
+            GuiLayoutHelper.Scrollbar recipeScrollbar = recipeScrollbar();
+            if (recipeScrollbar.contains(mouseX, mouseY)) {
+                draggingScrollbar = 1;
+                scrollbarGrabOffset = recipeScrollbar.grabOffset(mouseY);
+                recipeScroll = recipeScrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+                return true;
+            }
+        }
+        int gridTop = contentY + 4;
+        int gridW = itemCols * (SLOT + 2), gridH = itemRows * (SLOT + 2);
+        if (mouseX >= c1x && mouseX < c1x + gridW
+                && mouseY >= gridTop && mouseY < gridTop + gridH) {
+            int col = ((int) mouseX - c1x) / (SLOT + 2);
+            int row = ((int) mouseY - gridTop) / (SLOT + 2);
+            int index = (row + itemScroll) * itemCols + col;
+            if (index >= 0 && index < filteredItems.size()) {
+                pickItem(filteredItems.get(index));
+                return true;
+            }
+        }
+        if (!targetItem.isEmpty() && mouseX >= c2x && mouseX < c2x + col2W - 3
+                && mouseY >= contentY && mouseY < contentY + contentH) {
+            int clickRow = ((int) mouseY - contentY) / ROW_H;
+            int drawn = 0; boolean shownResult = false, shownIngredient = false;
+            for (int i = recipeScroll; i < recipeList.size() && drawn < listVisRows; i++) {
+                RecipeEntry entry = recipeList.get(i);
+                if (entry.asResult && !shownResult) { shownResult = true; drawn++; if (drawn > listVisRows) break; }
+                if (!entry.asResult && !shownIngredient) { shownIngredient = true; drawn++; if (drawn > listVisRows) break; }
+                if (drawn - 1 == clickRow || drawn == clickRow) {
+                    if (i == selectedIdx && button == 0) doClone();
+                    else selectRecipe(i);
+                    return true;
                 }
-                if (drawn == clickRow+1) { selectRecipe(i); return true; }
+                if (drawn == clickRow + 1) { selectRecipe(i); return true; }
                 drawn++;
             }
         }
-        return super.mouseClicked(mx, my, btn);
+        return super.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override
-    public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
-        int gridTop = contentY + 18;
-        int gridW   = ITEM_COLS*(SLOT+2);
-        if (mx>=c1x && mx<c1x+gridW && my>=gridTop) {
-            int max = Math.max(0,(filteredItems.size()+ITEM_COLS-1)/ITEM_COLS-ITEM_ROWS);
-            itemScroll = clamp(itemScroll-(int)scrollY, 0, max); return true;
+    public boolean mouseDragged(double mouseX, double mouseY, int button,
+                                double dragX, double dragY) {
+        if (draggingScrollbar >= 0 && button == 0) {
+            GuiLayoutHelper.Scrollbar scrollbar = draggingScrollbar == 0 ? itemScrollbar() : recipeScrollbar();
+            if (draggingScrollbar == 0) itemScroll = scrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+            else recipeScroll = scrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+            return true;
         }
-        if (!targetItem.isEmpty() && mx>=c2x && mx<c2x+COL2_W) {
-            recipeScroll = clamp(recipeScroll-(int)scrollY, 0,
-                    Math.max(0, recipeList.size()-listVisRows+2)); return true;
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (draggingScrollbar >= 0) {
+            draggingScrollbar = -1;
+            return true;
         }
-        return super.mouseScrolled(mx, my, scrollX, scrollY);
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
-    public boolean keyPressed(int kc, int sc, int mods) {
-        if (searchBox.isFocused()) return searchBox.keyPressed(kc, sc, mods);
-        if (kc == 264 && selectedIdx < recipeList.size()-1) { selectRecipe(selectedIdx+1); return true; }
-        if (kc == 265 && selectedIdx > 0)                   { selectRecipe(selectedIdx-1); return true; }
-        if (kc == 257 || kc == 335)                          { doClone(); return true; }
-        if (kc == 256) { onClose(); return true; }
-        return super.keyPressed(kc, sc, mods);
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        int gridTop = contentY + 4;
+        int gridW = itemCols * (SLOT + 2), gridH = itemRows * (SLOT + 2);
+        if (mouseX >= c1x && mouseX < c1x + gridW
+                && mouseY >= gridTop && mouseY < gridTop + gridH) {
+            itemScroll = clamp(itemScroll - (int) scrollY, 0,
+                    Math.max(0, (filteredItems.size() + itemCols - 1) / itemCols - itemRows));
+            return true;
+        }
+        if (!targetItem.isEmpty() && mouseX >= c2x && mouseX < c2x + col2W
+                && mouseY >= contentY && mouseY < contentY + contentH) {
+            recipeScroll = clamp(recipeScroll - (int) scrollY, 0,
+                    Math.max(0, recipeList.size() - recipeVisibleItems()));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
     @Override
-    public boolean charTyped(char c, int mods) {
-        if (searchBox.isFocused()) return searchBox.charTyped(c, mods);
-        return super.charTyped(c, mods);
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (searchBox.isFocused()) return searchBox.keyPressed(keyCode, scanCode, modifiers);
+        if (keyCode == 264 && selectedIdx < recipeList.size() - 1) { selectRecipe(selectedIdx + 1); return true; }
+        if (keyCode == 265 && selectedIdx > 0) { selectRecipe(selectedIdx - 1); return true; }
+        if (keyCode == 257 || keyCode == 335) { doClone(); return true; }
+        if (keyCode == 256) { onClose(); return true; }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (searchBox.isFocused()) return searchBox.charTyped(codePoint, modifiers);
+        return super.charTyped(codePoint, modifiers);
     }
 
     @Override
@@ -556,38 +541,42 @@ public class RecipeCloneWizardScreen extends Screen {
     @Override
     public boolean isPauseScreen() { return false; }
 
-    // ── 数据类 ───────────────────────────────────────────────────
     private static class RecipeEntry {
         final ResourceLocation id;
-        final Recipe<?>        recipe;
-        final ItemStack        result;
-        final String           typeName;
-        final boolean          asIngredient, asResult;
+        final Recipe<?> recipe;
+        final ItemStack result;
+        final String typeName;
+        final boolean asIngredient, asResult;
 
-        RecipeEntry(RecipeHolder<?> holder, boolean asIng, boolean asRes) {
-            Recipe<?> r = holder.value();
-            this.recipe      = r;
-            this.id          = holder.id();
-            this.asIngredient = asIng;
-            this.asResult    = asRes;
-            this.typeName    = classify(r);
-            ItemStack res = ItemStack.EMPTY;
-            try { res = r.getResultItem(Minecraft.getInstance().level.registryAccess()).copy(); }
-            catch (Exception ignored) {}
-            this.result = res;
+        RecipeEntry(RecipeHolder<?> holder, boolean asIngredient, boolean asResult) {
+            recipe = holder.value(); id = holder.id(); this.asIngredient = asIngredient; this.asResult = asResult;
+            typeName = classify(recipe);
+            ItemStack output = ItemStack.EMPTY;
+            try {
+                Minecraft minecraft = Minecraft.getInstance();
+                if (minecraft.level != null) output = recipe.getResultItem(minecraft.level.registryAccess()).copy();
+            } catch (Exception ignored) { }
+            result = output;
         }
 
-        private static String classify(Recipe<?> r) {
-            String t = r.getType().toString().toLowerCase();
-            if (t.contains("shaped"))    return "有序合成";
-            if (t.contains("shapeless")) return "无序合成";
-            if (t.contains("smelting"))  return "熔炼";
-            if (t.contains("blasting"))  return "高炉";
-            if (t.contains("smoking"))   return "烟熏";
-            if (t.contains("campfire"))  return "营火";
-            return t.replaceAll(".*:", "");
+        private static String classify(Recipe<?> recipe) {
+            ResourceLocation serializerId = BuiltInRegistries.RECIPE_SERIALIZER
+                    .getKey(recipe.getSerializer());
+            ResourceLocation typeId = BuiltInRegistries.RECIPE_TYPE.getKey(recipe.getType());
+            String type = serializerId != null ? serializerId.toString()
+                    : typeId != null ? typeId.toString() : recipe.getType().toString();
+            type = type.toLowerCase(Locale.ROOT);
+            if (type.contains("shaped")) return GuiText.string("registerhelper.recipe_type.minecraft.crafting_shaped");
+            if (type.contains("shapeless")) return GuiText.string("registerhelper.recipe_type.minecraft.crafting_shapeless");
+            if (type.contains("smelting")) return GuiText.string("registerhelper.recipe_type.minecraft.smelting");
+            if (type.contains("blasting")) return GuiText.string("registerhelper.recipe_type.minecraft.blasting");
+            if (type.contains("smoking")) return GuiText.string("registerhelper.recipe_type.minecraft.smoking");
+            if (type.contains("campfire")) return GuiText.string("registerhelper.recipe_type.minecraft.campfire");
+            return type.replaceAll(".*:", "");
         }
     }
 
-    private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
 }

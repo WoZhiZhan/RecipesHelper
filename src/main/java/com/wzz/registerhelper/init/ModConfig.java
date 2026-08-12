@@ -35,6 +35,7 @@ public class ModConfig {
         public final ModConfigSpec.BooleanValue enablePerSlotNBT;
         public final ModConfigSpec.BooleanValue enableDebugLogging;
         public final ModConfigSpec.BooleanValue defaultIncludeNBT;
+        public final ModConfigSpec.ConfigValue<String> guiTheme;
 
         public CommonConfig(ModConfigSpec.Builder builder) {
             builder.push("nbt_matching");
@@ -58,6 +59,19 @@ public class ModConfig {
                             "When enabled: color bar shown at slot bottom, middle-click to toggle per slot",
                             "When disabled: all slots follow defaultIncludeNBT, no color bar shown")
                     .define("enablePerSlotNBT", true);
+
+            builder.pop();
+
+            builder.push("client_ui");
+
+            guiTheme = builder
+                    .comment("RegisterHelper GUI theme",
+                            "Available themes: soft_dark, light",
+                            "",
+                            "RegisterHelper GUI theme",
+                            "Available themes: soft_dark, light")
+                    .define("theme", "soft_dark",
+                            value -> "soft_dark".equals(value) || "light".equals(value));
 
             builder.pop();
 
@@ -85,5 +99,10 @@ public class ModConfig {
 
     public static boolean getDefaultIncludeNBT() {
         return COMMON.defaultIncludeNBT.get();
+    }
+
+    public static String getGuiTheme() {
+        String theme = COMMON.guiTheme.get();
+        return "light".equals(theme) ? "light" : "soft_dark";
     }
 }

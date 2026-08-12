@@ -28,6 +28,9 @@ public class RecipeClientCache {
     
     // 错误信息
     private static volatile String errorMessage = null;
+
+    // 当前请求代次；用于忽略较旧请求迟到的分包
+    private static volatile int currentRequestId = -1;
     
     /**
      * 请求从服务器加载配方列表
@@ -37,19 +40,38 @@ public class RecipeClientCache {
             return; // 已经在加载中
         }
         
+        // 发送请求到服务器
+        RequestRecipeListPacket.sendToServer();
+    }
+
+    static void beginRequest(int requestId) {
+        currentRequestId = requestId;
         loading = true;
         loaded = false;
         errorMessage = null;
         cachedRecipes.clear();
-        
-        // 发送请求到服务器
-        RequestRecipeListPacket.sendToServer();
+        SyncRecipeListPacket.resetClientState();
+    }
+
+    static boolean isCurrentRequest(int requestId) {
+        return currentRequestId == requestId || (currentRequestId < 0 && requestId == 0);
     }
     
     /**
      * 服务器响应后调用，设置配方列表
      */
     public static void setRecipes(List<UnifiedRecipeInfo> recipes) {
+        completeRequest(recipes);
+    }
+
+    static void setRecipes(int requestId, List<UnifiedRecipeInfo> recipes) {
+        if (!isCurrentRequest(requestId)) {
+            return;
+        }
+        completeRequest(recipes);
+    }
+
+    private static void completeRequest(List<UnifiedRecipeInfo> recipes) {
         cachedRecipes.clear();
         cachedRecipes.addAll(recipes);
         loading = false;
@@ -71,6 +93,17 @@ public class RecipeClientCache {
      * 设置错误信息
      */
     public static void setError(String error) {
+        completeWithError(error);
+    }
+
+    static void setError(int requestId, String error) {
+        if (!isCurrentRequest(requestId)) {
+            return;
+        }
+        completeWithError(error);
+    }
+
+    private static void completeWithError(String error) {
         loading = false;
         loaded = false;
         errorMessage = error;
@@ -134,7 +167,9 @@ public class RecipeClientCache {
         loading = false;
         loaded = false;
         errorMessage = null;
+        currentRequestId = -1;
         callbacks.clear();
+        SyncRecipeListPacket.resetClientState();
     }
     
     /**

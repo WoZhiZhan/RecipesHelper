@@ -62,9 +62,7 @@ public class BlacklistClientHelper {
         if (recipeIds == null || recipeIds.isEmpty()) return false;
         java.util.List<String> ids = recipeIds.stream().map(ResourceLocation::toString).toList();
         if (isRemoteServer()) {
-            PacketDistributor.sendToServer(
-                    new RecipeBlacklistPacket(RecipeBlacklistPacket.Operation.ADD_BATCH, ids)
-            );
+            sendBatches(RecipeBlacklistPacket.Operation.ADD_BATCH, ids);
             return true;
         } else {
             return RecipeBlacklistManager.addMultipleToBlacklist(new java.util.HashSet<>(recipeIds)) > 0;
@@ -78,9 +76,7 @@ public class BlacklistClientHelper {
         if (recipeIds == null || recipeIds.isEmpty()) return false;
         java.util.List<String> ids = recipeIds.stream().map(ResourceLocation::toString).toList();
         if (isRemoteServer()) {
-            PacketDistributor.sendToServer(
-                    new RecipeBlacklistPacket(RecipeBlacklistPacket.Operation.REMOVE_BATCH, ids)
-            );
+            sendBatches(RecipeBlacklistPacket.Operation.REMOVE_BATCH, ids);
             return true;
         } else {
             return RecipeBlacklistManager.removeMultipleFromBlacklist(new java.util.HashSet<>(recipeIds)) > 0;
@@ -100,6 +96,13 @@ public class BlacklistClientHelper {
         } else {
             // 单人游戏：直接操作
             return RecipeBlacklistManager.clearBlacklist();
+        }
+    }
+
+    private static void sendBatches(RecipeBlacklistPacket.Operation operation, java.util.List<String> ids) {
+        for (int start = 0; start < ids.size(); start += RecipeBlacklistPacket.MAX_BATCH_SIZE) {
+            int end = Math.min(start + RecipeBlacklistPacket.MAX_BATCH_SIZE, ids.size());
+            PacketDistributor.sendToServer(new RecipeBlacklistPacket(operation, ids.subList(start, end)));
         }
     }
 }

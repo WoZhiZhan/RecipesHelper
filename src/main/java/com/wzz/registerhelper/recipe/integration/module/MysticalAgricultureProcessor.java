@@ -1,13 +1,18 @@
 package com.wzz.registerhelper.recipe.integration.module;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.wzz.registerhelper.gui.recipe.IngredientData;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import com.wzz.registerhelper.util.RecipeUtil;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.fml.ModList;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 public class MysticalAgricultureProcessor implements ModRecipeProcessor {
     @Override
@@ -17,161 +22,192 @@ public class MysticalAgricultureProcessor implements ModRecipeProcessor {
 
     @Override
     public String[] getSupportedRecipeTypes() {
-        return new String[]{
-                "mysticalagriculture:infusion",
-                "mysticalagriculture:awakening",
-                "mysticalagriculture:reprocessor"
-        };
+        return new String[]{"infusion", "awakening", "reprocessor"};
     }
 
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {
-        JsonObject recipe = new JsonObject();
-        recipe.addProperty("type", request.recipeType);
-
-        switch (request.recipeType) {
-            case "mysticalagriculture:infusion" -> createInfusionRecipe(recipe, request);
-            case "mysticalagriculture:awakening" -> createAwakeningRecipe(recipe, request);
-            case "mysticalagriculture:reprocessor" -> createReprocessorRecipe(recipe, request);
+        String type = request.recipeType.toLowerCase();
+        if (type.contains(":")) {
+            type = type.substring(type.indexOf(":") + 1);
         }
 
+        return switch (type) {
+            case "infusion" -> createInfusionRecipe(request);
+            case "awakening" -> createAwakeningRecipe(request);
+            case "reprocessor" -> createReprocessorRecipe(request);
+            default -> null;
+        };
+    }
+
+    private JsonObject createInfusionRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "mysticalagriculture:infusion");
+
+        if (request.ingredients != null && request.ingredients.length > 0) {
+            JsonObject input = createIngredient(request.ingredients[0]);
+            if (input != null) {
+                recipe.add("input", input);
+            }
+        }
+
+        JsonArray ingredients = new JsonArray();
+        if (request.ingredients != null) {
+            for (int i = 1; i < Math.min(9, request.ingredients.length); i++) {
+                JsonObject ingredient = createIngredient(request.ingredients[i]);
+                if (ingredient != null) {
+                    ingredients.add(ingredient);
+                }
+            }
+        }
+        recipe.add("ingredients", ingredients);
+        recipe.add("result", createResult(request.result, request.resultCount));
+        addTransferComponents(recipe, request);
         return recipe;
     }
 
-    /**
-     * 注魔祭坛配方：中央物品 + 8个外围材料 + 精华 -> 输出
-     */
-    private void createInfusionRecipe(JsonObject recipe, RecipeRequest request) {
-        // 中央输入物品
+    private JsonObject createAwakeningRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "mysticalagriculture:awakening");
+
         if (request.ingredients != null && request.ingredients.length > 0) {
-            recipe.add("input", createIngredient(request.ingredients[0]));
-        }
-
-        // 外围材料（最多8个）
-        JsonArray ingredients = new JsonArray();
-        for (int i = 1; i < Math.min(9, request.ingredients.length); i++) {
-            ingredients.add(createIngredient(request.ingredients[i]));
-        }
-        recipe.add("ingredients", ingredients);
-
-        // 输出结果
-        recipe.add("result", createResult(request.result, request.resultCount));
-
-        // 精华配置
-        String essenceType = (String) request.properties.get("essenceType");
-        Integer essenceAmount = (Integer) request.properties.get("essenceAmount");
-
-        JsonObject essence = new JsonObject();
-        essence.addProperty("id", essenceType != null ? essenceType : "mysticalagriculture:inferium_essence");
-        essence.addProperty("count", essenceAmount != null ? essenceAmount : 4);
-        recipe.add("essence", essence);
-    }
-
-    /**
-     * 觉醒祭坛配方：中央物品 + 4个外围材料 + 4种元素精华 -> 输出
-     */
-    private void createAwakeningRecipe(JsonObject recipe, RecipeRequest request) {
-        // 中央输入物品
-        if (request.ingredients != null && request.ingredients.length > 0) {
-            recipe.add("input", createIngredient(request.ingredients[0]));
-        }
-
-        // 外围材料（通常是4个）
-        JsonArray ingredients = new JsonArray();
-        for (int i = 1; i < Math.min(5, request.ingredients.length); i++) {
-            ingredients.add(createIngredient(request.ingredients[i]));
-        }
-        recipe.add("ingredients", ingredients);
-
-        // 输出结果
-        recipe.add("result", createResult(request.result, request.resultCount));
-
-        // 4种元素精华
-        JsonArray essences = new JsonArray();
-
-        // 从 properties 获取精华配置，如果没有则使用默认值
-        Integer airCount = (Integer) request.properties.get("airEssenceCount");
-        Integer earthCount = (Integer) request.properties.get("earthEssenceCount");
-        Integer waterCount = (Integer) request.properties.get("waterEssenceCount");
-        Integer fireCount = (Integer) request.properties.get("fireEssenceCount");
-
-        // 默认每种40个
-        int defaultCount = 40;
-
-        // 风元素精华
-        JsonObject airEssence = new JsonObject();
-        airEssence.addProperty("item", "mysticalagriculture:air_essence");
-        airEssence.addProperty("count", airCount != null ? airCount : defaultCount);
-        essences.add(airEssence);
-
-        // 土元素精华
-        JsonObject earthEssence = new JsonObject();
-        earthEssence.addProperty("item", "mysticalagriculture:earth_essence");
-        earthEssence.addProperty("count", earthCount != null ? earthCount : defaultCount);
-        essences.add(earthEssence);
-
-        // 水元素精华
-        JsonObject waterEssence = new JsonObject();
-        waterEssence.addProperty("item", "mysticalagriculture:water_essence");
-        waterEssence.addProperty("count", waterCount != null ? waterCount : defaultCount);
-        essences.add(waterEssence);
-
-        // 火元素精华
-        JsonObject fireEssence = new JsonObject();
-        fireEssence.addProperty("item", "mysticalagriculture:fire_essence");
-        fireEssence.addProperty("count", fireCount != null ? fireCount : defaultCount);
-        essences.add(fireEssence);
-
-        recipe.add("essences", essences);
-    }
-
-    /**
-     * 种子重处理器配方
-     */
-    private void createReprocessorRecipe(JsonObject recipe, RecipeRequest request) {
-        if (request.ingredients != null && request.ingredients.length > 0) {
-            recipe.add("input", createIngredient(request.ingredients[0]));
-        }
-
-        recipe.add("result", createResult(request.result, request.resultCount));
-    }
-
-    /**
-     * 创建材料JSON对象
-     */
-    private JsonObject createIngredient(Object ingredient) {
-        JsonObject ingredientJson = new JsonObject();
-
-        if (ingredient instanceof ItemStack stack) {
-            String itemId = RecipeUtil.getItemResourceLocation(stack.getItem()).toString();
-            ingredientJson.addProperty("item", itemId);
-
-            if (stack.getCount() > 1) {
-                ingredientJson.addProperty("count", stack.getCount());
+            JsonObject input = createIngredient(request.ingredients[0]);
+            if (input != null) {
+                recipe.add("input", input);
             }
-        } else if (ingredient instanceof Item item) {
-            String itemId = RecipeUtil.getItemResourceLocation(item).toString();
-            ingredientJson.addProperty("item", itemId);
-        } else if (ingredient instanceof String str) {
-            ingredientJson.addProperty("item", str);
         }
 
-        return ingredientJson;
+        JsonArray ingredients = new JsonArray();
+        if (request.ingredients != null) {
+            for (int i = 1; i < Math.min(5, request.ingredients.length); i++) {
+                JsonObject ingredient = createIngredient(request.ingredients[i]);
+                if (ingredient != null) {
+                    ingredients.add(ingredient);
+                }
+            }
+        }
+        recipe.add("ingredients", ingredients);
+        recipe.add("essences", createEssences(request));
+        recipe.add("result", createResult(request.result, request.resultCount));
+        addTransferComponents(recipe, request);
+        return recipe;
     }
 
-    /**
-     * 创建结果JSON对象
-     */
-    private JsonObject createResult(ItemStack result, int count) {
-        JsonObject resultJson = new JsonObject();
+    private JsonObject createReprocessorRecipe(RecipeRequest request) {
+        JsonObject recipe = new JsonObject();
+        recipe.addProperty("type", "mysticalagriculture:reprocessor");
 
-        String itemId = RecipeUtil.getItemResourceLocation(result.getItem()).toString();
-        resultJson.addProperty("id", itemId);
+        if (request.ingredients != null && request.ingredients.length > 0) {
+            JsonObject input = createIngredient(request.ingredients[0]);
+            if (input != null) {
+                recipe.add("input", input);
+            }
+        }
+        recipe.add("result", createResult(request.result, request.resultCount));
+        return recipe;
+    }
 
-        if (count > 1) {
-            resultJson.addProperty("count", count);
+    private JsonArray createEssences(RecipeRequest request) {
+        String[] defaults = {
+                "mysticalagriculture:air_essence",
+                "mysticalagriculture:earth_essence",
+                "mysticalagriculture:water_essence",
+                "mysticalagriculture:fire_essence"
+        };
+        String[] propertyNames = {"airEssence", "earthEssence", "waterEssence", "fireEssence"};
+        String[] countNames = {"airEssenceCount", "earthEssenceCount", "waterEssenceCount", "fireEssenceCount"};
+
+        List<Object> configured = new ArrayList<>();
+        Object value = request.properties.get("essences");
+        if (value instanceof Object[] values) {
+            configured.addAll(List.of(values));
+        } else if (value instanceof JsonArray values) {
+            values.forEach(configured::add);
         }
 
-        return resultJson;
+        JsonArray essences = new JsonArray();
+        for (int i = 0; i < defaults.length; i++) {
+            Object essence = i < configured.size() ? configured.get(i) : null;
+            if (essence == null && request.ingredients != null && request.ingredients.length > i + 5) {
+                essence = request.ingredients[i + 5];
+            }
+            if (essence == null) {
+                essence = request.properties.get(propertyNames[i]);
+            }
+
+            JsonObject stack = createStack(essence);
+            if (stack == null) {
+                stack = new JsonObject();
+                stack.addProperty("id", defaults[i]);
+                stack.addProperty("count", numberValue(request.properties.get(countNames[i]), 40));
+            } else if (!stack.has("count") && request.properties.containsKey(countNames[i])) {
+                stack.addProperty("count", numberValue(request.properties.get(countNames[i]), 40));
+            }
+            essences.add(stack);
+        }
+        return essences;
+    }
+
+    private JsonObject createIngredient(Object ingredient) {
+        return RecipeUtil.createIngredientJson(ingredient);
+    }
+
+    private JsonObject createResult(ItemStack result, int count) {
+        return RecipeUtil.createResultJson(result, count);
+    }
+
+    private JsonObject createStack(Object value) {
+        if (value instanceof ItemStack stack && !stack.isEmpty()) {
+            return RecipeUtil.createResultJson(stack, stack.getCount());
+        }
+        if (value instanceof IngredientData data && data.getType() == IngredientData.Type.ITEM
+                && !data.getItemStack().isEmpty()) {
+            return RecipeUtil.createResultJson(data.getItemStack(), data.getItemStack().getCount());
+        }
+        if (value instanceof JsonObject object) {
+            return createStackFromMap(object);
+        }
+        if (value instanceof JsonElement element && element.isJsonPrimitive()) {
+            value = element.getAsString();
+        }
+        if (value instanceof Map<?, ?> map) {
+            JsonObject object = new JsonObject();
+            Object id = map.containsKey("id") ? map.get("id") : map.get("item");
+            if (id instanceof String string) {
+                object.addProperty("id", string);
+            }
+            if (map.get("count") instanceof Number count) {
+                object.addProperty("count", count.intValue());
+            }
+            if (map.get("components") instanceof JsonElement components) {
+                object.add("components", components.deepCopy());
+            }
+            return object.has("id") ? object : null;
+        }
+        if (value instanceof String id && !id.isBlank() && !id.startsWith("#")) {
+            JsonObject object = new JsonObject();
+            object.addProperty("id", id);
+            return object;
+        }
+        return null;
+    }
+
+    private JsonObject createStackFromMap(JsonObject source) {
+        JsonObject stack = source.deepCopy();
+        if (!stack.has("id") && stack.has("item")) {
+            stack.add("id", stack.remove("item"));
+        }
+        return stack.has("id") ? stack : null;
+    }
+
+    private void addTransferComponents(JsonObject recipe, RecipeRequest request) {
+        Object value = request.properties.get("transfer_components");
+        if (value instanceof Boolean transfer) {
+            recipe.addProperty("transfer_components", transfer);
+        }
+    }
+
+    private int numberValue(Object value, int defaultValue) {
+        return value instanceof Number number ? Math.max(1, number.intValue()) : defaultValue;
     }
 }

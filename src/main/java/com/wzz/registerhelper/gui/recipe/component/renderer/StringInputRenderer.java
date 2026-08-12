@@ -2,6 +2,7 @@ package com.wzz.registerhelper.gui.recipe.component.renderer;
 
 import com.wzz.registerhelper.gui.recipe.component.ComponentDataManager;
 import com.wzz.registerhelper.gui.recipe.component.ComponentRenderer;
+import com.wzz.registerhelper.gui.GuiTheme;
 import com.wzz.registerhelper.gui.recipe.component.StringInputComponent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -31,9 +32,9 @@ public class StringInputRenderer implements ComponentRenderer {
             component.getX(), component.getY(), 
             component.getWidth(), component.getHeight(),
             Component.literal(component.getLabel()));
-            
-        // 设置默认值
-        this.editBox.setValue(component.getValue());
+        GuiTheme.styleInput(this.editBox);
+        String initialValue = dataManager.getString(component.getId(), component.getValue());
+        this.editBox.setValue(initialValue);
         
         // 设置最大长度
         this.editBox.setMaxLength(256);
@@ -44,12 +45,13 @@ public class StringInputRenderer implements ComponentRenderer {
         });
         
         // 初始化数据
-        dataManager.setString(component.getId(), component.getValue());
+        dataManager.setString(component.getId(), initialValue);
     }
     
     @Override
     public void render(GuiGraphics guiGraphics, Font font, int mouseX, int mouseY) {
         if (!active) return;
+        GuiTheme.drawInput(guiGraphics, editBox);
         editBox.render(guiGraphics, mouseX, mouseY, 0);
     }
     

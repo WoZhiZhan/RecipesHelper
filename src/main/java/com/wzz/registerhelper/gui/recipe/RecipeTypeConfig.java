@@ -1,5 +1,7 @@
 package com.wzz.registerhelper.gui.recipe;
 
+import com.wzz.registerhelper.gui.GuiText;
+
 /**
  * 配方类型配置类
  * 定义不同配方类型的属性和行为
@@ -7,9 +9,9 @@ package com.wzz.registerhelper.gui.recipe;
 public class RecipeTypeConfig {
     
     public enum RecipeType {
-        CRAFTING("工作台合成", 9, 3, 3, true, false),
-        COOKING("烹饪配方", 1, 1, 1, false, true),
-        AVARITIA("Avaritia工作台", 81, 9, 9, true, false);
+        CRAFTING("registerhelper.recipe_type.legacy.crafting", 9, 3, 3, true, false),
+        COOKING("registerhelper.recipe_type.legacy.cooking", 1, 1, 1, false, true),
+        AVARITIA("registerhelper.recipe_type.legacy.avaritia", 81, 9, 9, true, false);
 
         private final String displayName;
         private final int maxInputs;
@@ -28,7 +30,7 @@ public class RecipeTypeConfig {
             this.supportsCookingSettings = supportsCookingSettings;
         }
 
-        public String getDisplayName() { return displayName; }
+        public String getDisplayName() { return GuiText.string(displayName); }
         public int getMaxInputs() { return maxInputs; }
         public int getMaxGridWidth() { return maxGridWidth; }
         public int getMaxGridHeight() { return maxGridHeight; }
@@ -41,19 +43,19 @@ public class RecipeTypeConfig {
     }
 
     public enum CraftingMode {
-        SHAPELESS("无序"),
-        SHAPED("有序");
+        SHAPELESS("registerhelper.recipe_type.crafting_shapeless_short"),
+        SHAPED("registerhelper.recipe_type.crafting_shaped_short");
 
         private final String displayName;
         CraftingMode(String displayName) { this.displayName = displayName; }
-        public String getDisplayName() { return displayName; }
+        public String getDisplayName() { return GuiText.string(displayName); }
     }
 
     public enum CookingType {
-        SMELTING("熔炉", "200", "0.7"),
-        BLASTING("高炉", "100", "0.7"),
-        SMOKING("烟熏炉", "100", "0.35"),
-        CAMPFIRE("营火", "600", "0.35");
+        SMELTING("registerhelper.recipe_type.minecraft.smelting", "200", "0.7"),
+        BLASTING("registerhelper.recipe_type.minecraft.blasting", "100", "0.7"),
+        SMOKING("registerhelper.recipe_type.minecraft.smoking", "100", "0.35"),
+        CAMPFIRE("registerhelper.recipe_type.minecraft.campfire", "600", "0.35");
 
         private final String displayName;
         private final String defaultTime;
@@ -65,7 +67,7 @@ public class RecipeTypeConfig {
             this.defaultExp = defaultExp;
         }
 
-        public String getDisplayName() { return displayName; }
+        public String getDisplayName() { return GuiText.string(displayName); }
         public String getDefaultTime() { return defaultTime; }
         public String getDefaultExp() { return defaultExp; }
     }
@@ -81,7 +83,8 @@ public class RecipeTypeConfig {
                 case 3 -> 7;
                 case 4 -> 9;
                 case 5 -> 11;
-                default -> 3;
+                case 6 -> 16;
+                default -> 21;
             };
         }
 
@@ -92,7 +95,8 @@ public class RecipeTypeConfig {
                 case 7 -> 3;
                 case 9 -> 4;
                 case 11 -> 5;
-                default -> 1;
+                case 16 -> 6;
+                default -> 7;
             };
         }
 
@@ -101,7 +105,9 @@ public class RecipeTypeConfig {
             if (count <= 25) return 2;
             if (count <= 49) return 3;
             if (count <= 81) return 4;
-            return 5;
+            if (count <= 121) return 5;
+            if (count <= 256) return 6;
+            return 7;
         }
     }
 }

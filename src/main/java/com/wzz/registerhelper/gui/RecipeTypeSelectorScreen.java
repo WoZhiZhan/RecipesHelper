@@ -11,344 +11,291 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
-/**
- * 配方类型选择器屏幕
- */
+/** Recipe type selector with categories, search, responsive bounds and drag scrolling. */
 @OnlyIn(Dist.CLIENT)
 public class RecipeTypeSelectorScreen extends Screen {
-
     private final Screen parentScreen;
     private final Consumer<RecipeTypeDefinition> selectionCallback;
     private final List<RecipeTypeDefinition> allRecipeTypes;
     private final RecipeTypeDefinition currentSelection;
-
-    // UI组件
     private EditBox searchBox;
     private Button cancelButton;
     private Button categoryAllButton;
     private Button categoryCraftingButton;
     private Button categoryCookingButton;
     private Button categoryModsButton;
-
-    // 使用拼音搜索助手
     private final PinyinSearchHelper<RecipeTypeDefinition> searchHelper;
-
-    // 状态
     private List<RecipeTypeDefinition> filteredRecipeTypes;
     private String currentCategory = "all";
-    private int scrollOffset = 0;
-    private final int maxVisibleItems = 15;
+    private int scrollOffset;
+    private boolean draggingScrollbar;
+    private double scrollbarGrabOffset;
+    private static final int ITEM_HEIGHT = 18;
+    private static final int PREFERRED_WIDTH = 520;
+    private static final int PREFERRED_HEIGHT = 460;
+    private static final int MIN_WIDTH = 280;
+    private static final int MIN_HEIGHT = 220;
+    private int leftPos, topPos, contentWidth, contentHeight;
+    private GuiLayoutHelper.Bounds listBounds;
+    private boolean initialized;
 
-    // 布局
-    private int leftPos, topPos;
-    private int contentWidth = 400;
-    private int contentHeight = 400;
-
-    public RecipeTypeSelectorScreen(Screen parentScreen, Consumer<RecipeTypeDefinition> selectionCallback,
-                                    List<RecipeTypeDefinition> recipeTypes, RecipeTypeDefinition currentSelection) {
-        super(Component.literal("选择配方类型"));
+    public RecipeTypeSelectorScreen(Screen parentScreen,
+                                    Consumer<RecipeTypeDefinition> selectionCallback,
+                                    List<RecipeTypeDefinition> recipeTypes,
+                                    RecipeTypeDefinition currentSelection) {
+        super(GuiText.component("registerhelper.gui.recipe_type_selector.title"));
         this.parentScreen = parentScreen;
         this.selectionCallback = selectionCallback;
         this.allRecipeTypes = new ArrayList<>(recipeTypes);
         this.currentSelection = currentSelection;
         this.filteredRecipeTypes = new ArrayList<>(recipeTypes);
-
-        // 初始化搜索助手
-        this.searchHelper = new PinyinSearchHelper<>(
-                RecipeTypeDefinition::getDisplayName,  // 显示名称
-                type -> type.getModId() + ":" + type.getId()  // ID（用于mod过滤）
-        );
-
-        // 构建拼音缓存
+        searchHelper = new PinyinSearchHelper<>(RecipeTypeDefinition::getDisplayName,
+                type -> type.getModId() + ":" + type.getId());
         searchHelper.buildCache(allRecipeTypes);
     }
 
     @Override
     protected void init() {
-        this.leftPos = (this.width - contentWidth) / 2;
-        this.topPos = (this.height - contentHeight) / 2;
-
-        initializeSearchBox();
-        initializeCategoryButtons();
-        initializeActionButtons();
-
-        updateFilteredList("");
-    }
-
-    private void initializeSearchBox() {
-        searchBox = new EditBox(this.font, leftPos + 20, topPos + 30, contentWidth - 40, 20,
-                Component.literal("搜索配方类型"));
-        searchBox.setHint(Component.literal("输入配方名称/拼音/mod名称..."));
+        String currentSearch = searchBox != null ? searchBox.getValue() : "";
+        int previousScroll = scrollOffset;
+        GuiLayoutHelper.Bounds panel = GuiLayoutHelper.centered(width, height,
+                PREFERRED_WIDTH, PREFERRED_HEIGHT, MIN_WIDTH, MIN_HEIGHT, 8, 8);
+        leftPos = panel.x(); topPos = panel.y();
+        contentWidth = panel.width(); contentHeight = panel.height();
+        listBounds = new GuiLayoutHelper.Bounds(leftPos + 20, topPos + 90,
+                contentWidth - 40, Math.max(ITEM_HEIGHT, contentHeight - 130));
+        searchBox = new EditBox(font, leftPos + 20, topPos + 30,
+                contentWidth - 40, 20, GuiText.component("registerhelper.gui.common.search"));
+        GuiTheme.styleInput(searchBox);
+        searchBox.setHint(GuiText.component("registerhelper.gui.recipe_type_selector.search_hint"));
+        searchBox.setValue(currentSearch);
         searchBox.setResponder(this::updateFilteredList);
         addRenderableWidget(searchBox);
+        initializeCategoryButtons();
+        initializeActionButtons();
+        updateFilteredList(currentSearch);
+        if (initialized) {
+            scrollOffset = GuiLayoutHelper.clamp(previousScroll, 0,
+                    Math.max(0, filteredRecipeTypes.size() - currentVisibleItems()));
+        }
+        initialized = true;
     }
 
     private void initializeCategoryButtons() {
         int buttonY = topPos + 60;
-        int buttonWidth = 70;
-        int buttonSpacing = 5;
-        int currentX = leftPos + 20;
-
+        int spacing = 5;
+        int buttonWidth = Math.max(1, (contentWidth - 40 - spacing * 3) / 4);
+        int x = leftPos + 20;
         categoryAllButton = addRenderableWidget(Button.builder(
-                        Component.literal("全部"),
-                        button -> selectCategory("all"))
-                .bounds(currentX, buttonY, buttonWidth, 20)
-                .build());
-        currentX += buttonWidth + buttonSpacing;
-
+                        GuiText.component("registerhelper.gui.recipe_type_selector.category.all"),
+                        b -> selectCategory("all"))
+                .bounds(x, buttonY, buttonWidth, 20).build()); x += buttonWidth + spacing;
         categoryCraftingButton = addRenderableWidget(Button.builder(
-                        Component.literal("原版合成"),
-                        button -> selectCategory("crafting"))
-                .bounds(currentX, buttonY, buttonWidth, 20)
-                .build());
-        currentX += buttonWidth + buttonSpacing;
-
+                        GuiText.component("registerhelper.gui.recipe_type_selector.category.crafting"),
+                        b -> selectCategory("crafting"))
+                .bounds(x, buttonY, buttonWidth, 20).build()); x += buttonWidth + spacing;
         categoryCookingButton = addRenderableWidget(Button.builder(
-                        Component.literal("烹饪"),
-                        button -> selectCategory("cooking"))
-                .bounds(currentX, buttonY, buttonWidth, 20)
-                .build());
-        currentX += buttonWidth + buttonSpacing;
-
+                        GuiText.component("registerhelper.gui.recipe_type_selector.category.cooking"),
+                        b -> selectCategory("cooking"))
+                .bounds(x, buttonY, buttonWidth, 20).build()); x += buttonWidth + spacing;
         categoryModsButton = addRenderableWidget(Button.builder(
-                        Component.literal("Mods"),
-                        button -> selectCategory("mods"))
-                .bounds(currentX, buttonY, buttonWidth, 20)
-                .build());
-
+                        GuiText.component("registerhelper.gui.recipe_type_selector.category.mods"),
+                        b -> selectCategory("mods"))
+                .bounds(x, buttonY, buttonWidth, 20).build());
         updateCategoryButtonStates();
     }
 
     private void initializeActionButtons() {
-        int buttonY = topPos + contentHeight - 30;
-
+        int buttonWidth = Math.max(45,
+                font.width(GuiText.string("registerhelper.gui.common.cancel")) + 14);
         cancelButton = addRenderableWidget(Button.builder(
-                        Component.literal("取消"),
-                        button -> onClose())
-                .bounds(leftPos + contentWidth - 60, buttonY, 50, 20)
-                .build());
+                        GuiText.component("registerhelper.gui.common.cancel"), b -> onClose())
+                .bounds(leftPos + contentWidth - buttonWidth - 10,
+                        topPos + contentHeight - 30, buttonWidth, 20).build());
     }
 
     private void selectCategory(String category) {
-        this.currentCategory = category;
-        this.scrollOffset = 0;
+        currentCategory = category;
+        scrollOffset = 0;
         updateCategoryButtonStates();
-        updateFilteredList(searchBox != null ? searchBox.getValue() : "");
+        updateFilteredList(searchBox == null ? "" : searchBox.getValue());
     }
 
     private void updateCategoryButtonStates() {
-        categoryAllButton.setMessage(Component.literal(currentCategory.equals("all") ? "§6全部" : "全部"));
-        categoryCraftingButton.setMessage(Component.literal(currentCategory.equals("crafting") ? "§6原版合成" : "原版合成"));
-        categoryCookingButton.setMessage(Component.literal(currentCategory.equals("cooking") ? "§6烹饪" : "烹饪"));
-        categoryModsButton.setMessage(Component.literal(currentCategory.equals("mods") ? "§6Mods" : "Mods"));
+        categoryAllButton.setMessage(categoryComponent("all"));
+        categoryCraftingButton.setMessage(categoryComponent("crafting"));
+        categoryCookingButton.setMessage(categoryComponent("cooking"));
+        categoryModsButton.setMessage(categoryComponent("mods"));
+    }
+
+    private Component categoryComponent(String category) {
+        String key = "registerhelper.gui.recipe_type_selector.category." + category;
+        return GuiText.component(key).withStyle(currentCategory.equals(category)
+                ? net.minecraft.ChatFormatting.GOLD : net.minecraft.ChatFormatting.WHITE);
     }
 
     private void updateFilteredList(String searchText) {
-        this.scrollOffset = 0;
-
-        // 先用搜索助手过滤
+        scrollOffset = 0;
         List<RecipeTypeDefinition> searchResults = searchHelper.filter(allRecipeTypes, searchText);
-
-        // 再用分类过滤
         filteredRecipeTypes.clear();
-        for (RecipeTypeDefinition type : searchResults) {
-            if (matchesCategory(type)) {
-                filteredRecipeTypes.add(type);
-            }
-        }
-
-        // 排序
+        for (RecipeTypeDefinition type : searchResults) if (matchesCategory(type)) filteredRecipeTypes.add(type);
         filteredRecipeTypes.sort(Comparator.comparing(RecipeTypeDefinition::getDisplayName));
     }
 
     private boolean matchesCategory(RecipeTypeDefinition type) {
         return switch (currentCategory) {
             case "crafting" -> type.getModId().equals("minecraft");
-            case "cooking" -> type.supportsCookingSettings() ||
-                    "cooking".equals(type.getProperty("category", String.class));
+            case "cooking" -> type.supportsCookingSettings()
+                    || "cooking".equals(type.getProperty("category", String.class));
             case "mods" -> !type.getModId().equals("minecraft");
             default -> true;
         };
     }
 
     @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        renderBackground(g, mouseX, mouseY, partialTick);
+        GuiTheme.drawBackdrop(g, width, height);
+        GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(leftPos, topPos,
+                contentWidth, contentHeight);
+        GuiTheme.drawPanel(g, panel, 28, GuiTheme.HEADER_ACCENT);
+        g.drawCenteredString(this.font, this.title, leftPos + contentWidth / 2,
+                topPos + 10, GuiTheme.TEXT_ON_HEADER);
+        GuiTheme.drawSurface(g, listBounds, false);
+        renderRecipeTypeList(g, mouseX, mouseY);
+        if (filteredRecipeTypes.size() > currentVisibleItems()) renderScrollbar(g, mouseX, mouseY);
+        GuiTheme.drawInput(g, searchBox);
+        super.render(g, mouseX, mouseY, partialTick);
+        renderTooltips(g, mouseX, mouseY);
     }
 
-    @Override
-    public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        // 主背景
-        guiGraphics.fill(leftPos, topPos, leftPos + contentWidth, topPos + contentHeight, 0xFFC6C6C6);
-        guiGraphics.fill(leftPos + 1, topPos + 1, leftPos + contentWidth - 1, topPos + contentHeight - 1, 0xFF8B8B8B);
-
-        // 标题
-        guiGraphics.drawCenteredString(this.font, this.title, leftPos + contentWidth / 2, topPos + 10, 0x404040);
-
-        // 列表背景
-        int listTop = topPos + 90;
-        int listHeight = contentHeight - 130;
-        guiGraphics.fill(leftPos + 20, listTop, leftPos + contentWidth - 20, listTop + listHeight, 0xFF000000);
-        guiGraphics.fill(leftPos + 21, listTop + 1, leftPos + contentWidth - 21, listTop + listHeight - 1, 0xFFFFFFFF);
-
-        renderRecipeTypeList(guiGraphics, mouseX, mouseY, listTop, listHeight);
-
-        if (filteredRecipeTypes.size() > currentVisibleItems()) {
-            renderScrollbar(guiGraphics, listTop, listHeight);
-        }
-
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
-        renderTooltips(guiGraphics, mouseX, mouseY, listTop, listHeight);
-    }
-
-    private void renderRecipeTypeList(GuiGraphics guiGraphics, int mouseX, int mouseY, int listTop, int listHeight) {
-        int itemHeight = 18;
-        guiGraphics.enableScissor(leftPos + 21, listTop + 1, leftPos + contentWidth - 21, listTop + listHeight - 1);
-
-        int visibleItems = Math.min(maxVisibleItems, listHeight / itemHeight);
-
-        for (int i = 0; i < visibleItems; i++) {
-            int typeIndex = scrollOffset + i;
-            if (typeIndex >= filteredRecipeTypes.size()) break;
-
-            RecipeTypeDefinition type = filteredRecipeTypes.get(typeIndex);
-            int itemY = listTop + 2 + i * itemHeight;
-            int itemX = leftPos + 25;
-
-            boolean isHovered = mouseX >= itemX && mouseX <= leftPos + contentWidth - 25 &&
-                    mouseY >= itemY && mouseY < itemY + itemHeight;
-            boolean isSelected = type.equals(currentSelection);
-
-            if (isSelected) {
-                guiGraphics.fill(itemX, itemY, leftPos + contentWidth - 25, itemY + itemHeight, 0xFF4A90E2);
-            } else if (isHovered) {
-                guiGraphics.fill(itemX, itemY, leftPos + contentWidth - 25, itemY + itemHeight, 0xFFE0E0E0);
-            }
-
-            String displayText = type.getDisplayName();
+    private void renderRecipeTypeList(GuiGraphics g, int mouseX, int mouseY) {
+        int itemRight = listBounds.right() - 14;
+        g.enableScissor(listBounds.x() + 1, listBounds.y() + 1,
+                listBounds.right() - 1, listBounds.bottom() - 1);
+        for (int i = 0; i < currentVisibleItems(); i++) {
+            int index = scrollOffset + i;
+            if (index >= filteredRecipeTypes.size()) break;
+            RecipeTypeDefinition type = filteredRecipeTypes.get(index);
+            int rowY = listBounds.y() + 2 + i * ITEM_HEIGHT;
+            int rowX = listBounds.x() + 5;
+            boolean hovered = mouseX >= rowX && mouseX <= itemRight
+                    && mouseY >= rowY && mouseY < rowY + ITEM_HEIGHT;
+            boolean selected = type.equals(currentSelection);
+            GuiTheme.drawRow(g, rowX, rowY, itemRight - rowX, ITEM_HEIGHT, i, hovered, selected);
             String modText = "[" + type.getModId() + "]";
-
-            int textColor = isSelected ? 0xFFFFFF : 0x000000;
-            int modColor = isSelected ? 0xCCCCCC : 0x666666;
-
-            int maxTextWidth = contentWidth - 80;
-            if (this.font.width(displayText) > maxTextWidth) {
-                displayText = this.font.plainSubstrByWidth(displayText, maxTextWidth - 10) + "...";
-            }
-
-            guiGraphics.drawString(this.font, displayText, itemX + 5, itemY + 5, textColor, false);
-
-            int modWidth = this.font.width(modText);
-            guiGraphics.drawString(this.font, modText, leftPos + contentWidth - 30 - modWidth, itemY + 5, modColor, false);
+            int modWidth = font.width(modText);
+            String displayText = GuiLayoutHelper.ellipsis(font, type.getDisplayName(),
+                    Math.max(1, itemRight - rowX - modWidth - 16));
+            g.drawString(font, displayText, rowX + 5, rowY + 5, GuiTheme.TEXT, false);
+            g.drawString(font, modText, itemRight - 5 - modWidth, rowY + 5,
+                    selected ? GuiTheme.SELECTED_EDGE : GuiTheme.TEXT_MUTED, false);
         }
-
-        guiGraphics.disableScissor();
+        g.disableScissor();
     }
 
-    private void renderScrollbar(GuiGraphics guiGraphics, int listTop, int listHeight) {
-        int scrollbarX = leftPos + contentWidth - 15;
-        int scrollbarHeight = listHeight - 4;
-        int visible = currentVisibleItems();
-
-        guiGraphics.fill(scrollbarX, listTop + 2, scrollbarX + 10, listTop + listHeight - 2, 0xFF666666);
-
-        int denom = Math.max(1, filteredRecipeTypes.size() - visible);
-        float scrollPercentage = (float) scrollOffset / denom;
-        int sliderHeight = Math.max(20, scrollbarHeight * visible / Math.max(1, filteredRecipeTypes.size()));
-        int sliderY = listTop + 2 + (int) ((scrollbarHeight - sliderHeight) * scrollPercentage);
-
-        guiGraphics.fill(scrollbarX + 1, sliderY, scrollbarX + 9, sliderY + sliderHeight, 0xFFCCCCCC);
+    private void renderScrollbar(GuiGraphics g, int mouseX, int mouseY) {
+        GuiTheme.drawScrollbar(g, currentScrollbar(), mouseX, mouseY);
     }
 
-    private void renderTooltips(GuiGraphics guiGraphics, int mouseX, int mouseY, int listTop, int listHeight) {
-        int itemHeight = 18;
-
-        if (mouseX >= leftPos + 25 && mouseX <= leftPos + contentWidth - 25 &&
-                mouseY >= listTop + 1 && mouseY < listTop + listHeight - 1) {
-
-            int relativeY = (int)(mouseY - (listTop + 2));
-            int hoveredRow = relativeY / itemHeight;
-            int typeIndex = scrollOffset + hoveredRow;
-
-            if (hoveredRow >= 0 && typeIndex < filteredRecipeTypes.size()) {
-                RecipeTypeDefinition type = filteredRecipeTypes.get(typeIndex);
-
-                List<Component> tooltip = new ArrayList<>();
-                tooltip.add(Component.literal("§6" + type.getDisplayName()));
-                tooltip.add(Component.literal("§7ID: " + type.getId()));
-                tooltip.add(Component.literal("§7Mod: " + type.getModId()));
-                tooltip.add(Component.literal("§7网格: " + type.getMaxGridWidth() + "×" + type.getMaxGridHeight()));
-
-                if (type.supportsFillMode()) {
-                    tooltip.add(Component.literal("§a支持填充模式"));
-                }
-                if (type.supportsCookingSettings()) {
-                    tooltip.add(Component.literal("§e支持烹饪设置"));
-                }
-
-                // 使用搜索助手获取拼音信息
-                PinyinSearchHelper.PinyinInfo pinyinInfo = searchHelper.getPinyinInfo(type);
-                if (pinyinInfo != null && !pinyinInfo.fullPinyin.trim().isEmpty()) {
-                    String displayName = type.getDisplayName();
-                    if (PinyinSearchHelper.containsChinese(displayName)) {
-                        tooltip.add(Component.literal("§8拼音: " + pinyinInfo.fullPinyin));
-                        tooltip.add(Component.literal("§8简写: " + pinyinInfo.initials));
-                    }
-                }
-
-                guiGraphics.renderTooltip(this.font, tooltip, Optional.empty(), mouseX, mouseY);
-            }
+    private void renderTooltips(GuiGraphics g, int mouseX, int mouseY) {
+        if (mouseX < listBounds.x() + 5 || mouseX > listBounds.right() - 14
+                || mouseY < listBounds.y() + 1 || mouseY >= listBounds.bottom() - 1) return;
+        int row = (mouseY - (listBounds.y() + 2)) / ITEM_HEIGHT;
+        int index = scrollOffset + row;
+        if (row < 0 || index >= filteredRecipeTypes.size()) return;
+        RecipeTypeDefinition type = filteredRecipeTypes.get(index);
+        List<Component> tooltip = new ArrayList<>();
+        tooltip.add(Component.literal(type.getDisplayName()).withStyle(net.minecraft.ChatFormatting.GOLD));
+        tooltip.add(GuiText.component("registerhelper.tooltip.recipe_type.id", type.getId()));
+        tooltip.add(GuiText.component("registerhelper.tooltip.recipe_type.mod", type.getModId()));
+        tooltip.add(GuiText.component("registerhelper.tooltip.recipe_type.grid",
+                type.getMaxGridWidth(), type.getMaxGridHeight()));
+        if (type.supportsFillMode()) tooltip.add(GuiText.component("registerhelper.tooltip.recipe_type.supports_fill"));
+        if (type.supportsCookingSettings()) tooltip.add(GuiText.component("registerhelper.tooltip.recipe_type.supports_cooking"));
+        PinyinSearchHelper.PinyinInfo info = searchHelper.getPinyinInfo(type);
+        if (info != null && !info.fullPinyin.trim().isEmpty()
+                && PinyinSearchHelper.containsChinese(type.getDisplayName())) {
+            tooltip.add(GuiText.component("registerhelper.tooltip.search.pinyin", info.fullPinyin));
+            tooltip.add(GuiText.component("registerhelper.tooltip.search.initials", info.initials));
         }
+        g.renderTooltip(font, tooltip, Optional.empty(), mouseX, mouseY);
+    }
+
+    private GuiLayoutHelper.Scrollbar currentScrollbar() {
+        return GuiLayoutHelper.scrollbar(new GuiLayoutHelper.Bounds(
+                        listBounds.right() - 11, listBounds.y() + 2, 10,
+                        Math.max(1, listBounds.height() - 4)),
+                filteredRecipeTypes.size(), currentVisibleItems(), scrollOffset, 20);
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int listTop = topPos + 90;
-        int listHeight = contentHeight - 130;
-        int itemHeight = 18;
-
-        if (mouseX >= leftPos + 25 && mouseX <= leftPos + contentWidth - 25 &&
-                mouseY >= listTop + 1 && mouseY < listTop + listHeight - 1) {
-
-            int relativeY = (int)(mouseY - (listTop + 2));
-            int clickedRow = relativeY / itemHeight;
-            int typeIndex = scrollOffset + clickedRow;
-
-            if (clickedRow >= 0 && typeIndex < filteredRecipeTypes.size()) {
-                RecipeTypeDefinition selectedType = filteredRecipeTypes.get(typeIndex);
-                selectionCallback.accept(selectedType);
+        if (button == 0) {
+            GuiLayoutHelper.Scrollbar scrollbar = currentScrollbar();
+            if (scrollbar.contains(mouseX, mouseY)) {
+                draggingScrollbar = true;
+                scrollbarGrabOffset = scrollbar.grabOffset(mouseY);
+                scrollOffset = scrollbar.offsetForPointer(mouseY, scrollbarGrabOffset);
+                return true;
+            }
+        }
+        if (mouseX >= listBounds.x() + 5 && mouseX <= listBounds.right() - 14
+                && mouseY >= listBounds.y() + 1 && mouseY < listBounds.bottom() - 1) {
+            int row = (int) (mouseY - (listBounds.y() + 2)) / ITEM_HEIGHT;
+            int index = scrollOffset + row;
+            if (row >= 0 && index < filteredRecipeTypes.size()) {
+                selectionCallback.accept(filteredRecipeTypes.get(index));
                 onClose();
                 return true;
             }
         }
-
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button,
+                                double dragX, double dragY) {
+        if (draggingScrollbar && button == 0) {
+            scrollOffset = currentScrollbar().offsetForPointer(mouseY, scrollbarGrabOffset);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (draggingScrollbar) {
+            draggingScrollbar = false;
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         int visible = currentVisibleItems();
         if (filteredRecipeTypes.size() > visible) {
-            int maxScrollOffset = Math.max(0, filteredRecipeTypes.size() - visible);
-            scrollOffset = Math.max(0, Math.min(maxScrollOffset, scrollOffset - (int) scrollY));
+            scrollOffset = GuiLayoutHelper.clamp(scrollOffset - (int) scrollY, 0,
+                    filteredRecipeTypes.size() - visible);
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
-    /** 根据当前实际列表高度计算可见行数（适配 GUI 缩放） */
     private int currentVisibleItems() {
-        int listHeight = contentHeight - 130;
-        return Math.max(1, Math.min(maxVisibleItems, listHeight / 18));
+        return Math.max(1, (listBounds.height() - 2) / ITEM_HEIGHT);
     }
 
     @Override
     public void onClose() {
-        if (minecraft != null) {
-            minecraft.setScreen(parentScreen);
-        }
+        if (minecraft != null) minecraft.setScreen(parentScreen);
     }
 
     @Override

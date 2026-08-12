@@ -40,7 +40,7 @@ public class JsonDefinedProcessor implements ModRecipeProcessor {
             if (def.has("condition")) {
                 JsonObject cond = def.getAsJsonObject("condition");
                 String type = cond.get("type").getAsString();
-                if ("forge:mod_loaded".equals(type)) {
+                if ("forge:mod_loaded".equals(type) || "neoforge:mod_loaded".equals(type)) {
                     return ModList.get().isLoaded(cond.get("modid").getAsString());
                 }
             }

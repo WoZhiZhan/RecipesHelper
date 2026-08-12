@@ -3,15 +3,14 @@ package com.wzz.registerhelper.gui.recipe.dynamic;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.gui.recipe.IngredientData;
 import com.wzz.registerhelper.gui.recipe.component.ComponentDataManager;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
 import com.wzz.registerhelper.network.CreateRecipeJsonPacket;
-import com.wzz.registerhelper.recipe.RecipeJsonBuilder;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import com.wzz.registerhelper.tags.CustomTagManager;
-import com.wzz.registerhelper.util.DataComponentsHelper;
 import com.wzz.registerhelper.util.OldUtils;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
@@ -26,7 +25,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import static com.wzz.registerhelper.gui.recipe.RecipeTypeConfig.AvaritiaConfig.getGridSizeForTier;
+import static com.wzz.registerhelper.util.RecipeUtil.SYMBOL_CHARS;
 
 /**
  * 动态配方构建器
@@ -71,7 +70,7 @@ public class DynamicRecipeBuilder {
             this.cookingType = cookingType;
             this.customTier = customTier;
             this.resultItem = resultItem;
-            this.ingredients = new ArrayList<>(ingredients);
+            this.ingredients = ingredients != null ? new ArrayList<>(ingredients) : new ArrayList<>();
             this.ingredientsData = ingredientsData != null ? new ArrayList<>(ingredientsData) : null;
             this.cookingTime = cookingTime;
             this.cookingExp = cookingExp;
@@ -90,33 +89,42 @@ public class DynamicRecipeBuilder {
         }
 
         try {
-            JsonObject recipeJson = generateRecipeJson(params);
+            RecipeRequest request = createRecipeRequest(params);
+            if (params.recipeType.getProcessor() == null) {
+                showError(GuiText.string("registerhelper.message.recipe.json_failed"));
+                return;
+            }
+            JsonObject recipeJson = params.recipeType.getProcessor().createRecipeJson(request);
 
             if (recipeJson == null) {
-                showError("无法生成配方JSON");
+                showError(GuiText.string("registerhelper.message.recipe.json_failed"));
                 return;
             }
 
             saveCustomTags(params);
 
-            String recipeId = params.isEditing && params.editingRecipeId != null ?
-                    params.editingRecipeId.toString() : generateRecipeIdPath(params);
+            String recipeId = params.isEditing && params.editingRecipeId != null
+                    ? params.editingRecipeId.toString() : generateRecipeIdPath(params);
 
             boolean isOverride = isOverrideMode(params);
 
-            Gson GSON = new Gson();
-            String jsonString = GSON.toJson(recipeJson);
-            CreateRecipeJsonPacket packet = new CreateRecipeJsonPacket(recipeId, jsonString, isOverride);
+            String jsonString = new Gson().toJson(recipeJson);
+            CreateRecipeJsonPacket packet = new CreateRecipeJsonPacket(
+                    recipeId, jsonString, isOverride, params.isEditing && !isOverride);
             PacketDistributor.sendToServer(packet);
 
-            String action = params.isEditing ? "更新" : "创建";
-            String method = isOverride ? "覆盖" : "创建";
-            showSuccess(action + "配方成功！类型: " + params.recipeType.getDisplayName() +
-                    " (" + method + "模式) 使用 /reload 刷新配方");
+            String action = GuiText.string(params.isEditing
+                    ? "registerhelper.message.recipe.action.update"
+                    : "registerhelper.message.recipe.action.create");
+            String method = GuiText.string(isOverride
+                    ? "registerhelper.message.recipe.method.override"
+                    : "registerhelper.message.recipe.method.create");
+            showSuccess(GuiText.string("registerhelper.message.recipe.build_success",
+                    action, params.recipeType.getDisplayName(), method));
 
         } catch (Exception e) {
             LOGGER.error("构建配方失败", e);
-            showError("处理配方时发生错误: " + e.getMessage());
+            showError(GuiText.string("registerhelper.message.recipe.processing_error", e.getMessage()));
         }
     }
 
@@ -134,96 +142,6 @@ public class DynamicRecipeBuilder {
                 }
             }
         }
-    }
-
-    /**
-     * 生成配方JSON（核心方法，支持标签和NBT）
-     */
-    private JsonObject generateRecipeJson(BuildParams params) {
-        // 获取IngredientData列表
-        List<IngredientData> dataList = params.ingredientsData != null ?
-                params.ingredientsData : convertItemStacksToIngredientData(params.ingredients);
-
-        String category = params.recipeType.getProperty("category", String.class);
-
-        if ("crafting".equals(category)) {
-            // 工作台配方
-            if ("shaped".equals(params.craftingMode)) {
-                return RecipeJsonBuilder.createShapedRecipe(
-                        dataList, params.resultItem, 3, 3);
-            } else {
-                return RecipeJsonBuilder.createShapelessRecipe(
-                        dataList, params.resultItem);
-            }
-        } else if ("avaritia".equals(category)) {
-            // Avaritia配方
-            return RecipeJsonBuilder.createAvaritiaRecipe(
-                    params.craftingMode, dataList, params.resultItem, params.customTier);
-        } else if ("cooking".equals(category) || params.recipeType.supportsCookingSettings()) {
-            // 烹饪配方
-            IngredientData ingredient = dataList.stream()
-                    .filter(data -> !data.isEmpty())
-                    .findFirst()
-                    .orElse(null);
-
-            if (ingredient != null) {
-                return RecipeJsonBuilder.createCookingRecipe(
-                        params.cookingType, ingredient, params.resultItem,
-                        params.cookingExp, (int) params.cookingTime);
-            }
-        } else if ("stonecutting".equals(category)) {
-            // 切石机配方
-            IngredientData ingredient = dataList.stream()
-                    .filter(data -> !data.isEmpty())
-                    .findFirst()
-                    .orElse(null);
-
-            if (ingredient != null) {
-                JsonObject recipe = new JsonObject();
-                recipe.addProperty("type", "minecraft:stonecutting");
-                recipe.add("ingredient", createIngredientJsonObject(ingredient));
-                recipe.addProperty("result",
-                        BuiltInRegistries.ITEM.getKey(params.resultItem.getItem()).toString());
-                recipe.addProperty("count", params.resultItem.getCount());
-                return recipe;
-            }
-        } else if ("smithing".equals(category) || "smithing_transform".equals(category)) {
-            // 锻造台配方
-            if (dataList.size() >= 3) {
-                JsonObject recipe = new JsonObject();
-                recipe.addProperty("type", "minecraft:smithing_transform");
-                recipe.add("template", createIngredientJsonObject(dataList.get(0)));
-                recipe.add("base", createIngredientJsonObject(dataList.get(1)));
-                recipe.add("addition", createIngredientJsonObject(dataList.get(2)));
-
-                JsonObject resultObj = new JsonObject();
-                resultObj.addProperty("id",
-                        BuiltInRegistries.ITEM.getKey(params.resultItem.getItem()).toString());
-                recipe.add("result", resultObj);
-                return recipe;
-            }
-        }
-        RecipeRequest request = createRecipeRequest(params);
-        return params.recipeType.getProcessor().createRecipeJson(request);
-    }
-
-    /**
-     * 创建材料JSON对象（关键：支持标签）
-     */
-    private JsonObject createIngredientJsonObject(IngredientData data) {
-        JsonObject ingredient = new JsonObject();
-
-        switch (data.getType()) {
-            case ITEM -> {
-                ItemStack stack = data.getItemStack();
-                return DataComponentsHelper.createIngredientWithComponents(stack);
-            }
-            case TAG, CUSTOM_TAG -> {
-                ingredient.addProperty("tag", data.getTagId().toString());
-            }
-        }
-
-        return ingredient;
     }
 
     /**
@@ -261,6 +179,8 @@ public class DynamicRecipeBuilder {
             RecipeRequest request = createCustomRequest(params, recipeId);
             if (params.extraProperties != null) {
                 params.extraProperties.forEach(request::withProperty);
+                request.withProperty("includeNBT",
+                        params.extraProperties.getOrDefault("includeNBT", true));
             }
             return request;
         }
@@ -345,7 +265,7 @@ public class DynamicRecipeBuilder {
     private String[] generateCraftingPatternWithMapping(BuildParams params,
                                                         Map<Character, Object> symbolMapping) {
         String[] pattern = new String[3];
-        AtomicReference<Character> currentChar = new AtomicReference<>('A');
+        AtomicReference<Integer> symbolIndex = new AtomicReference<>(0);
         Map<String, Character> itemToChar = new HashMap<>();
 
         List<IngredientData> dataList = params.ingredientsData;
@@ -362,8 +282,7 @@ public class DynamicRecipeBuilder {
                     String key = getIngredientKey(data);
 
                     // 获取或创建符号
-                    char symbol = itemToChar.computeIfAbsent(key,
-                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
+                    char symbol = getOrCreateSymbol(itemToChar, key, symbolIndex);
 
                     // 保存符号映射
                     if (!symbolMapping.containsKey(symbol)) {
@@ -429,6 +348,11 @@ public class DynamicRecipeBuilder {
         if (isShaped) {
             int gridWidth = params.recipeType.getMaxGridWidth();
             int gridHeight = params.recipeType.getMaxGridHeight();
+            if (Boolean.TRUE.equals(params.recipeType.getProperty("supportsTiers", Boolean.class))) {
+                int dynamicSize = getGridSizeForTier(params.customTier);
+                gridWidth = dynamicSize;
+                gridHeight = dynamicSize;
+            }
             Map<Character, Object> symbolMapping = new HashMap<>();
             request.pattern = generateCustomPatternWithMapping(
                     params, gridWidth, gridHeight, symbolMapping);
@@ -466,14 +390,14 @@ public class DynamicRecipeBuilder {
      * 从组件数据管理器提取数据到 RecipeRequest
      */
     private void extractComponentData(Map<String, Object> allData, RecipeRequest request) {
-        for (Map.Entry<String, Object> entry : allData.entrySet()) {
-            request.withProperty(entry.getKey(), entry.getValue());
-        }
         if (allData.containsKey("fluidAmount")) {
             Map<String, Object> fluidOutput = new HashMap<>();
             fluidOutput.put("fluid", allData.get("fluid"));
             fluidOutput.put("amount", allData.get("fluidAmount"));
             allData.put("fluidOutput", fluidOutput);
+        }
+        for (Map.Entry<String, Object> entry : allData.entrySet()) {
+            request.withProperty(entry.getKey(), entry.getValue());
         }
 //        if (allData.containsKey("create_cutting")) {
 //            allData.put("processingTime", allData.get("processingTime"));
@@ -486,7 +410,7 @@ public class DynamicRecipeBuilder {
     private String[] generateCustomPatternWithMapping(BuildParams params, int gridWidth,
                                                       int gridHeight, Map<Character, Object> symbolMapping) {
         String[] pattern = new String[gridHeight];
-        AtomicReference<Character> currentChar = new AtomicReference<>('A');
+        AtomicReference<Integer> symbolIndex = new AtomicReference<>(0);
         Map<String, Character> itemToChar = new HashMap<>();
 
         List<IngredientData> dataList = params.ingredientsData;
@@ -503,8 +427,7 @@ public class DynamicRecipeBuilder {
                     String key = getIngredientKey(data);
 
                     // 获取或创建符号
-                    char symbol = itemToChar.computeIfAbsent(key,
-                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
+                    char symbol = getOrCreateSymbol(itemToChar, key, symbolIndex);
 
                     if (!symbolMapping.containsKey(symbol)) {
                         symbolMapping.put(symbol, convertIngredientDataToObject(data));
@@ -544,8 +467,7 @@ public class DynamicRecipeBuilder {
      */
     private Object convertIngredientDataToObject(IngredientData data) {
         return switch (data.getType()) {
-            case ITEM ->
-                    data.getItemStack();
+            case ITEM -> data;
             case TAG -> // 标签：返回 "#namespace:path" 格式
                     "#" + data.getTagId().toString();
             case CUSTOM_TAG -> // 自定义标签：返回 "#namespace:path" 格式
@@ -577,7 +499,7 @@ public class DynamicRecipeBuilder {
     private String[] generateAvaritiaPattern(BuildParams params, int tier) {
         int gridSize = getAvaritiaGridSize(tier);
         String[] pattern = new String[gridSize];
-        AtomicReference<Character> currentChar = new AtomicReference<>('A');
+        AtomicReference<Integer> symbolIndex = new AtomicReference<>(0);
         Map<String, Character> itemToChar = new HashMap<>();
 
         List<IngredientData> dataList = params.ingredientsData;
@@ -596,8 +518,7 @@ public class DynamicRecipeBuilder {
                 if (index < dataList.size() && !dataList.get(index).isEmpty()) {
                     IngredientData data = dataList.get(index);
                     String key = getIngredientKey(data);
-                    char symbol = itemToChar.computeIfAbsent(key,
-                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
+                    char symbol = getOrCreateSymbol(itemToChar, key, symbolIndex);
                     rowPattern.append(symbol);
                 } else {
                     rowPattern.append(' ');
@@ -616,13 +537,68 @@ public class DynamicRecipeBuilder {
         return getGridSizeForTier(tier);
     }
 
+    /** Grid limits used by the source editor and all tier-aware layouts. */
+    public static int getGridSizeForTier(int tier) {
+        return switch (tier) {
+            case 1 -> 3;
+            case 2 -> 5;
+            case 3 -> 7;
+            case 4 -> 9;
+            case 5 -> 11;
+            case 6 -> 16;
+            default -> 21;
+        };
+    }
+
+    public static int getMaxTierForGridSize(int gridSize) {
+        if (gridSize <= 3) return 1;
+        if (gridSize <= 5) return 2;
+        if (gridSize <= 7) return 3;
+        if (gridSize <= 9) return 4;
+        if (gridSize <= 11) return 5;
+        if (gridSize <= 16) return 6;
+        return 7;
+    }
+
+    public static int getTierFromIngredientCount(int count) {
+        if (count <= 9) return 1;
+        if (count <= 25) return 2;
+        if (count <= 49) return 3;
+        if (count <= 81) return 4;
+        if (count <= 121) return 5;
+        if (count <= 256) return 6;
+        return 7;
+    }
+
+    private char getOrCreateSymbol(Map<String, Character> itemToChar, String key,
+                                   AtomicReference<Integer> symbolIndex) {
+        Character existing = itemToChar.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        int index = symbolIndex.get();
+        if (index >= SYMBOL_CHARS.length()) {
+            throw new IllegalArgumentException(GuiText.string(
+                    "registerhelper.message.recipe.too_many_symbols", SYMBOL_CHARS.length()));
+        }
+        char symbol = SYMBOL_CHARS.charAt(index);
+        symbolIndex.set(index + 1);
+        itemToChar.put(key, symbol);
+        return symbol;
+    }
+
     /**
      * 生成配方ID路径
      */
     private String generateRecipeIdPath(BuildParams params) {
-        String itemName = BuiltInRegistries.ITEM.getKey(params.resultItem.getItem()).getPath();
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(params.resultItem.getItem());
+        String itemName = itemId != null ? itemId.getPath() : "unknown_item";
         String typeName = params.recipeType.getId().replace(":", "_");
-        return "custom_" + typeName + "_" + itemName + "_" + System.currentTimeMillis();
+        String modId = params.recipeType.getModId();
+        if (modId == null || modId.isBlank()) {
+            modId = "registerhelper";
+        }
+        return modId + ":custom_" + typeName + "_" + itemName;
     }
 
     /**
@@ -630,17 +606,17 @@ public class DynamicRecipeBuilder {
      */
     private boolean validateParams(BuildParams params) {
         if (params.recipeType == null) {
-            showError("请选择配方类型！");
+            showError(GuiText.string("registerhelper.message.recipe.select_type"));
             return false;
         }
 
         if (params.resultItem.isEmpty()) {
-            showError("请选择结果物品！");
+            showError(GuiText.string("registerhelper.message.recipe.select_result"));
             return false;
         }
 
         if (params.resultItem.getCount() <= 0) {
-            showError("数量必须大于0！");
+            showError(GuiText.string("registerhelper.message.recipe.positive_count"));
             return false;
         }
 
@@ -658,14 +634,15 @@ public class DynamicRecipeBuilder {
         }
 
         if (!hasIngredients) {
-            showError("请至少添加一个材料！");
+            showError(GuiText.string("registerhelper.message.recipe.add_ingredient"));
             return false;
         }
 
         // 检查mod是否已加载
         ModRecipeProcessor processor = params.recipeType.getProcessor();
         if (processor != null && !processor.isModLoaded()) {
-            showError("所需的mod未加载: " + params.recipeType.getModId());
+            showError(GuiText.string("registerhelper.message.recipe.mod_missing",
+                    params.recipeType.getModId()));
             return false;
         }
 

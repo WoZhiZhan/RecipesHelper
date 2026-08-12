@@ -76,4 +76,10 @@ public class ComponentDataManager {
     public Map<String, Object> getAllData() {
         return new HashMap<>(data);
     }
+
+    public void putAll(Map<String, Object> values) {
+        if (values != null) {
+            data.putAll(values);
+        }
+    }
 }

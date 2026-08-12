@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.farmersdelight;
 
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.gui.recipe.component.*;
 import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
@@ -59,12 +60,12 @@ public class CookingLayout implements RecipeLayout {
         ));
         components.add(new LabelComponent(
             baseX + 66, baseY + 198,
-            "comp_10", "经验",
+            "comp_10", GuiText.string("registerhelper.recipe_layout.experience"),
             12, 0x404040
         ));
         components.add(new LabelComponent(
             baseX + 154, baseY + 198,
-            "comp_11", "时间",
+            "comp_11", GuiText.string("registerhelper.recipe_layout.time"),
             12, 0x404040
         ));
         

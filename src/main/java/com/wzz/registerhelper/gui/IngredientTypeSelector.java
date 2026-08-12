@@ -10,134 +10,116 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.function.Consumer;
 
-/**
- * 材料类型选择器
- * 弹出小窗口让用户选择材料的输入方式
- */
+/** Popup menu for choosing an ingredient input mode. */
 @OnlyIn(Dist.CLIENT)
 public class IngredientTypeSelector extends Screen {
-    
-    private static final int MENU_WIDTH = 160;
-    private static final int MENU_HEIGHT = 140;
-    private static final int BUTTON_HEIGHT = 25;
-    private static final int BUTTON_SPACING = 5;
-    
+    private static final int PREFERRED_BUTTON_HEIGHT = 25;
+    private static final int MIN_BUTTON_HEIGHT = 18;
+    private static final int PREFERRED_BUTTON_SPACING = 5;
+    private static final int TITLE_AREA_HEIGHT = 30;
+
     private final Screen parentScreen;
     private final Consumer<SelectionType> onSelect;
     private final int slotIndex;
-    
+
     private int menuX, menuY;
-    
+    private int menuWidth, menuHeight;
+    private int buttonHeight, buttonSpacing;
+
     public enum SelectionType {
-        ALL_ITEMS("从所有物品选择"),
-        INVENTORY("从背包选择（带NBT）"),
-        TAG("选择标签"),
-        CUSTOM_TAG("创建自定义标签");
-        
-        private final String displayName;
-        
-        SelectionType(String displayName) {
-            this.displayName = displayName;
+        ALL_ITEMS("registerhelper.gui.ingredient_type.all_items"),
+        INVENTORY("registerhelper.gui.ingredient_type.inventory_nbt"),
+        TAG("registerhelper.gui.ingredient_type.tag"),
+        CUSTOM_TAG("registerhelper.gui.ingredient_type.custom_tag");
+
+        private final String translationKey;
+
+        SelectionType(String translationKey) {
+            this.translationKey = translationKey;
         }
-        
-        public String getDisplayName() {
-            return displayName;
+
+        public String getTranslationKey() {
+            return translationKey;
         }
     }
-    
-    public IngredientTypeSelector(Screen parentScreen, int slotIndex, Consumer<SelectionType> onSelect) {
-        super(Component.literal("选择材料类型"));
+
+    public IngredientTypeSelector(Screen parentScreen, int slotIndex,
+                                  Consumer<SelectionType> onSelect) {
+        super(GuiText.component("registerhelper.gui.ingredient_type.title"));
         this.parentScreen = parentScreen;
         this.slotIndex = slotIndex;
         this.onSelect = onSelect;
     }
-    
+
     @Override
     protected void init() {
-        this.menuX = (this.width - MENU_WIDTH) / 2;
-        this.menuY = (this.height - MENU_HEIGHT) / 2;
-        
-        int buttonY = menuY + 30;
-        
-        // 从所有物品选择
-        addRenderableWidget(Button.builder(
-                Component.literal(SelectionType.ALL_ITEMS.getDisplayName()),
-                button -> handleSelection(SelectionType.ALL_ITEMS))
-                .bounds(menuX + 10, buttonY, MENU_WIDTH - 20, BUTTON_HEIGHT)
-                .build());
-        buttonY += BUTTON_HEIGHT + BUTTON_SPACING;
-        
-        // 从背包选择
-        addRenderableWidget(Button.builder(
-                Component.literal(SelectionType.INVENTORY.getDisplayName()),
-                button -> handleSelection(SelectionType.INVENTORY))
-                .bounds(menuX + 10, buttonY, MENU_WIDTH - 20, BUTTON_HEIGHT)
-                .build());
-        buttonY += BUTTON_HEIGHT + BUTTON_SPACING;
-        
-        // 选择标签
-        addRenderableWidget(Button.builder(
-                Component.literal(SelectionType.TAG.getDisplayName()),
-                button -> handleSelection(SelectionType.TAG))
-                .bounds(menuX + 10, buttonY, MENU_WIDTH - 20, BUTTON_HEIGHT)
-                .build());
-        buttonY += BUTTON_HEIGHT + BUTTON_SPACING;
-        
-        // 创建自定义标签
-        addRenderableWidget(Button.builder(
-                Component.literal(SelectionType.CUSTOM_TAG.getDisplayName()),
-                button -> handleSelection(SelectionType.CUSTOM_TAG))
-                .bounds(menuX + 10, buttonY, MENU_WIDTH - 20, BUTTON_HEIGHT)
-                .build());
+        int widestLabel = 0;
+        for (SelectionType type : SelectionType.values()) {
+            widestLabel = Math.max(widestLabel,
+                    this.font.width(GuiText.string(type.getTranslationKey())));
+        }
+        menuWidth = GuiLayoutHelper.fit(Math.max(180, widestLabel + 28),
+                widestLabel + 16, this.width - 16);
+
+        int itemCount = SelectionType.values().length;
+        int availableButtonArea = Math.max(itemCount * MIN_BUTTON_HEIGHT,
+                this.height - 16 - TITLE_AREA_HEIGHT - 10);
+        buttonSpacing = availableButtonArea >= itemCount * PREFERRED_BUTTON_HEIGHT
+                + (itemCount - 1) * PREFERRED_BUTTON_SPACING
+                ? PREFERRED_BUTTON_SPACING : 2;
+        buttonHeight = GuiLayoutHelper.clamp(
+                (availableButtonArea - buttonSpacing * (itemCount - 1)) / itemCount,
+                MIN_BUTTON_HEIGHT, PREFERRED_BUTTON_HEIGHT);
+        menuHeight = TITLE_AREA_HEIGHT + itemCount * buttonHeight
+                + (itemCount - 1) * buttonSpacing + 10;
+        menuX = (this.width - menuWidth) / 2;
+        menuY = (this.height - menuHeight) / 2;
+
+        int buttonY = menuY + TITLE_AREA_HEIGHT;
+        for (SelectionType type : SelectionType.values()) {
+            SelectionType selectedType = type;
+            addRenderableWidget(Button.builder(GuiText.component(type.getTranslationKey()),
+                            button -> handleSelection(selectedType))
+                    .bounds(menuX + 10, buttonY, menuWidth - 20, buttonHeight).build());
+            buttonY += buttonHeight + buttonSpacing;
+        }
     }
 
     private void handleSelection(SelectionType type) {
-        // 先关闭当前屏幕，切换回父屏幕
         if (minecraft != null) {
             minecraft.setScreen(parentScreen);
         }
-
-        // 然后执行回调，让父屏幕处理后续的屏幕切换
         if (onSelect != null) {
             onSelect.accept(type);
         }
     }
 
     @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        GuiTheme.drawBackdrop(g, this.width, this.height);
+        GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(menuX, menuY, menuWidth, menuHeight);
+        GuiTheme.drawPanel(g, panel, 28, GuiTheme.HEADER_ACCENT);
+        g.drawCenteredString(this.font, this.title, menuX + menuWidth / 2,
+                menuY + 10, GuiTheme.TEXT_ON_HEADER);
+        super.render(g, mouseX, mouseY, partialTick);
     }
-    
-    @Override
-    public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        // 半透明背景
-        guiGraphics.fill(0, 0, this.width, this.height, 0x80000000);
-        
-        // 菜单背景
-        guiGraphics.fill(menuX, menuY, menuX + MENU_WIDTH, menuY + MENU_HEIGHT + 10, 0xFFC6C6C6);
-        guiGraphics.fill(menuX + 1, menuY + 1, menuX + MENU_WIDTH - 1, menuY + MENU_HEIGHT - 1 + 10, 0xFF8B8B8B);
-        
-        // 标题
-        guiGraphics.drawCenteredString(this.font, this.title, menuX + MENU_WIDTH / 2, menuY + 10, 0x404040);
-        
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
-    }
-    
+
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 256) { // ESC
+        if (keyCode == 256) {
             onClose();
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
-    
+
     @Override
     public void onClose() {
         if (minecraft != null) {
             minecraft.setScreen(parentScreen);
         }
     }
-    
+
     @Override
     public boolean isPauseScreen() {
         return false;

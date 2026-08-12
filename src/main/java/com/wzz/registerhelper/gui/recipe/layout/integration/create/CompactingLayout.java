@@ -1,5 +1,6 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.create;
 
+import com.wzz.registerhelper.gui.GuiText;
 import com.wzz.registerhelper.gui.recipe.component.*;
 import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
@@ -31,13 +32,13 @@ public class CompactingLayout implements RecipeLayout {
         components.add(new StringInputComponent(
             baseX + 200, baseY + 108,
             80, "fluid",
-            "文本", "minecraft:lava",
+            GuiText.string("registerhelper.recipe_layout.text"), "minecraft:lava",
             "value", false
         ));
         components.add(new NumberInputComponent(
             baseX + 198, baseY + 162,
             60, "amount",
-            "数值", 100,
+            GuiText.string("registerhelper.recipe_layout.number"), 100,
             0, 1000,
             "value", false
         ));

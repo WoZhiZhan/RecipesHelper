@@ -1,17 +1,21 @@
 package com.wzz.registerhelper.gui.recipe;
 
+import com.wzz.registerhelper.gui.GuiText;
+
 public enum FillMode {
-        NORMAL("普通模式"),
-        BRUSH("画笔模式"),
-        FILL("填充模式");
+        NORMAL("registerhelper.gui.recipe_creator.fill_mode.normal"),
+        BRUSH("registerhelper.gui.recipe_creator.fill_mode.brush"),
+        FILL("registerhelper.gui.recipe_creator.fill_mode.fill");
 
-        private final String displayName;
+        private final String translationKey;
 
-        FillMode(String displayName) {
-                this.displayName = displayName;
+        FillMode(String translationKey) {
+                this.translationKey = translationKey;
         }
 
         public String getDisplayName() {
-                return displayName;
+                return GuiText.string(translationKey);
         }
+
+        public String getTranslationKey() { return translationKey; }
 }

@@ -13,7 +13,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * NeoForge 1.21.1 迁移要点：
  * 1.20.5+ 起 PotionBrewing 的 hasMix / mix 由静态方法改为实例方法
  * （PotionBrewing 现在是一个持有配方表的实例，挂在 server 上）。
- * 因此注入方法去掉 static。方法签名 (ItemStack input, ItemStack ingredient) 不变。
+ * 因此注入方法去掉 static。hasMix 接收 input/ingredient，而 mix 接收
+ * ingredient/input。
  */
 @Mixin(PotionBrewing.class)
 public class PotionBrewingMixin {
@@ -32,7 +33,7 @@ public class PotionBrewingMixin {
      * 在执行酿造时，使用自定义配方
      */
     @Inject(method = "mix", at = @At("HEAD"), cancellable = true)
-    private void onMix(ItemStack input, ItemStack ingredient, CallbackInfoReturnable<ItemStack> cir) {
+    private void onMix(ItemStack ingredient, ItemStack input, CallbackInfoReturnable<ItemStack> cir) {
         ItemStack result = CustomRecipeLoader.getBrewingResult(input, ingredient);
         if (!result.isEmpty()) {
             cir.setReturnValue(result);

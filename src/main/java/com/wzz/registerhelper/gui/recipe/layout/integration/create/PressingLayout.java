@@ -16,7 +16,7 @@ public class PressingLayout implements RecipeLayout {
         components.add(new SlotComponent(
             baseX + 72, baseY + 72,
             "comp_0",
-            1
+            0
         ));
         
         return components;

@@ -4,10 +4,11 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
+import com.wzz.registerhelper.util.RecipeReloadHelper;
 import com.wzz.registerhelper.util.ResourceUtil;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.packs.repository.Pack;
+import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 
@@ -16,7 +17,6 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,15 +27,16 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RecipeBlacklistManager {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final String BLACKLIST_FILE = "config/registerhelper/recipe_blacklist.json";
+    private static final String BLACKLIST_FILE = FMLPaths.CONFIGDIR.get()
+            .resolve("registerhelper/recipe_blacklist.json").toAbsolutePath().normalize().toString();
 
     private static final Set<ResourceLocation> blacklistedRecipes = ConcurrentHashMap.newKeySet();
-    private static boolean initialized = false;
+    private static volatile boolean initialized = false;
     
     /**
      * 初始化黑名单管理器
      */
-    public static void initialize() {
+    public static synchronized void initialize() {
         if (initialized) {
             return;
         }
@@ -55,6 +56,9 @@ public class RecipeBlacklistManager {
      */
     public static boolean addToBlacklist(ResourceLocation recipeId) {
         try {
+            if (recipeId == null) {
+                return false;
+            }
             initialize();
             
             boolean added = blacklistedRecipes.add(recipeId);
@@ -78,6 +82,9 @@ public class RecipeBlacklistManager {
      */
     public static boolean removeFromBlacklist(ResourceLocation recipeId) {
         try {
+            if (recipeId == null) {
+                return false;
+            }
             initialize();
             
             boolean removed = blacklistedRecipes.remove(recipeId);
@@ -154,6 +161,9 @@ public class RecipeBlacklistManager {
      * 批量操作：添加多个配方到黑名单
      */
     public static int addMultipleToBlacklist(Set<ResourceLocation> recipeIds) {
+        if (recipeIds == null || recipeIds.isEmpty()) {
+            return 0;
+        }
         initialize();
         
         int addedCount = 0;
@@ -175,6 +185,9 @@ public class RecipeBlacklistManager {
      * 批量操作：从黑名单移除多个配方
      */
     public static int removeMultipleFromBlacklist(Set<ResourceLocation> recipeIds) {
+        if (recipeIds == null || recipeIds.isEmpty()) {
+            return 0;
+        }
         initialize();
         
         int removedCount = 0;
@@ -277,22 +290,8 @@ public class RecipeBlacklistManager {
                 LOGGER.warn("服务器未运行，无法触发配方重载");
                 return false;
             }
-            
-            server.execute(() -> {
-                try {
-                    Collection<String> selectedPackIds = server.getPackRepository()
-                            .getSelectedPacks()
-                            .stream()
-                            .map(Pack::getId)
-                            .toList();
-                    server.reloadResources(selectedPackIds);
-                    LOGGER.info("已触发配方重载");
-                } catch (Exception e) {
-                    LOGGER.error("触发配方重载失败", e);
-                }
-            });
-            
-            return true;
+
+            return RecipeReloadHelper.reloadDataPacks(server.createCommandSourceStack());
             
         } catch (Exception e) {
             LOGGER.error("触发配方重载时发生错误", e);

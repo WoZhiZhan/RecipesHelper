@@ -22,31 +22,34 @@ public class BotaniaRecipeRegistration {
 
         registerBotaniaLayouts();
 
-        registerRecipeTypeWithLayout("botania", "runic_altar", "符文祭坛", 
-            processor, "runic_altar");
+        registerRecipeTypeWithLayout("botania", "runic_altar", "registerhelper.recipe_type.botania.runic_altar",
+            processor, "runic_altar", true);
 
-        registerRecipeTypeWithLayout("botania", "mana_infusion", "魔力灌注", 
+        registerRecipeTypeWithLayout("botania", "mana_infusion", "registerhelper.recipe_type.botania.mana_infusion",
             processor, "mana_infusion");
 
-        registerRecipeTypeWithLayout("botania", "elven_trade", "精灵贸易", 
+        registerRecipeTypeWithLayout("botania", "elven_trade", "registerhelper.recipe_type.botania.elven_trade",
             processor, "elven_trade");
 
-        registerRecipeTypeWithLayout("botania", "terra_plate", "泰拉凝聚板", 
+        registerRecipeTypeWithLayout("botania", "terra_plate", "registerhelper.recipe_type.botania.terra_plate",
             processor, "terra_plate");
 
-        registerRecipeTypeWithLayout("botania", "petal_apothecary", "花瓣炼制",
+        registerRecipeTypeWithLayout("botania", "petal_apothecary", "registerhelper.recipe_type.botania.petal_apothecary",
             processor, "petal_apothecary");
 
-        registerRecipeTypeWithLayout("botania", "pure_daisy", "白雏菊",
+        registerRecipeTypeWithLayout("botania", "pure_daisy", "registerhelper.recipe_type.botania.pure_daisy",
             processor, "pure_daisy");
 
-        registerRecipeTypeWithLayout("botania", "brew", "植物酿造",
+        registerRecipeTypeWithLayout("botania", "brew", "registerhelper.recipe_type.botania.brew",
             processor, "brew");
 
-        registerRecipeTypeWithLayout("botania", "orechid", "矿石兰", 
+        registerRecipeTypeWithLayout("botania", "orechid", "registerhelper.recipe_type.botania.orechid",
             processor, "pure_daisy");
 
-        registerRecipeTypeWithLayout("botania", "marimorphosis", "石之变换", 
+        registerRecipeTypeWithLayout("botania", "orechid_ignem", "registerhelper.recipe_type.botania.orechid_ignem",
+            processor, "pure_daisy");
+
+        registerRecipeTypeWithLayout("botania", "marimorphosis", "registerhelper.recipe_type.botania.marimorphosis",
             processor, "pure_daisy");
     }
     

@@ -6,9 +6,12 @@ import com.google.gson.JsonObject;
 import com.wzz.registerhelper.gui.recipe.IngredientData;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 import java.util.HashMap;
 import java.util.List;
@@ -17,17 +20,10 @@ import java.util.Map;
 /**
  * 配方 JSON 生成工具。
  *
- * NeoForge 1.21.1 迁移要点：
- * - forge:nbt -> neoforge:nbt（精确 NBT 匹配的 ingredient 类型）
- * - stack.hasTag()/getTag() -> OldUtils.hasTag()/getTag()（DataComponents 兼容层）
- * - ForgeRegistries.ITEMS -> BuiltInRegistries.ITEM
- * - ItemStack 材料/结果默认走 DataComponentsHelper（生成 components 形式），
- *   仅在需要旧式 nbt 字符串匹配（精确 / partial）时回退到 OldUtils 拼 NBT
- * - registerhelper:partial_nbt 为本 mod 自定义 ingredient 类型，名称不变
- *
- * 依赖说明：createIngredientJson(IngredientData) 与 ignoreKeys 重载依赖
- * IngredientData 的 isIncludeNBT() / getIgnoreNbtKeys() 等方法（属 GUI 包，
- * 移植 IngredientData 时需一并恢复其 NBT 控制字段）。
+ * Recipe JSON generation for NeoForge 1.21.1.
+ * Exact component ingredients are emitted through NeoForge's registered
+ * neoforge:components ingredient. Partial matching remains this mod's
+ * registered ingredient and is limited to CUSTOM_DATA subset matching.
  */
 public class RecipeUtil {
     // 符号字符表，优先级：大写字母 → 小写字母 → 特殊符号（共 78 个）
@@ -163,36 +159,19 @@ public class RecipeUtil {
             }
         }
 
-        // 1.21+ 结果使用对象格式（id + 可选 count/nbt）
         if (request.result != null) {
-            JsonObject resultObj = new JsonObject();
-            String itemId = getItemResourceLocation(request.result.getItem()).toString();
-            resultObj.addProperty("id", itemId);
-
-            if (request.resultCount > 1) {
-                resultObj.addProperty("count", request.resultCount);
-            }
-
-            if (OldUtils.hasTag(request.result)) {
-                resultObj.addProperty("type", "neoforge:nbt");
-                resultObj.addProperty("nbt", OldUtils.getTag(request.result).toString());
-            }
-
-            recipe.add("result", resultObj);
+            recipe.add("result", createResultJson(request.result, request.resultCount));
         }
 
-        Float experience = (Float) request.properties.get("experience");
-        if (experience == null) {
-            experience = (Double) request.properties.get("experience") != null
-                    ? ((Double) request.properties.get("experience")).floatValue()
-                    : 0.1f;
-        }
+        Number experienceValue = (Number) request.properties.get("experience");
+        float experience = experienceValue != null ? experienceValue.floatValue() : 0.1f;
         recipe.addProperty("experience", experience);
 
-        Integer cookingTime = (Integer) request.properties.get("cookingtime");
-        if (cookingTime == null) {
-            cookingTime = defaultCookingTime;
+        Number cookingTimeValue = (Number) request.properties.get("cookingtime");
+        if (cookingTimeValue == null) {
+            cookingTimeValue = (Number) request.properties.get("cookingTime");
         }
+        int cookingTime = cookingTimeValue != null ? cookingTimeValue.intValue() : defaultCookingTime;
         recipe.addProperty("cookingtime", cookingTime);
 
         return recipe;
@@ -233,9 +212,9 @@ public class RecipeUtil {
                 if (!stack.isEmpty()) {
                     JsonObject extraResult = createResultJson(stack, stack.getCount());
 
-                    Float chance = (Float) request.properties.get("chance_" + stack.getItem());
-                    if (chance != null && chance < 1.0f) {
-                        extraResult.addProperty("chance", chance);
+                    Number chance = (Number) request.properties.get("chance_" + stack.getItem());
+                    if (chance != null && chance.floatValue() < 1.0f) {
+                        extraResult.addProperty("chance", chance.floatValue());
                     }
 
                     resultArray.add(extraResult);
@@ -251,22 +230,21 @@ public class RecipeUtil {
     // ======================================================================
 
     /**
-     * 创建材料 JSON（默认包含 NBT，精确匹配）
+     * Creates an ingredient with component matching enabled.
      */
     public static JsonObject createIngredientJson(Object ingredient) {
         return createIngredientJson(ingredient, true, List.of());
     }
 
     /**
-     * 创建材料 JSON（仅控制是否包含 NBT）
+     * Creates an ingredient while controlling component matching.
      */
     public static JsonObject createIngredientJson(Object ingredient, boolean includeNBT) {
         return createIngredientJson(ingredient, includeNBT, List.of());
     }
 
     /**
-     * 从 {@link IngredientData} 创建材料 JSON（自动读取 ignoreNbtKeys）。
-     * GUI 层推荐入口。
+     * Creates an ingredient from GUI data, including its ignore-key policy.
      */
     public static JsonObject createIngredientJson(IngredientData data) {
         if (data == null || data.isEmpty()) return null;
@@ -286,21 +264,11 @@ public class RecipeUtil {
     }
 
     /**
-     * 核心实现：创建材料 JSON。
+     * Core item/tag/map implementation.
      *
-     * <p>NBT 处理策略（1.21）：
-     * <ul>
-     *   <li>includeNBT=false：仅匹配物品 ID（走 DataComponentsHelper 但忽略组件，
-     *       这里直接只写 item）</li>
-     *   <li>includeNBT=true 且无 ignoreKeys：精确匹配。优先使用 DataComponents 形式
-     *       （DataComponentsHelper），保证 1.21 原生兼容</li>
-     *   <li>includeNBT=true 且有 ignoreKeys：使用 registerhelper:partial_nbt，
-     *       NBT 通过 OldUtils 还原成旧式字符串写入</li>
-     * </ul>
-     *
-     * @param ingredient  物品对象（ItemStack / Item / String / Map / IngredientData）
-     * @param includeNBT  是否写入 NBT 匹配字段
-     * @param ignoreKeys  若非空且 includeNBT=true，则改用 registerhelper:partial_nbt
+     * @param ingredient ItemStack, Item, String, Map, or IngredientData
+     * @param includeNBT whether component matching is enabled
+     * @param ignoreKeys custom-data paths to ignore for partial matching
      */
     @SuppressWarnings("unchecked")
     public static JsonObject createIngredientJson(Object ingredient, boolean includeNBT, List<String> ignoreKeys) {
@@ -311,31 +279,14 @@ public class RecipeUtil {
         if (ingredient instanceof ItemStack stack) {
             boolean hasIgnore = ignoreKeys != null && !ignoreKeys.isEmpty();
 
-            // 部分匹配：registerhelper:partial_nbt
             if (includeNBT && hasIgnore && OldUtils.hasTag(stack)) {
-                JsonObject ingredientJson = new JsonObject();
-                ingredientJson.addProperty("type", "registerhelper:partial_nbt");
-                ingredientJson.addProperty("item", getItemResourceLocation(stack.getItem()).toString());
-                ingredientJson.addProperty("nbt", OldUtils.getTag(stack).toString());
-                JsonArray arr = new JsonArray();
-                ignoreKeys.forEach(arr::add);
-                ingredientJson.add("ignore_keys", arr);
-                if (stack.getCount() > 1) {
-                    ingredientJson.addProperty("count", stack.getCount());
-                }
-                return ingredientJson;
+                return DataComponentsHelper.createPartialIngredientWithComponents(stack, ignoreKeys);
             }
 
-            // 精确匹配（含 NBT）：使用 DataComponents 形式
             if (includeNBT) {
-                JsonObject ingredientJson = DataComponentsHelper.createIngredientWithComponents(stack);
-                if (stack.getCount() > 1 && !ingredientJson.has("count")) {
-                    ingredientJson.addProperty("count", stack.getCount());
-                }
-                return ingredientJson;
+                return DataComponentsHelper.createIngredientWithComponents(stack);
             }
 
-            // 不含 NBT：仅物品 ID
             JsonObject ingredientJson = new JsonObject();
             ingredientJson.addProperty("item", getItemResourceLocation(stack.getItem()).toString());
             if (stack.getCount() > 1) {
@@ -360,7 +311,6 @@ public class RecipeUtil {
         } else if (ingredient instanceof Map map) {
             JsonObject ingredientJson = new JsonObject();
 
-            // ---------- Fluid ----------
             if (map.containsKey("fluid")) {
                 String fluidId = (String) map.get("fluid");
                 int amount = ((Number) map.getOrDefault("amount", 250)).intValue();
@@ -372,7 +322,6 @@ public class RecipeUtil {
                 return ingredientJson;
             }
 
-            // ---------- Item / Block（统一为 item id） ----------
             String id = null;
             if (map.containsKey("id")) {
                 id = (String) map.get("id");
@@ -383,13 +332,32 @@ public class RecipeUtil {
             }
 
             if (id != null) {
-                ingredientJson.addProperty("item", id);
-                if (map.containsKey("count")) {
-                    ingredientJson.addProperty("count", ((Number) map.get("count")).intValue());
+                int count = map.containsKey("count")
+                        ? ((Number) map.get("count")).intValue() : 1;
+                if (includeNBT && map.containsKey("nbt")) {
+                    CompoundTag nbt = parseMapNbt(map.get("nbt"));
+                    Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(id));
+                    if (nbt != null && item != Items.AIR) {
+                        ItemStack stack = new ItemStack(item, Math.max(1, count));
+                        OldUtils.setTag(stack, nbt);
+                        return DataComponentsHelper.createIngredientWithComponents(stack);
+                    }
                 }
-                if (includeNBT && map.containsKey("nbt") && map.get("nbt") instanceof JsonElement json) {
-                    ingredientJson.addProperty("type", "neoforge:nbt");
-                    ingredientJson.add("nbt", json);
+                if (includeNBT && map.get("components") instanceof JsonElement components) {
+                    JsonObject stackJson = new JsonObject();
+                    stackJson.addProperty("id", id);
+                    stackJson.add("components", components.deepCopy());
+                    if (count > 1) {
+                        stackJson.addProperty("count", count);
+                    }
+                    ItemStack stack = DataComponentsHelper.parseItemStack(stackJson);
+                    if (!stack.isEmpty()) {
+                        return DataComponentsHelper.createIngredientWithComponents(stack);
+                    }
+                }
+                ingredientJson.addProperty("item", id);
+                if (count > 1) {
+                    ingredientJson.addProperty("count", count);
                 }
                 return ingredientJson;
             }
@@ -403,11 +371,29 @@ public class RecipeUtil {
      * 创建结果JSON对象（走 DataComponents 形式）
      */
     public static JsonObject createResultJson(ItemStack result, int count) {
+        if (result == null || result.isEmpty()) {
+            return new JsonObject();
+        }
         JsonObject resultJson = DataComponentsHelper.createResultWithComponents(result);
+        resultJson.remove("count");
         if (count > 1) {
             resultJson.addProperty("count", count);
         }
         return resultJson;
+    }
+
+    private static CompoundTag parseMapNbt(Object value) {
+        if (value instanceof JsonElement json) {
+            return DataComponentsHelper.parseSnbt(json);
+        }
+        if (value instanceof String string) {
+            try {
+                return TagParser.parseTag(string);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /**
