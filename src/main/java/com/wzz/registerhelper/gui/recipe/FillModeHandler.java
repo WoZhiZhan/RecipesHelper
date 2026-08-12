@@ -11,7 +11,7 @@ import java.util.function.Consumer;
  */
 public class FillModeHandler {
     private FillMode currentMode = FillMode.NORMAL;
-    private ItemStack brushItem = ItemStack.EMPTY;
+    private IngredientData brushData = IngredientData.empty();
     
     // 回调函数
     private Consumer<String> errorCallback;
@@ -61,28 +61,28 @@ public class FillModeHandler {
      * 处理画笔模式 - 用画笔物品填充单个槽位
      */
     private void handleBrushMode(SlotManager slotManager, int slotIndex) {
-        if (brushItem.isEmpty()) {
+        if (brushData.isEmpty()) {
             if (errorCallback != null) {
                 errorCallback.accept(GuiText.string("registerhelper.message.recipe.select_brush_first"));
             }
             return;
         }
 
-        slotManager.setIngredient(slotIndex, brushItem);
+        slotManager.setIngredientData(slotIndex, brushData);
     }
 
     /**
      * 处理填充模式 - 用画笔物品填充所有空槽位
      */
     private void handleFillMode(SlotManager slotManager) {
-        if (brushItem.isEmpty()) {
+        if (brushData.isEmpty()) {
             if (errorCallback != null) {
                 errorCallback.accept(GuiText.string("registerhelper.message.recipe.select_brush_first"));
             }
             return;
         }
 
-        slotManager.fillEmptySlots(brushItem);
+        slotManager.fillEmptySlots(brushData);
     }
 
     /**
@@ -104,9 +104,9 @@ public class FillModeHandler {
             case FILL -> GuiText.string("registerhelper.gui.recipe_creator.fill_hint.fill");
         };
 
-        if (currentMode != FillMode.NORMAL && !brushItem.isEmpty()) {
+        if (currentMode != FillMode.NORMAL && !brushData.isEmpty()) {
             hint = GuiText.string("registerhelper.gui.recipe_creator.fill_hint.with_brush",
-                    hint, brushItem.getHoverName().getString());
+                    hint, brushData.getDisplayText());
         }
 
         return hint;
@@ -135,7 +135,7 @@ public class FillModeHandler {
      */
     public void reset() {
         currentMode = FillMode.NORMAL;
-        brushItem = ItemStack.EMPTY;
+        brushData = IngredientData.empty();
     }
 
     // Getters and Setters
@@ -147,15 +147,15 @@ public class FillModeHandler {
         this.currentMode = mode;
     }
 
-    public ItemStack getBrushItem() {
-        return brushItem;
+    public IngredientData getBrushData() {
+        return brushData.copy();
     }
 
-    public void setBrushItem(ItemStack brushItem) {
-        this.brushItem = brushItem.copy();
+    public void setBrushData(IngredientData brushData) {
+        this.brushData = brushData == null ? IngredientData.empty() : brushData.copy();
     }
 
     public boolean hasBrushItem() {
-        return !brushItem.isEmpty();
+        return !brushData.isEmpty();
     }
 }

@@ -463,6 +463,11 @@ public class SlotManager {
     public void fillEmptySlots(ItemStack item) {
         if (item == null || item.isEmpty()) return;
         IngredientData data = IngredientData.fromItem(item);
+        fillEmptySlots(data);
+    }
+
+    public void fillEmptySlots(IngredientData data) {
+        if (data == null || data.isEmpty()) return;
         for (int i = 0; i < ingredients.size(); i++) {
             if (ingredients.get(i).isEmpty()) {
                 ingredients.set(i, data.copy());

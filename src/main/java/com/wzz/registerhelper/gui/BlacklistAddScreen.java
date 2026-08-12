@@ -179,8 +179,11 @@ public class BlacklistAddScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    }
+
+    @Override
     public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        renderBackground(g, mouseX, mouseY, partialTick);
         GuiTheme.drawBackdrop(g, width, height);
         GuiTheme.drawPanel(g, panelBounds, 26, GuiTheme.SUCCESS);
         g.fill(footerBounds.x(), footerBounds.y(), footerBounds.right(), footerBounds.bottom(), GuiTheme.PANEL_ALT);

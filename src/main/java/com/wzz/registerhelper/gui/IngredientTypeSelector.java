@@ -95,6 +95,10 @@ public class IngredientTypeSelector extends Screen {
     }
 
     @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    }
+
+    @Override
     public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         GuiTheme.drawBackdrop(g, this.width, this.height);
         GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(menuX, menuY, menuWidth, menuHeight);

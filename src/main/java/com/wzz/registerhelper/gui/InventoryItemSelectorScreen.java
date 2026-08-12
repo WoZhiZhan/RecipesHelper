@@ -102,6 +102,8 @@ public class InventoryItemSelectorScreen extends Screen {
         updatePageButtons();
     }
 
+    @Override public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {}
+
     private void previousPage() {
         if (currentPage > 0) {
             currentPage--;
@@ -123,7 +125,6 @@ public class InventoryItemSelectorScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        renderBackground(g, mouseX, mouseY, partialTick);
         GuiTheme.drawBackdrop(g, this.width, this.height);
 
         GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(leftPos, topPos, guiWidth, guiHeight);

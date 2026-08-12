@@ -253,9 +253,10 @@ public class ItemSelectorScreen extends Screen {
         }
     }
 
+    @Override public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {}
+
     @Override
     public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        renderBackground(g, mouseX, mouseY, partialTick);
         GuiTheme.drawBackdrop(g, this.width, this.height);
         g.fill(leftPos - 1, topPos - 1, leftPos + guiWidth + 1, topPos + guiHeight + 1,
                 GuiTheme.PANEL_EDGE);

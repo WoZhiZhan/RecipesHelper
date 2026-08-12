@@ -664,7 +664,6 @@ public class RecipeSelectorScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(guiGraphics, mouseX, mouseY, partialTick);
         GuiTheme.drawBackdrop(guiGraphics, this.width, this.height);
         // ── 外框 ──
         GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(leftPos, topPos, contentWidth, contentHeight);

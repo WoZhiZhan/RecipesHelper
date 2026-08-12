@@ -1071,17 +1071,26 @@ public class RecipeCreatorScreen extends Screen {
 
         switch (type) {
             case ALL_ITEMS -> minecraft.setScreen(new ItemSelectorScreen(this, item -> {
-                fillModeHandler.setBrushItem(item);
-                displayInfo(GuiText.component("registerhelper.message.recipe.brush_set", item.getHoverName()));
+                IngredientData data = IngredientData.fromItem(item);
+                fillModeHandler.setBrushData(data);
+                displayInfo(GuiText.component("registerhelper.message.recipe.brush_set", data.getDisplayText()));
             }));
             case INVENTORY -> minecraft.setScreen(new InventoryItemSelectorScreen(this, item -> {
-                fillModeHandler.setBrushItem(item);
-                displayInfo(GuiText.component("registerhelper.message.recipe.brush_set", item.getHoverName()));
+                IngredientData data = IngredientData.fromItem(item);
+                fillModeHandler.setBrushData(data);
+                displayInfo(GuiText.component("registerhelper.message.recipe.brush_set", data.getDisplayText()));
             }));
-            case TAG, CUSTOM_TAG -> {
-                displayError(GuiText.component("registerhelper.message.recipe.brush_tag_unsupported"));
-                minecraft.setScreen(this);
-            }
+            case TAG -> minecraft.setScreen(new TagSelectorScreen(this, tagId -> {
+                IngredientData data = IngredientData.fromTag(tagId);
+                fillModeHandler.setBrushData(data);
+                displayInfo(GuiText.component("registerhelper.message.recipe.brush_set", data.getDisplayText()));
+            }));
+            case CUSTOM_TAG -> minecraft.setScreen(new CustomTagCreatorScreen(this, (tagId, items) -> {
+                IngredientData data = IngredientData.fromCustomTag(tagId, items);
+                CustomTagManager.registerTag(tagId, items);
+                fillModeHandler.setBrushData(data);
+                displayInfo(GuiText.component("registerhelper.message.recipe.brush_set", data.getDisplayText()));
+            }));
         }
     }
 
@@ -1341,7 +1350,6 @@ public class RecipeCreatorScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(guiGraphics, mouseX, mouseY, partialTick);
         GuiTheme.drawBackdrop(guiGraphics, this.width, this.height);
 
         int titleBarHeight = 24;

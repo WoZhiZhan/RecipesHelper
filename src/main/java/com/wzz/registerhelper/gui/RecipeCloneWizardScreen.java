@@ -226,8 +226,11 @@ public class RecipeCloneWizardScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    }
+
+    @Override
     public void render(@NotNull GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        renderBackground(g, mouseX, mouseY, partialTick);
         GuiTheme.drawBackdrop(g, width, height);
         GuiLayoutHelper.Bounds panel = new GuiLayoutHelper.Bounds(px, py, panelW, panelH);
         GuiTheme.drawPanel(g, panel, TITLE_H, GuiTheme.INFO);
