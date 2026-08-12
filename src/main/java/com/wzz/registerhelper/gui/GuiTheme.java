@@ -2,9 +2,16 @@ package com.wzz.registerhelper.gui;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.resources.ResourceLocation;
 
 /** Shared visual language for RegisterHelper screens. */
 public final class GuiTheme {
+    private static final ResourceLocation GENERIC_54_TEXTURE =
+            new ResourceLocation("minecraft", "textures/gui/container/generic_54.png");
+    private static final int VANILLA_SLOT_SIZE = 18;
+    private static final int VANILLA_SLOT_U = 7;
+    private static final int VANILLA_SLOT_V = 17;
+
     private GuiTheme() {
     }
 
@@ -194,13 +201,24 @@ public final class GuiTheme {
 
     public static void drawSlot(GuiGraphics graphics, int x, int y, int width, int height,
                                 boolean hovered) {
-        int fill = hovered ? HOVER : SLOT;
-        int edge = hovered ? SELECTED_EDGE : SLOT_EDGE;
-        graphics.fill(x, y, x + width, y + height, fill);
-        graphics.fill(x, y, x + width, y + 1, edge);
-        graphics.fill(x, y + height - 1, x + width, y + height, edge);
-        graphics.fill(x, y, x + 1, y + height, edge);
-        graphics.fill(x + width - 1, y, x + width, y + height, edge);
+        if (width == VANILLA_SLOT_SIZE && height == VANILLA_SLOT_SIZE) {
+            graphics.blit(GENERIC_54_TEXTURE, x, y,
+                    VANILLA_SLOT_U, VANILLA_SLOT_V,
+                    VANILLA_SLOT_SIZE, VANILLA_SLOT_SIZE);
+        } else {
+            // Large grids can shrink below 18px. Keep the vanilla recessed-slot
+            // lighting instead of stretching and blurring the source texture.
+            graphics.fill(x, y, x + width, y + height, 0xFF8B8B8B);
+            if (width > 2 && height > 2) {
+                graphics.fill(x, y, x + width, y + 1, 0xFF373737);
+                graphics.fill(x, y, x + 1, y + height, 0xFF373737);
+                graphics.fill(x, y + height - 1, x + width, y + height, 0xFFFFFFFF);
+                graphics.fill(x + width - 1, y, x + width, y + height, 0xFFFFFFFF);
+            }
+        }
+        if (hovered && width > 2 && height > 2) {
+            graphics.fill(x + 1, y + 1, x + width - 1, y + height - 1, 0x60FFFFFF);
+        }
     }
 
     public static void styleInput(EditBox input) {

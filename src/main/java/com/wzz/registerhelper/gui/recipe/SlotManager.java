@@ -18,10 +18,10 @@ import java.util.List;
  */
 public class SlotManager {
     /** 默认槽位间距，可通过 setSlotSpacing 动态缩小以适应小屏幕 */
-    private int slotSpacing = 20;
+    private int slotSpacing = 18;
     /** 槽位间距的硬性下限，低于此值物品图标将无法辨认 */
     public static final int MIN_SLOT_SPACING = 4;
-    public static final int DEFAULT_SLOT_SPACING = 20;
+    public static final int DEFAULT_SLOT_SPACING = 18;
 
     private List<RecipeComponent> components = new ArrayList<>();
     private final List<IngredientSlot> ingredientSlots = new ArrayList<>();
