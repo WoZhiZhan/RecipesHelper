@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
 import com.wzz.registerhelper.util.PinyinSearchHelper;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -215,7 +216,7 @@ public class ItemSelectorScreen extends Screen {
         updateFilteredItems(currentSearch);
 
         // ── 控件 ──
-        searchBox = new EditBox(this.font, leftPos + 10, topPos + 32, guiWidth - 20, 18,
+        searchBox = new CenteredEditBox(this.font, leftPos + 10, topPos + 32, guiWidth - 20, 18,
                 GuiText.component("registerhelper.gui.common.search"));
         GuiTheme.styleInput(searchBox);
         searchBox.setHint(GuiText.component("registerhelper.gui.item_selector.search_hint"));

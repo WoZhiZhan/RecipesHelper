@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui;
 
 import com.wzz.registerhelper.gui.recipe.IngredientData;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
 import com.wzz.registerhelper.util.NbtIgnorePresetManager;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -143,7 +144,7 @@ public class NbtIgnoreEditorScreen extends Screen {
 
         // ── 左侧控件 ─────────────────────────────────────────────
         int inputY = descY + descH + 4;
-        keyInputBox = new EditBox(this.font, leftX, inputY, leftW - 60, 14,
+        keyInputBox = new CenteredEditBox(this.font, leftX, inputY, leftW - 60, 14,
                 GuiText.component("registerhelper.gui.nbt_ignore.key_field"));
         GuiTheme.styleInput(keyInputBox);
         keyInputBox.setMaxLength(256);
@@ -177,7 +178,7 @@ public class NbtIgnoreEditorScreen extends Screen {
                         btn -> { showPresetNameInput = !showPresetNameInput; if (showPresetNameInput) presetNameBox.setValue(""); })
                 .bounds(rightX, presetY + presetH + 24, 90, 14).build());
 
-        presetNameBox = new EditBox(this.font,
+        presetNameBox = new CenteredEditBox(this.font,
                 rightX, presetY + presetH + 42, rightW - 30, 14,
                 GuiText.component("registerhelper.gui.nbt_ignore.name"));
         GuiTheme.styleInput(presetNameBox);

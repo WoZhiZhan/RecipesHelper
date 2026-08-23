@@ -14,18 +14,21 @@ public class FillingLayout implements RecipeLayout {
         List<RecipeComponent> components = new ArrayList<>();
         
         components.add(new SlotComponent(
-            baseX + 72, baseY + 126,
+            baseX + 24, baseY + 44,
             "filling",
             0
         ));
+        components.add(new SlotComponent(
+                baseX + 166, baseY + 44,
+                "output", -1, SlotComponent.SlotRole.OUTPUT));
         components.add(new StringInputComponent(
-            baseX + 50, baseY + 90,
+            baseX + 50, baseY + 92,
             80, "fluid",
                 GuiText.string("registerhelper.recipe_layout.text"), "minecraft:lava",
                 "value", false
         ));
         components.add(new NumberInputComponent(
-            baseX + 126, baseY + 90,
+            baseX + 126, baseY + 92,
             60, "amount",
             "amount", 100,
             0, 1000,
@@ -37,7 +40,7 @@ public class FillingLayout implements RecipeLayout {
     
     @Override
     public Rectangle getBounds(int tier) {
-        return new Rectangle(0, 0, 200, 200);
+        return new Rectangle(0, 0, 210, 165);
     }
     
     @Override

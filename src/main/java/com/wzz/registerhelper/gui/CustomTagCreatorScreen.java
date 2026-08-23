@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -97,7 +98,7 @@ public class CustomTagCreatorScreen extends Screen {
         int inputWidth = Math.max(40, guiWidth - labelWidth - 30);
 
         // 命名空间输入框 - 使用保存的值
-        namespaceBox = new EditBox(this.font, inputX, topPos + 30,
+        namespaceBox = new CenteredEditBox(this.font, inputX, topPos + 30,
                 inputWidth, 20, GuiText.component("registerhelper.gui.custom_tag.field.namespace"));
         GuiTheme.styleInput(namespaceBox);
         namespaceBox.setHint(Component.literal("mymod"));
@@ -106,7 +107,7 @@ public class CustomTagCreatorScreen extends Screen {
         addWidget(namespaceBox);
 
         // 路径输入框 - 使用保存的值
-        pathBox = new EditBox(this.font, inputX, topPos + 55,
+        pathBox = new CenteredEditBox(this.font, inputX, topPos + 55,
                 inputWidth, 20, GuiText.component("registerhelper.gui.custom_tag.field.path"));
         GuiTheme.styleInput(pathBox);
         pathBox.setHint(Component.literal("my_materials"));

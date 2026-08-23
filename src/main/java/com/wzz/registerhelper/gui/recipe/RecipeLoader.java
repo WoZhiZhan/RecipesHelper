@@ -15,18 +15,23 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Recipe;
 import com.wzz.registerhelper.gui.recipe.RecipeTypeConfig.*;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
+import com.wzz.registerhelper.network.RecipeJsonClientCache;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.crafting.RecipeManager;
 import net.minecraftforge.fml.loading.FMLPaths;
 import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraft.world.level.block.Block;
 import net.minecraftforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 
@@ -37,6 +42,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Optional;
+import java.io.BufferedReader;
 import java.util.function.Consumer;
 
 /**
@@ -64,13 +71,15 @@ public class RecipeLoader {
         public final CraftingMode craftingMode;
         public final CookingType cookingType;
         public int avaritiaTeir;
-        public final ItemStack resultItem;
+        public ItemStack resultItem;
         public final List<ItemStack> ingredients;
         public final String message;
         public final String originalRecipeTypeId;
         public ResourceLocation recipeId;
         public List<IngredientData> ingredientsData = null;
         public Map<String, Object> componentData = new HashMap<>();
+        public List<ItemStack> extraOutputs = new ArrayList<>();
+        public Recipe<?> runtimeRecipe;
 
         public LoadResult(boolean success, String message) {
             this(success, null, null, null, 1, ItemStack.EMPTY, Collections.emptyList(), message, null);
@@ -102,9 +111,381 @@ public class RecipeLoader {
         LoadResult result = loadRecipeInternal(recipeId);
         if (result.success) {
             result.setRecipeId(recipeId);
+            try {
+                result.runtimeRecipe = getRecipeManager().byKey(recipeId).orElse(null);
+            } catch (Exception ignored) {
+                result.runtimeRecipe = null;
+            }
             patchIngredientDataFromJson(result, recipeId); // 补充 ignoreKeys
+            JsonObject recipeJson = loadRecipeJson(recipeId);
+            if (recipeJson != null) {
+                ItemStack originalResult = result.resultItem.copy();
+                List<IngredientData> originalIngredients = result.ingredientsData;
+                Map<String, Object> originalComponents = new HashMap<>(result.componentData);
+                try {
+                    applyRecipeJson(result, recipeJson);
+                } catch (Exception e) {
+                    result.resultItem = originalResult;
+                    result.ingredientsData = originalIngredients;
+                    result.componentData.clear();
+                    result.componentData.putAll(originalComponents);
+                    LOGGER.warn("特殊配方 JSON overlay 解析失败，回退运行时数据: {}", recipeId, e);
+                }
+            }
         }
         return result;
+    }
+
+    /**
+     * Reads the recipe data that produced the runtime object. Special recipe
+     * implementations deliberately return an empty result from the vanilla
+     * Recipe API, so the JSON is the authoritative display/edit source.
+     */
+    private JsonObject loadRecipeJson(ResourceLocation recipeId) {
+        try {
+            String serverJson = RecipeJsonClientCache.get(recipeId);
+            if (serverJson != null && !serverJson.isBlank()) {
+                return PATCH_GSON.fromJson(serverJson, JsonObject.class);
+            }
+            JsonObject override = UnifiedRecipeOverrideManager.getOverride(recipeId);
+            if (override != null) return override;
+
+            java.io.File configFile = findRecipeFile(recipeId);
+            if (configFile != null) {
+                try (java.io.FileReader reader = new java.io.FileReader(configFile)) {
+                    return PATCH_GSON.fromJson(reader, JsonObject.class);
+                }
+            }
+
+            ResourceLocation resourceId = new ResourceLocation(
+                    recipeId.getNamespace(), "recipes/" + recipeId.getPath() + ".json");
+            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+            if (server != null) {
+                JsonObject json = readRecipeResource(server.getResourceManager(), resourceId);
+                if (json != null) return json;
+            }
+            if (minecraft != null) {
+                return readRecipeResource(minecraft.getResourceManager(), resourceId);
+            }
+        } catch (Exception e) {
+            LOGGER.debug("无法读取配方 JSON: {}", recipeId, e);
+        }
+        return null;
+    }
+
+    private JsonObject readRecipeResource(ResourceManager manager, ResourceLocation resourceId) {
+        if (manager == null) return null;
+        try {
+            Optional<Resource> resource = manager.getResource(resourceId);
+            if (resource.isEmpty()) return null;
+            try (BufferedReader reader = resource.get().openAsReader()) {
+                return PATCH_GSON.fromJson(reader, JsonObject.class);
+            }
+        } catch (Exception e) {
+            LOGGER.debug("无法读取资源配方: {}", resourceId, e);
+            return null;
+        }
+    }
+
+    private void applyRecipeJson(LoadResult result, JsonObject json) {
+        List<IngredientData> ingredients = new ArrayList<>();
+        List<String> roles = new ArrayList<>();
+        String type = json.has("type") ? json.get("type").getAsString() : "";
+
+        if (json.has("ingredients") && json.get("ingredients").isJsonArray()
+                && json.getAsJsonArray("ingredients").asList().stream().anyMatch(JsonElement::isJsonArray)) {
+            result.componentData.put("rawIngredients", json.get("ingredients").deepCopy());
+        }
+        if (json.has("input") && json.get("input").isJsonArray()) {
+            result.componentData.put("rawInput", json.get("input").deepCopy());
+        }
+
+        if (type.endsWith(":sequenced_assembly")) {
+            if (json.has("ingredient")) {
+                IngredientData input = specialIngredientData(json.get("ingredient"),
+                        result.ingredients.isEmpty() ? ItemStack.EMPTY : result.ingredients.get(0));
+                if (input != null && !input.isEmpty()) setRoleSlot(ingredients, roles, 0, input, "INPUT");
+            }
+            if (json.has("transitionalItem")) {
+                IngredientData transitional = specialIngredientData(json.get("transitionalItem"), ItemStack.EMPTY);
+                if (transitional != null && !transitional.isEmpty()) {
+                    setRoleSlot(ingredients, roles, 1, transitional, "TRANSITIONAL");
+                }
+            }
+            if (json.has("sequence")) result.componentData.put("sequence", json.get("sequence").deepCopy());
+            if (json.has("sequence") && json.getAsJsonArray("sequence").size() > 0) {
+                JsonElement step = json.getAsJsonArray("sequence").get(0);
+                if (step.isJsonObject() && step.getAsJsonObject().has("type")) {
+                    result.componentData.put("sequenceType", step.getAsJsonObject().get("type").getAsString());
+                }
+            }
+        } else if (json.has("key") && json.has("pattern")) {
+            JsonArray pattern = json.getAsJsonArray("pattern");
+            if (!pattern.isEmpty()) {
+                result.componentData.put("patternWidth", pattern.get(0).getAsString().length());
+                result.componentData.put("patternHeight", pattern.size());
+            }
+            List<IngredientData> shaped = patchFromShapedKey(json, result);
+            if (shaped != null) {
+                ingredients.addAll(shaped);
+                for (IngredientData data : shaped) {
+                    roles.add("INPUT");
+                }
+            }
+        } else if (json.has("ingredients") && json.get("ingredients").isJsonArray()) {
+            boolean preserveRawIngredients = false;
+            for (JsonElement element : json.getAsJsonArray("ingredients")) {
+                if (isFluidElement(element)) {
+                    captureFluidInput(result, element);
+                    continue;
+                }
+                preserveRawIngredients |= element.isJsonArray();
+                IngredientData data = specialIngredientData(element,
+                        ingredients.size() < result.ingredients.size()
+                                ? result.ingredients.get(ingredients.size()) : ItemStack.EMPTY);
+                if (data != null && !data.isEmpty()) {
+                    ingredients.add(data);
+                    roles.add("INPUT");
+                }
+            }
+            if (preserveRawIngredients) {
+                result.componentData.put("rawIngredients", json.get("ingredients").deepCopy());
+            }
+        } else if (json.has("input")) {
+            IngredientData data = specialIngredientData(json.get("input"),
+                    result.ingredients.isEmpty() ? ItemStack.EMPTY : result.ingredients.get(0));
+            if (data != null && !data.isEmpty()) {
+                ingredients.add(data);
+                roles.add("INPUT");
+            }
+        }
+
+        if (type.endsWith(":mana_infusion") && json.has("catalyst")) {
+            IngredientData catalyst = specialIngredientData(json.get("catalyst"), ItemStack.EMPTY);
+            if (catalyst != null && !catalyst.isEmpty()) {
+                setRoleSlot(ingredients, roles, 1, catalyst, "CATALYST");
+            }
+        }
+        if (type.endsWith(":petal_apothecary") && json.has("reagent")) {
+            IngredientData reagent = specialIngredientData(json.get("reagent"), ItemStack.EMPTY);
+            if (reagent != null && !reagent.isEmpty()) {
+                setRoleSlot(ingredients, roles, 16, reagent, "REAGENT");
+            }
+        }
+
+        if (!ingredients.isEmpty()) {
+            result.ingredientsData = ingredients;
+            result.componentData.put("slotRoles", roles);
+        }
+
+        copyJsonNumber(result, json, "mana");
+        copyJsonNumber(result, json, "weight");
+        copyJsonNumber(result, json, "biome_bonus");
+        copyJsonNumber(result, json, "time");
+        copyJsonNumber(result, json, "processingTime");
+        copyJsonNumber(result, json, "amount");
+        copyJsonNumber(result, json, "loops");
+        if (json.has("heatRequirement")) {
+            result.componentData.put("heatRequirement", json.get("heatRequirement").getAsString());
+        }
+        if (json.has("acceptMirrored")) {
+            result.componentData.put("acceptMirrored", json.get("acceptMirrored").getAsBoolean());
+        }
+        if (json.has("keepHeldItem")) {
+            result.componentData.put("keepHeldItem", json.get("keepHeldItem").getAsBoolean());
+        }
+        if (json.has("brew")) {
+            result.componentData.put("brew", json.get("brew").getAsString());
+        }
+        if (json.has("reagent")) {
+            result.componentData.put("reagent", ingredientValueString(json.get("reagent")));
+        }
+        if (json.has("success_function")) {
+            result.componentData.put("success_function", json.get("success_function").getAsString());
+        }
+        if (json.has("biome_bonus_tag")) {
+            result.componentData.put("biome_bonus_tag", json.get("biome_bonus_tag").getAsString());
+        }
+
+        List<ItemStack> outputs = new ArrayList<>();
+        List<Float> outputChances = new ArrayList<>();
+        if (json.has("result")) collectOutput(result, outputs, outputChances, json.get("result"));
+        if (json.has("output")) collectOutput(result, outputs, outputChances, json.get("output"));
+        if (json.has("results")) collectOutput(result, outputs, outputChances, json.get("results"));
+        if (!outputs.isEmpty()) {
+            result.resultItem = outputs.remove(0);
+            result.extraOutputs.clear();
+            result.extraOutputs.addAll(outputs);
+            result.componentData.put("extraOutputs", new ArrayList<>(outputs));
+            result.componentData.put("extraResults", outputs.toArray(new ItemStack[0]));
+            result.componentData.put("outputChances", outputChances);
+        }
+    }
+
+    private void copyJsonNumber(LoadResult result, JsonObject json, String key) {
+        if (json.has(key) && json.get(key).isJsonPrimitive()
+                && json.get(key).getAsJsonPrimitive().isNumber()) {
+            result.componentData.put(key, json.get(key).getAsInt());
+        }
+    }
+
+    private void setRoleSlot(List<IngredientData> ingredients, List<String> roles,
+                             int index, IngredientData data, String role) {
+        while (ingredients.size() <= index) {
+            ingredients.add(IngredientData.empty());
+            roles.add("INPUT");
+        }
+        ingredients.set(index, data);
+        roles.set(index, role);
+    }
+
+    private void captureFluidInput(LoadResult result, JsonElement element) {
+        if (!element.isJsonObject()) return;
+        JsonObject fluid = element.getAsJsonObject();
+        Map<String, Object> fluidData = fluidData(fluid);
+        if (fluidData != null) addFluidData(result, "fluidInputs", fluidData);
+        if (fluid.has("fluid")) {
+            result.componentData.putIfAbsent("fluid", fluid.get("fluid").getAsString());
+        } else if (fluid.has("fluidTag")) {
+            result.componentData.putIfAbsent("fluid", "#" + fluid.get("fluidTag").getAsString());
+        }
+        if (fluid.has("amount")) {
+            int amount = fluid.get("amount").getAsInt();
+            result.componentData.putIfAbsent("amount", amount);
+            result.componentData.putIfAbsent("fluidAmount", amount);
+        }
+    }
+
+    private boolean isFluidElement(JsonElement element) {
+        return element != null && element.isJsonObject()
+                && (element.getAsJsonObject().has("fluid")
+                || element.getAsJsonObject().has("fluidTag"));
+    }
+
+    private void collectOutput(LoadResult result, List<ItemStack> outputs,
+                               List<Float> chances, JsonElement element) {
+        if (element == null || element.isJsonNull()) return;
+        if (element.isJsonArray()) {
+            for (JsonElement child : element.getAsJsonArray()) {
+                collectOutput(result, outputs, chances, child);
+            }
+            return;
+        }
+        if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+            String id = element.getAsString();
+            Block block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation(id));
+            if (block != null && block != net.minecraft.world.level.block.Blocks.AIR) {
+                Item item = Item.byBlock(block);
+                if (item != Items.AIR) {
+                    outputs.add(new ItemStack(item));
+                    chances.add(1.0F);
+                }
+            }
+            return;
+        }
+        if (!element.isJsonObject()) return;
+        JsonObject object = element.getAsJsonObject();
+        if (object.has("fluid") || object.has("fluidTag")) {
+            Map<String, Object> fluid = new HashMap<>();
+            String fluidId = object.has("fluid")
+                    ? object.get("fluid").getAsString()
+                    : "#" + object.get("fluidTag").getAsString();
+            int amount = object.has("amount") ? object.get("amount").getAsInt() : 250;
+            fluid.put("fluid", fluidId);
+            fluid.put("amount", amount);
+            if (object.has("nbt")) fluid.put("nbt", object.get("nbt").deepCopy());
+            addFluidData(result, "fluidOutputs", fluid);
+            // Fluid output is stored separately from item outputs.
+            result.componentData.putIfAbsent("fluidOutput", fluid);
+            result.componentData.putIfAbsent("fluidOut", fluidId);
+            result.componentData.putIfAbsent("fluidOutAmount", amount);
+            result.componentData.putIfAbsent("fluid", fluidId);
+            result.componentData.putIfAbsent("fluidAmount", amount);
+            return;
+        }
+
+        ItemStack stack = stackFromJson(object);
+        if (stack.isEmpty()) return;
+        outputs.add(stack);
+        chances.add(object.has("chance") ? object.get("chance").getAsFloat() : 1.0F);
+    }
+
+    private Map<String, Object> fluidData(JsonObject object) {
+        String id = object.has("fluid") ? object.get("fluid").getAsString()
+                : object.has("fluidTag") ? "#" + object.get("fluidTag").getAsString() : null;
+        if (id == null || id.isBlank()) return null;
+        Map<String, Object> data = new HashMap<>();
+        data.put("fluid", id);
+        data.put("amount", object.has("amount") ? object.get("amount").getAsInt() : 250);
+        if (object.has("nbt")) data.put("nbt", object.get("nbt").deepCopy());
+        return data;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void addFluidData(LoadResult result, String key, Map<String, Object> value) {
+        Object existing = result.componentData.get(key);
+        List<Map<String, Object>> values;
+        if (existing instanceof List<?> list) {
+            values = (List<Map<String, Object>>) (List<?>) list;
+        } else {
+            values = new ArrayList<>();
+            result.componentData.put(key, values);
+        }
+        values.add(value);
+    }
+
+    private ItemStack stackFromJson(JsonObject object) {
+        try {
+            if (object.has("item")) {
+                return net.minecraft.world.item.crafting.ShapedRecipe.itemStackFromJson(object);
+            }
+            String id = null;
+            if (object.has("name")) id = object.get("name").getAsString();
+            if (object.has("block")) id = object.get("block").getAsString();
+            if (id == null || id.startsWith("#")) return ItemStack.EMPTY;
+            Block block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation(id));
+            if (block == null) return ItemStack.EMPTY;
+            Item item = Item.byBlock(block);
+            return item == Items.AIR ? ItemStack.EMPTY : new ItemStack(item);
+        } catch (Exception e) {
+            return ItemStack.EMPTY;
+        }
+    }
+
+    private IngredientData specialIngredientData(JsonElement element, ItemStack fallback) {
+        if (element != null && element.isJsonArray()) {
+            if (element.getAsJsonArray().isEmpty()) return null;
+            element = element.getAsJsonArray().get(0);
+        }
+        if (element == null || element.isJsonNull() || !element.isJsonObject()) return null;
+        JsonObject object = element.getAsJsonObject();
+        try {
+            if (object.has("block") || object.has("name")) {
+                ItemStack stack = stackFromJson(object);
+                return stack.isEmpty() ? IngredientData.fromItem(fallback) : IngredientData.fromItem(stack);
+            }
+            if (object.has("item")) {
+                ItemStack stack = stackFromJson(object);
+                return stack.isEmpty() ? IngredientData.fromItem(fallback) : IngredientData.fromItem(stack);
+            }
+            if (object.has("type") && "tag".equals(object.get("type").getAsString())
+                    && object.has("tag")) {
+                return IngredientData.fromTag(new ResourceLocation(object.get("tag").getAsString()));
+            }
+            return ingredientDataFromJson(object, fallback);
+        } catch (Exception e) {
+            return fallback.isEmpty() ? IngredientData.empty() : IngredientData.fromItem(fallback);
+        }
+    }
+
+    private String ingredientValueString(JsonElement element) {
+        if (element != null && element.isJsonObject()) {
+            JsonObject object = element.getAsJsonObject();
+            if (object.has("tag")) return "#" + object.get("tag").getAsString();
+            if (object.has("item")) return object.get("item").getAsString();
+            if (object.has("block")) return object.get("block").getAsString();
+        }
+        return element == null || element.isJsonNull() ? "" : element.getAsString();
     }
 
     private void patchIngredientDataFromJson(LoadResult result, ResourceLocation recipeId) {
@@ -284,7 +665,7 @@ public class RecipeLoader {
             }
 
             // 获取结果物品
-            ItemStack resultItem = recipe.getResultItem(minecraft.level.registryAccess()).copy();
+            ItemStack resultItem = recipe.getResultItem(registryAccess).copy();
 
             // 根据配方类型和类名加载
             String recipeTypeName = originalRecipeTypeId.toLowerCase();
@@ -368,7 +749,8 @@ public class RecipeLoader {
                                           CraftingMode mode, String originalRecipeTypeId) {
         try {
             List<ItemStack> ingredients = new ArrayList<>();
-            for (int i = 0; i < 9; i++) {
+            int slotCount = recipe.getClass().getName().contains("MechanicalCrafting") ? 81 : 9;
+            for (int i = 0; i < slotCount; i++) {
                 ingredients.add(ItemStack.EMPTY);
             }
 
@@ -392,7 +774,7 @@ public class RecipeLoader {
                                                  CraftingMode mode, List<ItemStack> ingredients,
                                                  String originalRecipeTypeId) {
         var recipeIngredients = recipe.getIngredients();
-        for (int i = 0; i < Math.min(recipeIngredients.size(), 9); i++) {
+        for (int i = 0; i < Math.min(recipeIngredients.size(), ingredients.size()); i++) {
             var ingredient = recipeIngredients.get(i);
             if (ingredient != null && !ingredient.isEmpty()) {
                 var items = ingredient.getItems();
@@ -513,6 +895,8 @@ public class RecipeLoader {
     private boolean isShapedCraftingRecipe(String typeName, String className) {
         return typeName.contains("crafting_shaped") ||
                 className.contains("shapedrecipe") ||
+                typeName.contains("mechanical_crafting") ||
+                className.contains("mechanicalcrafting") ||
                 typeName.contains("minecraft:crafting_shaped");
     }
 
@@ -570,40 +954,49 @@ public class RecipeLoader {
         JsonArray patternArr = json.getAsJsonArray("pattern");
         JsonObject keyObj = json.getAsJsonObject("key");
 
-        // 把 pattern 展开成字符列表（与 result.ingredients 顺序对应）
-        List<Character> patternChars = new ArrayList<>();
-        for (var row : patternArr) {
-            String rowStr = row.getAsString();
-            for (char c : rowStr.toCharArray()) {
-                patternChars.add(c);
-            }
-        }
-
+        // Vanilla uses a 3-wide grid. Create mechanical crafting uses a
+        // larger flat list, but its JSON pattern remains the source of the
+        // row/column positions.
+        int targetWidth = patternArr.isEmpty()
+                ? (result.ingredients.size() >= 81 ? 9 : 3)
+                : patternArr.get(0).getAsString().length();
         List<IngredientData> result2 = new ArrayList<>();
         for (int i = 0; i < result.ingredients.size(); i++) {
-            if (i >= patternChars.size()) {
-                result2.add(IngredientData.fromItem(result.ingredients.get(i)));
-                continue;
-            }
-            char sym = patternChars.get(i);
-            String symStr = String.valueOf(sym);
-            if (sym == ' ' || !keyObj.has(symStr)) {
-                result2.add(IngredientData.empty());
-            } else {
-                JsonObject ingredJson = keyObj.getAsJsonObject(symStr);
-                IngredientData d = ingredientDataFromJson(ingredJson, result.ingredients.get(i));
-                result2.add(d);
+            result2.add(IngredientData.empty());
+        }
+        for (int row = 0; row < patternArr.size(); row++) {
+            String rowString = patternArr.get(row).getAsString();
+            for (int column = 0; column < rowString.length() && column < targetWidth; column++) {
+                int index = row * targetWidth + column;
+                if (index >= result2.size()) continue;
+                char symbol = rowString.charAt(column);
+                if (symbol == ' ') continue;
+                JsonElement element = keyObj.get(String.valueOf(symbol));
+                if (element == null) continue;
+                ItemStack fallback = index < result.ingredients.size()
+                        ? result.ingredients.get(index) : ItemStack.EMPTY;
+                result2.set(index, ingredientDataFromJsonElement(element, fallback));
             }
         }
         return result2;
+    }
+
+    private IngredientData ingredientDataFromJsonElement(JsonElement element, ItemStack fallback) {
+        if (element != null && element.isJsonArray() && !element.getAsJsonArray().isEmpty()) {
+            element = element.getAsJsonArray().get(0);
+        }
+        return element != null && element.isJsonObject()
+                ? ingredientDataFromJson(element.getAsJsonObject(), fallback)
+                : (fallback.isEmpty() ? IngredientData.empty() : IngredientData.fromItem(fallback));
     }
 
     /** 解析 ingredients 数组（shapeless / 其他） */
     private List<IngredientData> patchFromIngredientArray(JsonArray arr, LoadResult result) {
         List<IngredientData> list = new ArrayList<>();
         for (int i = 0; i < arr.size(); i++) {
+            if (isFluidElement(arr.get(i))) continue;
             ItemStack base = i < result.ingredients.size() ? result.ingredients.get(i) : ItemStack.EMPTY;
-            list.add(ingredientDataFromJson(arr.get(i).getAsJsonObject(), base));
+            list.add(ingredientDataFromJsonElement(arr.get(i), base));
         }
         return list;
     }

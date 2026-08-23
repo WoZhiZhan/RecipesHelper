@@ -73,6 +73,10 @@ public class ComponentRenderManager {
         editBoxes.clear();
 
         for (RecipeComponent component : components) {
+            if (component instanceof SlotComponent slotComponent
+                    && slotComponent.getRole() == SlotComponent.SlotRole.OUTPUT) {
+                continue;
+            }
             ComponentRenderer renderer = createRenderer(component);
             if (renderer != null) {
                 renderers.add(renderer);
@@ -90,6 +94,13 @@ public class ComponentRenderManager {
      */
     public List<EditBox> getEditBoxes() {
         return new ArrayList<>(editBoxes);
+    }
+
+    public void shiftEditBoxes(int deltaY) {
+        if (deltaY == 0) return;
+        for (EditBox editBox : editBoxes) {
+            editBox.setY(editBox.getY() + deltaY);
+        }
     }
 
     /**
@@ -131,9 +142,18 @@ public class ComponentRenderManager {
      * 渲染所有组件
      */
     public void renderAll(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        renderAll(guiGraphics, mouseX, mouseY, false);
+    }
+
+    public void renderAllWithoutSlots(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        renderAll(guiGraphics, mouseX, mouseY, true);
+    }
+
+    private void renderAll(GuiGraphics guiGraphics, int mouseX, int mouseY, boolean skipSlots) {
         if (this.font == null)
             this.font = Minecraft.getInstance().font;
         for (ComponentRenderer renderer : renderers) {
+            if (skipSlots && renderer instanceof SlotRenderer) continue;
             renderer.render(guiGraphics, font, mouseX, mouseY);
         }
     }
@@ -143,6 +163,9 @@ public class ComponentRenderManager {
      */
     public boolean handleMouseClick(double mouseX, double mouseY, int button) {
         for (ComponentRenderer renderer : renderers) {
+            // RecipeCreatorScreen owns the authoritative, reflowed slot
+            // coordinates and handles slot clicks itself.
+            if (renderer instanceof SlotRenderer) continue;
             if (!(renderer instanceof NumberInputRenderer) &&
                     !(renderer instanceof StringInputRenderer)) {
                 if (renderer.mouseClicked(mouseX, mouseY, button)) {

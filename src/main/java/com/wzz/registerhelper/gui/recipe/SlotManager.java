@@ -26,6 +26,7 @@ public class SlotManager {
     private List<RecipeComponent> components = new ArrayList<>();
     private final List<IngredientSlot> ingredientSlots = new ArrayList<>();
     private final List<IngredientData> ingredients = new ArrayList<>(); // 改用IngredientData
+    private final List<SlotComponent.SlotRole> ingredientRoles = new ArrayList<>();
     private IngredientSlot resultSlot;
     private ItemStack resultItem = ItemStack.EMPTY;
 
@@ -38,6 +39,7 @@ public class SlotManager {
     private int gridTopOffset = 150;
     private int layoutAreaWidth = Integer.MAX_VALUE;
     private int layoutAreaHeight = Integer.MAX_VALUE;
+    private double layoutScale = 1.0;
 
     public record IngredientSlot(int x, int y, int width, int height, int index) {
         public IngredientSlot(int x, int y, int index) {
@@ -112,8 +114,6 @@ public class SlotManager {
         String layoutId = currentRecipeType.getProperty("layout", String.class);
         if (layoutId != null) {
             updateCustomLayoutPositions(layoutId);
-            resultSlot = new IngredientSlot(rightPanelX + 20,
-                    baseY + resultSlotOffset, -1);
             return;
         }
 
@@ -185,6 +185,8 @@ public class SlotManager {
         components.clear();
         ingredientSlots.clear();
         ingredients.clear();
+        ingredientRoles.clear();
+        resultSlot = null;
 
         if (currentRecipeType == null) return;
 
@@ -195,8 +197,10 @@ public class SlotManager {
             initializeTraditionalLayout();
         }
 
-        resultSlot = new IngredientSlot(rightPanelX + 20,
-                baseY + resultSlotOffset, -1);
+        if (resultSlot == null) {
+            resultSlot = new IngredientSlot(rightPanelX + 20,
+                    baseY + resultSlotOffset, -1);
+        }
     }
 
     private void initializeCustomLayout(String layoutId) {
@@ -210,10 +214,16 @@ public class SlotManager {
         components.clear();
         ingredientSlots.clear();
         ingredients.clear();
+        ingredientRoles.clear();
 
         components = generateFittedComponents(layout);
         for (RecipeComponent component : components) {
             if (component instanceof SlotComponent slotComp) {
+                if (slotComp.getRole() == SlotComponent.SlotRole.OUTPUT) {
+                    resultSlot = new IngredientSlot(slotComp.getX(), slotComp.getY(),
+                            slotComp.getWidth(), slotComp.getHeight(), -1);
+                    continue;
+                }
                 int index = slotComp.getSlotIndex();
                 ingredientSlots.add(new IngredientSlot(
                         slotComp.getX(),
@@ -223,6 +233,7 @@ public class SlotManager {
                         index
                 ));
                 ingredients.add(IngredientData.empty());
+                ingredientRoles.add(slotComp.getRole());
             }
         }
     }
@@ -238,18 +249,30 @@ public class SlotManager {
         components = generateFittedComponents(layout);
         ingredientSlots.clear();
         ingredients.clear();
+        ingredientRoles.clear();
+        resultSlot = null;
 
         int ingredientIndex = 0;
         for (RecipeComponent component : components) {
             if (component instanceof SlotComponent slotComp) {
+                if (slotComp.getRole() == SlotComponent.SlotRole.OUTPUT) {
+                    resultSlot = new IngredientSlot(slotComp.getX(), slotComp.getY(),
+                            slotComp.getWidth(), slotComp.getHeight(), -1);
+                    continue;
+                }
                 ingredientSlots.add(new IngredientSlot(
                         slotComp.getX(), slotComp.getY(),
                         slotComp.getWidth(), slotComp.getHeight(),
                         slotComp.getSlotIndex()));
                 ingredients.add(ingredientIndex < oldIngredients.size()
                         ? oldIngredients.get(ingredientIndex) : IngredientData.empty());
+                ingredientRoles.add(slotComp.getRole());
                 ingredientIndex++;
             }
+        }
+        if (resultSlot == null) {
+            resultSlot = new IngredientSlot(rightPanelX + 20,
+                    baseY + resultSlotOffset, -1);
         }
     }
 
@@ -259,57 +282,91 @@ public class SlotManager {
                 baseX, layoutOriginY, customTier);
         var bounds = layout.getBounds(customTier);
         if (bounds == null || bounds.width <= 0 || bounds.height <= 0) {
+            layoutScale = 1.0;
             return generated;
         }
 
         double scale = Math.min(1.0, Math.min(
                 layoutAreaWidth / (double) bounds.width,
                 layoutAreaHeight / (double) bounds.height));
-        if (scale >= 1.0) {
-            return generated;
+        layoutScale = scale;
+        if (scale < 1.0) {
+            for (RecipeComponent component : generated) {
+                int relativeX = component.getX() - baseX;
+                int relativeY = component.getY() - layoutOriginY;
+                component.setPosition(
+                        baseX + (int) Math.round(relativeX * scale),
+                        layoutOriginY + (int) Math.round(relativeY * scale));
+                int minimumWidth = switch (component.getType()) {
+                    case SLOT -> 4;
+                    case NUMBER_INPUT, STRING_INPUT, LABEL -> 14;
+                };
+                int minimumHeight = 4;
+                component.setSize(
+                        Math.max(minimumWidth, (int) Math.round(component.getWidth() * scale)),
+                        Math.max(minimumHeight, (int) Math.round(component.getHeight() * scale)));
+            }
         }
-
-        for (RecipeComponent component : generated) {
-            int relativeX = component.getX() - baseX;
-            int relativeY = component.getY() - layoutOriginY;
-            component.setPosition(
-                    baseX + (int) Math.round(relativeX * scale),
-                    layoutOriginY + (int) Math.round(relativeY * scale));
-            int minimumWidth = switch (component.getType()) {
-                case SLOT -> 4;
-                case NUMBER_INPUT, STRING_INPUT, LABEL -> 14;
-            };
-            int minimumHeight = 4;
-            component.setSize(
-                    Math.max(minimumWidth, (int) Math.round(component.getWidth() * scale)),
-                    Math.max(minimumHeight, (int) Math.round(component.getHeight() * scale)));
-        }
-        preventComponentOverlap(generated);
+        preventComponentOverlap(generated, scale);
+        moveEditorComponentsBelowSlots(generated);
         return generated;
     }
 
-    private void preventComponentOverlap(List<RecipeComponent> generated) {
+    private void moveEditorComponentsBelowSlots(List<RecipeComponent> generated) {
+        int maxSlotBottom = Integer.MIN_VALUE;
+        int minEditorY = Integer.MAX_VALUE;
         for (RecipeComponent component : generated) {
-            int fittedWidth = component.getWidth();
-            int fittedHeight = component.getHeight();
-            for (RecipeComponent other : generated) {
-                if (component == other) continue;
-
-                boolean verticalOverlap = component.getY() < other.getY() + other.getHeight()
-                        && component.getY() + component.getHeight() > other.getY();
-                if (verticalOverlap && component.getX() < other.getX()) {
-                    fittedWidth = Math.min(fittedWidth,
-                            Math.max(1, other.getX() - component.getX() - 1));
-                }
-
-                boolean horizontalOverlap = component.getX() < other.getX() + other.getWidth()
-                        && component.getX() + component.getWidth() > other.getX();
-                if (horizontalOverlap && component.getY() < other.getY()) {
-                    fittedHeight = Math.min(fittedHeight,
-                            Math.max(1, other.getY() - component.getY() - 1));
-                }
+            if (component.getType() == RecipeComponent.ComponentType.SLOT) {
+                maxSlotBottom = Math.max(maxSlotBottom,
+                        component.getY() + component.getHeight());
+            } else {
+                minEditorY = Math.min(minEditorY, component.getY());
             }
-            component.setSize(fittedWidth, fittedHeight);
+        }
+        if (maxSlotBottom == Integer.MIN_VALUE || minEditorY == Integer.MAX_VALUE) return;
+        String layoutId = currentRecipeType == null
+                ? "" : currentRecipeType.getProperty("layout", String.class);
+        int editorGap = switch (layoutId) {
+            case "terra_plate" -> 58;
+            case "mana_infusion", "runic_altar" -> 50;
+            default -> 28;
+        };
+        int shift = maxSlotBottom + editorGap - minEditorY;
+        moveNonSlotComponentsBy(generated, shift);
+    }
+
+    public int moveNonSlotComponentsBelow(int targetY) {
+        int minEditorY = Integer.MAX_VALUE;
+        for (RecipeComponent component : components) {
+            if (component.getType() != RecipeComponent.ComponentType.SLOT) {
+                minEditorY = Math.min(minEditorY, component.getY());
+            }
+        }
+        if (minEditorY == Integer.MAX_VALUE) return 0;
+        int shift = Math.max(0, targetY - minEditorY);
+        moveNonSlotComponentsBy(components, shift);
+        return shift;
+    }
+
+    private void moveNonSlotComponentsBy(List<RecipeComponent> generated, int shift) {
+        if (shift <= 0) return;
+        for (RecipeComponent component : generated) {
+            if (component.getType() != RecipeComponent.ComponentType.SLOT) {
+                component.setPosition(component.getX(), component.getY() + shift);
+            }
+        }
+    }
+
+    private void preventComponentOverlap(List<RecipeComponent> generated, double scale) {
+        int minimumSlotSize = Math.max(6,
+                Math.min(14, (int) Math.round(18.0 * scale)));
+        for (RecipeComponent component : generated) {
+            if (component.getType() == RecipeComponent.ComponentType.SLOT) {
+                // A slot is an interactive target, not a text-flow element.
+                // Keep it usable while preserving the layout's fitted scale.
+                component.setSize(Math.max(minimumSlotSize, component.getWidth()),
+                        Math.max(minimumSlotSize, component.getHeight()));
+            }
         }
     }
 
@@ -321,8 +378,38 @@ public class SlotManager {
         return baseY;
     }
 
+    public int getLayoutOriginX() {
+        return baseX;
+    }
+
+    public int getLayoutOriginY() {
+        return baseY + gridTopOffset;
+    }
+
     public List<RecipeComponent> getComponents() {
         return components;
+    }
+
+    public double getLayoutScale() {
+        return layoutScale;
+    }
+
+    public int getFittedLayoutWidth() {
+        RecipeLayout layout = getCurrentLayout();
+        if (layout == null || layout.getBounds(customTier) == null) return 0;
+        return Math.max(1, (int) Math.round(layout.getBounds(customTier).width * layoutScale));
+    }
+
+    public int getFittedLayoutHeight() {
+        RecipeLayout layout = getCurrentLayout();
+        if (layout == null || layout.getBounds(customTier) == null) return 0;
+        return Math.max(1, (int) Math.round(layout.getBounds(customTier).height * layoutScale));
+    }
+
+    private RecipeLayout getCurrentLayout() {
+        if (currentRecipeType == null) return null;
+        String layoutId = currentRecipeType.getProperty("layout", String.class);
+        return layoutId == null ? null : LayoutManager.getLayout(layoutId);
     }
 
     public List<RecipeComponent> setComponents(List<RecipeComponent> components) {
@@ -359,6 +446,7 @@ public class SlotManager {
                 baseX + slotSpacing, baseY + gridTopOffset + 20,
                 slotSize, slotSize, 0));
         ingredients.add(IngredientData.empty());
+        ingredientRoles.add(SlotComponent.SlotRole.INPUT);
     }
 
     private void initializeCustomSlots() {
@@ -384,6 +472,7 @@ public class SlotManager {
                 ingredientSlots.add(new IngredientSlot(
                         slotX, slotY, slotSize, slotSize, y * gridWidth + x));
                 ingredients.add(IngredientData.empty());
+                ingredientRoles.add(SlotComponent.SlotRole.INPUT);
             }
         }
     }
@@ -464,7 +553,7 @@ public class SlotManager {
     public List<ItemStack> getIngredients() {
         List<ItemStack> result = new ArrayList<>();
         for (IngredientData data : ingredients) {
-            result.add(data.getItemStack());
+            result.add(data.getDisplayStack().copy());
         }
         return result;
     }
@@ -497,7 +586,7 @@ public class SlotManager {
     public void fillEmptySlots(IngredientData data) {
         if (data == null || data.isEmpty()) return;
         for (int i = 0; i < ingredients.size(); i++) {
-            if (ingredients.get(i).isEmpty()) {
+            if (isInputSlot(i) && ingredients.get(i).isEmpty()) {
                 ingredients.set(i, data.copy());
             }
         }
@@ -563,6 +652,84 @@ public class SlotManager {
 
     // Getters
     public List<IngredientSlot> getIngredientSlots() { return ingredientSlots; }
+    public List<SlotComponent.SlotRole> getIngredientRoles() {
+        return new ArrayList<>(ingredientRoles);
+    }
+
+    public SlotComponent.SlotRole getIngredientRole(int index) {
+        if (index >= 0 && index < ingredientRoles.size()) {
+            return ingredientRoles.get(index);
+        }
+        return SlotComponent.SlotRole.INPUT;
+    }
+
+    public boolean isInputSlot(int index) {
+        return getIngredientRole(index) == SlotComponent.SlotRole.INPUT;
+    }
+
+    /** Reproduces JEI's dynamic circular ingredient placement for Botania. */
+    public void reflowSpecialSlots() {
+        String layout = currentRecipeType == null
+                ? "" : currentRecipeType.getProperty("layout", String.class);
+        if (!"terra_plate".equals(layout) && !"runic_altar".equals(layout)
+                && !"petal_apothecary".equals(layout)) {
+            return;
+        }
+
+        long centerSumX = 0;
+        long centerSumY = 0;
+        int centerCount = 0;
+        for (RecipeComponent component : components) {
+            if (component.getType() != RecipeComponent.ComponentType.SLOT) continue;
+            if (component instanceof SlotComponent slot
+                    && slot.getRole() != SlotComponent.SlotRole.INPUT) continue;
+            centerSumX += component.getX() + component.getWidth() / 2;
+            centerSumY += component.getY() + component.getHeight() / 2;
+            centerCount++;
+        }
+        if (centerCount == 0) return;
+        int centerX = (int) (centerSumX / centerCount);
+        int centerY = (int) (centerSumY / centerCount);
+        int radius = Math.max(12, (int) Math.round(32.0 * layoutScale));
+
+        List<Integer> active = new ArrayList<>();
+        int firstEmpty = -1;
+        for (IngredientSlot slot : ingredientSlots) {
+            if (!isInputSlot(slot.index())) continue;
+            if (!getIngredientData(slot.index()).isEmpty()) {
+                active.add(slot.index());
+            } else if (firstEmpty < 0) {
+                firstEmpty = slot.index();
+            }
+        }
+        if (firstEmpty >= 0) active.add(firstEmpty);
+        if (active.isEmpty()) return;
+
+        double step = Math.PI * 2.0 / active.size();
+        for (IngredientSlot slot : new ArrayList<>(ingredientSlots)) {
+            if (!isInputSlot(slot.index())) continue;
+            int position = active.indexOf(slot.index());
+            if (position < 0) {
+                replaceIngredientSlot(slot, -1000, -1000);
+                continue;
+            }
+            double angle = position * step - Math.PI / 2.0;
+            int x = (int) Math.round(centerX + Math.cos(angle) * radius - slot.width() / 2.0);
+            int y = (int) Math.round(centerY + Math.sin(angle) * radius - slot.height() / 2.0);
+            replaceIngredientSlot(slot, x, y);
+        }
+    }
+
+    private void replaceIngredientSlot(IngredientSlot old, int x, int y) {
+        for (int i = 0; i < ingredientSlots.size(); i++) {
+            if (ingredientSlots.get(i).index() == old.index()) {
+                ingredientSlots.set(i, new IngredientSlot(x, y,
+                        old.width(), old.height(), old.index()));
+                return;
+            }
+        }
+    }
+
     public IngredientSlot getResultSlot() { return resultSlot; }
     public ItemStack getResultItem() { return resultItem; }
     public RecipeTypeDefinition getCurrentRecipeType() { return currentRecipeType; }

@@ -13,46 +13,54 @@ public class CompactingLayout implements RecipeLayout {
     public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
         List<RecipeComponent> components = new ArrayList<>();
         
-        components.add(new SlotComponent(
-            baseX + 54, baseY + 108,
-            "compacting",
-            0
-        ));
-        components.add(new SlotComponent(
-            baseX + 90, baseY + 108,
-            "comp_1",
-            1
-        ));
-        components.add(new SlotComponent(
-            baseX + 306, baseY + 108,
-            "comp_2",
-            2
-        ));
+        // Basin inputs on the left, mixer/output on the right. The JEI
+        // category uses the same semantic arrangement for existing recipes.
+        for (int i = 0; i < 9; i++) {
+            components.add(new SlotComponent(baseX + 10 + (i % 3) * 24,
+                    baseY + 20 + (i / 3) * 24, "ingredient_" + i, i));
+        }
+        components.add(new SlotComponent(baseX + 166, baseY + 44,
+                "output", -1, SlotComponent.SlotRole.OUTPUT));
         components.add(new StringInputComponent(
-            baseX + 200, baseY + 108,
+            baseX + 84, baseY + 116,
             80, "fluid",
-            GuiText.string("registerhelper.recipe_layout.text"), "minecraft:lava",
-            "value", false
+            GuiText.string("registerhelper.recipe_layout.text"), "",
+            "value", true
         ));
         components.add(new NumberInputComponent(
-            baseX + 198, baseY + 162,
+            baseX + 168, baseY + 116,
             60, "amount",
             GuiText.string("registerhelper.recipe_layout.number"), 100,
             0, 1000,
             "value", false
         ));
+        components.add(new StringInputComponent(
+                baseX + 84, baseY + 146, 80, "fluidOut",
+                GuiText.string("registerhelper.recipe_layout.text"), "", "value", true));
+        components.add(new NumberInputComponent(
+                baseX + 168, baseY + 146, 60, "fluidOutAmount",
+                GuiText.string("registerhelper.recipe_layout.number"), 250,
+                1, 10000, "value", true));
         components.add(new LabelComponent(
-            baseX + 162, baseY + 108,
-            "comp_5", "Amount",
+            baseX + 4, baseY + 176,
+            "heat_label", "Heat",
             12, 0x404040
         ));
+        components.add(new StringInputComponent(
+                baseX + 84, baseY + 176, 100, "heatRequirement",
+                GuiText.string("registerhelper.recipe_layout.text"), "",
+                "value", true));
+        components.add(new NumberInputComponent(
+                baseX + 84, baseY + 206, 70, "processingTime",
+                GuiText.string("registerhelper.recipe_layout.number"), 100,
+                1, 100000, "value", true));
         
         return components;
     }
     
     @Override
     public Rectangle getBounds(int tier) {
-        return new Rectangle(0, 0, 315, 200);
+        return new Rectangle(0, 0, 230, 240);
     }
     
     @Override

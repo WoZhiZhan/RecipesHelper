@@ -37,6 +37,25 @@ public class ModIntegrations {
                 "registerhelper.recipe_type.mod.create_mixing", createRecipeProcessor, "compacting");
         RegisterHelper.registerRecipeTypeWithLayout("create", "filling",
                 "registerhelper.recipe_type.mod.create_filling", createRecipeProcessor, "filling");
+        RegisterHelper.registerRecipeTypeWithLayout("create", "crushing",
+                "registerhelper.recipe_type.mod.create_crushing", createRecipeProcessor, "create_cutting");
+        RegisterHelper.registerRecipeTypeWithLayout("create", "milling",
+                "registerhelper.recipe_type.mod.create_milling", createRecipeProcessor, "create_cutting");
+        RegisterHelper.registerRecipeTypeWithLayout("create", "splashing",
+                "registerhelper.recipe_type.mod.create_splashing", createRecipeProcessor, "create_cutting");
+        RegisterHelper.registerRecipeTypeWithLayout("create", "haunting",
+                "registerhelper.recipe_type.mod.create_haunting", createRecipeProcessor, "create_cutting");
+        RegisterHelper.registerRecipeTypeWithLayout("create", "deploying",
+                "registerhelper.recipe_type.mod.create_deploying", createRecipeProcessor, "anvil");
+        RegisterHelper.registerRecipeTypeWithLayout("create", "item_application",
+                "registerhelper.recipe_type.mod.create_item_application", createRecipeProcessor, "anvil");
+        RegisterHelper.registerRecipeTypeWithLayout("create", "sandpaper_polishing",
+                "registerhelper.recipe_type.mod.create_sandpaper_polishing", createRecipeProcessor, "pressing");
+        RegisterHelper.registerRecipeType("create", "mechanical_crafting",
+                "registerhelper.recipe_type.mod.create_mechanical_crafting", createRecipeProcessor, 9, false);
+        RegisterHelper.registerRecipeTypeWithLayout("create", "sequenced_assembly",
+                "registerhelper.recipe_type.mod.create_sequenced_assembly", createRecipeProcessor,
+                "sequenced_assembly");
         RegisterHelper.registerRecipeType("arcanevortex", "van_sh_workbench_shaped",
                 "registerhelper.recipe_type.mod.arcane_vortex", new ArcaneVortexProcessor(), 16, false);
         RegisterHelper.registerRecipeTypeWithLayout("astralrail_cube", "path_ascension",

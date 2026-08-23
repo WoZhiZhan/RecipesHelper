@@ -24,6 +24,8 @@ public class BotaniaRecipeRegistration {
 
         registerRecipeTypeWithLayout("botania", "runic_altar", "registerhelper.recipe_type.botania.runic_altar",
             processor, "runic_altar");
+        registerRecipeTypeWithLayout("botania", "runic_altar_head", "registerhelper.recipe_type.botania.runic_altar_head",
+            processor, "runic_altar");
 
         registerRecipeTypeWithLayout("botania", "mana_infusion", "registerhelper.recipe_type.botania.mana_infusion",
             processor, "mana_infusion");
@@ -39,15 +41,19 @@ public class BotaniaRecipeRegistration {
 
         registerRecipeTypeWithLayout("botania", "pure_daisy", "registerhelper.recipe_type.botania.pure_daisy",
             processor, "pure_daisy");
+        registerRecipeTypeWithLayout("botania", "state_copying_pure_daisy", "registerhelper.recipe_type.botania.state_copying_pure_daisy",
+            processor, "pure_daisy");
 
         registerRecipeTypeWithLayout("botania", "brew", "registerhelper.recipe_type.botania.brew",
             processor, "brew");
 
         registerRecipeTypeWithLayout("botania", "orechid", "registerhelper.recipe_type.botania.orechid",
-            processor, "pure_daisy");
+             processor, "orechid");
+        registerRecipeTypeWithLayout("botania", "orechid_ignem", "registerhelper.recipe_type.botania.orechid_ignem",
+             processor, "orechid");
 
         registerRecipeTypeWithLayout("botania", "marimorphosis", "registerhelper.recipe_type.botania.marimorphosis",
-            processor, "pure_daisy");
+             processor, "orechid");
     }
     
     private static void registerBotaniaLayouts() {
@@ -58,5 +64,6 @@ public class BotaniaRecipeRegistration {
         LayoutManager.registerLayout("mana_infusion", new ManaInfusionLayout());
         LayoutManager.registerLayout("terra_plate", new TerraPlateLayout());
         LayoutManager.registerLayout("elven_trade", new ElvenTradeLayout());
+        LayoutManager.registerLayout("orechid", new OrechidLayout());
     }
 }

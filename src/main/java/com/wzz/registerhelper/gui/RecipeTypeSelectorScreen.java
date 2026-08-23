@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui;
 
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
 import com.wzz.registerhelper.util.PinyinSearchHelper;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -67,7 +68,8 @@ public class RecipeTypeSelectorScreen extends Screen {
         // 初始化搜索助手
         this.searchHelper = new PinyinSearchHelper<>(
                 RecipeTypeDefinition::getDisplayName,  // 显示名称
-                type -> type.getModId() + ":" + type.getId()  // ID（用于mod过滤）
+                type -> type.getId().contains(":")
+                        ? type.getId() : type.getModId() + ":" + type.getId()  // ID（用于mod过滤）
         );
 
         // 构建拼音缓存
@@ -100,7 +102,7 @@ public class RecipeTypeSelectorScreen extends Screen {
     }
 
     private void initializeSearchBox(String value) {
-        searchBox = new EditBox(this.font, leftPos + 20, topPos + 30, contentWidth - 40, 20,
+        searchBox = new CenteredEditBox(this.font, leftPos + 20, topPos + 30, contentWidth - 40, 20,
                 GuiText.component("registerhelper.gui.common.search"));
         GuiTheme.styleInput(searchBox);
         searchBox.setHint(GuiText.component("registerhelper.gui.recipe_type_selector.search_hint"));

@@ -6,13 +6,15 @@ import com.wzz.registerhelper.network.OpenGUIPacket;
 import com.wzz.registerhelper.network.RecipeBlacklistPacket;
 import com.wzz.registerhelper.network.RequestRecipeListPacket;
 import com.wzz.registerhelper.network.SyncRecipeListPacket;
+import com.wzz.registerhelper.network.RequestRecipeJsonPacket;
+import com.wzz.registerhelper.network.SyncRecipeJsonPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 public class ModNetwork {
-    private static final String PROTOCOL_VERSION = "3";
+    private static final String PROTOCOL_VERSION = "4";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(RecipeHelper.MODID, "main"),
             () -> PROTOCOL_VERSION, PROTOCOL_VERSION::equals, PROTOCOL_VERSION::equals
@@ -56,6 +58,18 @@ public class ModNetwork {
                 .encoder(RecipeBlacklistPacket::encode)
                 .decoder(RecipeBlacklistPacket::decode)
                 .consumerMainThread(RecipeBlacklistPacket::handle)
+                .add();
+
+        CHANNEL.messageBuilder(RequestRecipeJsonPacket.class, id++, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(RequestRecipeJsonPacket::encode)
+                .decoder(RequestRecipeJsonPacket::decode)
+                .consumerMainThread(RequestRecipeJsonPacket::handle)
+                .add();
+
+        CHANNEL.messageBuilder(SyncRecipeJsonPacket.class, id++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(SyncRecipeJsonPacket::encode)
+                .decoder(SyncRecipeJsonPacket::decode)
+                .consumerMainThread(SyncRecipeJsonPacket::handle)
                 .add();
     }
 }

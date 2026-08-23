@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
 import com.wzz.registerhelper.util.PinyinSearchHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -249,7 +250,7 @@ public class RecipeCloneWizardScreen extends Screen {
         itemRows = Math.max(1, (contentH - 18) / (SLOT + 2));
 
         // 搜索框（栏1顶部）
-        searchBox = new EditBox(font, c1x, contentY - 18, col1W, 16,
+        searchBox = new CenteredEditBox(font, c1x, contentY - 18, col1W, 16,
                 GuiText.component("registerhelper.gui.common.search"));
         GuiTheme.styleInput(searchBox);
         searchBox.setMaxLength(64);

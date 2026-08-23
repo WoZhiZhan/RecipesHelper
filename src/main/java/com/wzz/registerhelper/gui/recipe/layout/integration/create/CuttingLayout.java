@@ -14,10 +14,13 @@ public class CuttingLayout implements RecipeLayout {
         List<RecipeComponent> components = new ArrayList<>();
 
         components.add(new SlotComponent(
-                baseX + 66, baseY + 66,
+                baseX + 24, baseY + 44,
                 "create_cutting",
                 0
         ));
+        components.add(new SlotComponent(
+                baseX + 166, baseY + 44,
+                "output", -1, SlotComponent.SlotRole.OUTPUT));
         components.add(new NumberInputComponent(
                 baseX + 198, baseY + 132,
                 60, "processingTime",
@@ -36,7 +39,7 @@ public class CuttingLayout implements RecipeLayout {
 
     @Override
     public Rectangle getBounds(int tier) {
-        return new Rectangle(0, 0, 228, 200);
+        return new Rectangle(0, 0, 210, 165);
     }
 
     @Override

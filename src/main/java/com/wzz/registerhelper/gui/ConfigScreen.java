@@ -24,6 +24,7 @@ public class ConfigScreen extends Screen {
     private boolean perSlotNBT;
     private boolean defaultIncludeNBT;
     private boolean debugLogging;
+    private boolean learnedRecipes;
     private String guiTheme;
     private String savedTheme;
 
@@ -35,12 +36,14 @@ public class ConfigScreen extends Screen {
         "registerhelper.gui.config.per_slot_nbt",
         "registerhelper.gui.config.default_include_nbt",
         "registerhelper.gui.config.debug_logging",
+        "registerhelper.gui.config.learned_recipes",
         "registerhelper.gui.config.theme"
     };
     private static final String[] DESCS = {
         "registerhelper.gui.config.per_slot_nbt.desc",
         "registerhelper.gui.config.default_include_nbt.desc",
         "registerhelper.gui.config.debug_logging.desc",
+        "registerhelper.gui.config.learned_recipes.desc",
         "registerhelper.gui.config.theme.desc"
     };
 
@@ -67,6 +70,7 @@ public class ConfigScreen extends Screen {
             perSlotNBT        = ModConfig.isPerSlotNBTEnabled();
             defaultIncludeNBT = ModConfig.getDefaultIncludeNBT();
             debugLogging      = ModConfig.isDebugLoggingEnabled();
+            learnedRecipes    = ModConfig.isLearnedRecipesEnabled();
             guiTheme           = ModConfig.getGuiTheme();
             savedTheme         = guiTheme;
             initialized = true;
@@ -92,11 +96,11 @@ public class ConfigScreen extends Screen {
         int rowY = panelBounds.y() + TITLE_HEIGHT;
         int toggleWidth = Math.min(96, Math.max(64, panelBounds.width() / 4));
 
-        // 三行开关
+        // Boolean settings plus the theme selector
         for (int i = 0; i < ROWS; i++) {
             final int idx = i;
             Button btn;
-            if (idx == 3) {
+            if (idx == 4) {
                 btn = addRenderableWidget(Button.builder(
                                 GuiText.component(GuiTheme.themeLabelKey(guiTheme)),
                                 b -> {
@@ -139,6 +143,7 @@ public class ConfigScreen extends Screen {
             case 0 -> perSlotNBT;
             case 1 -> defaultIncludeNBT;
             case 2 -> debugLogging;
+            case 3 -> learnedRecipes;
             default -> false;
         };
     }
@@ -147,6 +152,7 @@ public class ConfigScreen extends Screen {
             case 0 -> perSlotNBT        = v;
             case 1 -> defaultIncludeNBT = v;
             case 2 -> debugLogging      = v;
+            case 3 -> learnedRecipes    = v;
         }
     }
     private static String toggleLabelKey(boolean on) {
@@ -175,7 +181,7 @@ public class ConfigScreen extends Screen {
             g.fill(cx, rowY + rowHeight - 1, cx + panelWidth, rowY + rowHeight, GuiTheme.DIVIDER);
 
             // 左侧竖色条：开=蓝, 关=红
-            int barColor = i == 3 ? GuiTheme.INFO : (getVal(i) ? GuiTheme.SUCCESS : GuiTheme.DANGER);
+            int barColor = i == 4 ? GuiTheme.INFO : (getVal(i) ? GuiTheme.SUCCESS : GuiTheme.DANGER);
             g.fill(cx, rowY, cx + 3, rowY + rowHeight - 1, barColor);
 
             // 标签 + 说明
@@ -202,6 +208,7 @@ public class ConfigScreen extends Screen {
         ModConfig.COMMON.enablePerSlotNBT.set(perSlotNBT);
         ModConfig.COMMON.defaultIncludeNBT.set(defaultIncludeNBT);
         ModConfig.COMMON.enableDebugLogging.set(debugLogging);
+        ModConfig.COMMON.enableLearnedRecipes.set(learnedRecipes);
         ModConfig.COMMON.guiTheme.set(GuiTheme.normalizeTheme(guiTheme));
         GuiTheme.applyTheme(guiTheme);
         savedTheme = guiTheme;

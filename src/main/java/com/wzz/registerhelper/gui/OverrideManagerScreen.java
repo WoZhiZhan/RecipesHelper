@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui;
 
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
 import com.wzz.registerhelper.util.PinyinSearchHelper;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -99,7 +100,7 @@ public class OverrideManagerScreen extends Screen {
         visibleItems = Math.max(1, (listHeight - 10) / ITEM_HEIGHT);
         
         // 搜索框
-        searchBox = new EditBox(this.font, listBounds.x(), panelY + 36,
+        searchBox = new CenteredEditBox(this.font, listBounds.x(), panelY + 36,
                 listBounds.width(), 20, GuiText.component("registerhelper.gui.override.search"));
         GuiTheme.styleInput(searchBox);
         searchBox.setHint(GuiText.component("registerhelper.gui.override.search_hint"));

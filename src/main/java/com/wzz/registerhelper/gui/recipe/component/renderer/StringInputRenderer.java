@@ -4,6 +4,7 @@ import com.wzz.registerhelper.gui.recipe.component.ComponentDataManager;
 import com.wzz.registerhelper.gui.GuiTheme;
 import com.wzz.registerhelper.gui.recipe.component.ComponentRenderer;
 import com.wzz.registerhelper.gui.recipe.component.StringInputComponent;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -28,7 +29,7 @@ public class StringInputRenderer implements ComponentRenderer {
             font = Minecraft.getInstance().font;
             
         // 创建 EditBox
-        this.editBox = new EditBox(font, 
+        this.editBox = new CenteredEditBox(font,
             component.getX(), component.getY(), 
             component.getWidth(), component.getHeight(),
             Component.literal(component.getLabel()));
@@ -54,7 +55,6 @@ public class StringInputRenderer implements ComponentRenderer {
     public void render(GuiGraphics guiGraphics, Font font, int mouseX, int mouseY) {
         if (!active) return;
         GuiTheme.drawInput(guiGraphics, editBox);
-        editBox.render(guiGraphics, mouseX, mouseY, 0);
     }
     
     @Override

@@ -26,22 +26,28 @@ public class PetalApothecaryLayout implements RecipeLayout {
     public List<RecipeComponent> generateComponents(int offsetX, int offsetY, int tier) {
         List<RecipeComponent> components = new ArrayList<>();
         
-        components.add(new SlotComponent(offsetX + 150, offsetY + 80, "petal_0", 0));
-        components.add(new SlotComponent(offsetX + 180, offsetY + 100, "petal_1", 1));
-        components.add(new SlotComponent(offsetX + 200, offsetY + 140, "petal_2", 2));
-        components.add(new SlotComponent(offsetX + 190, offsetY + 180, "petal_3", 3));
-        components.add(new SlotComponent(offsetX + 170, offsetY + 210, "petal_4", 4));
-        components.add(new SlotComponent(offsetX + 140, offsetY + 210, "petal_5", 5));
-        components.add(new SlotComponent(offsetX + 120, offsetY + 180, "petal_6", 6));
-        components.add(new SlotComponent(offsetX + 100, offsetY + 140, "petal_7", 7));
-        components.add(new SlotComponent(offsetX + 120, offsetY + 100, "petal_8", 8));
+        int centerX = offsetX + 48;
+        int centerY = offsetY + 45;
+        int radius = 32;
+        for (int i = 0; i < 16; i++) {
+            double angle = Math.PI * 2 * i / 16.0 - Math.PI / 2;
+            components.add(new SlotComponent(
+                    (int) Math.round(centerX + Math.cos(angle) * radius),
+                    (int) Math.round(centerY + Math.sin(angle) * radius),
+                    "petal_" + i, i));
+        }
+        // Botania's water/reagent point sits on the upper-left side of the altar.
+        components.add(new SlotComponent(offsetX + 39, offsetY + 40,
+                "reagent", 16, SlotComponent.SlotRole.REAGENT));
+        components.add(new SlotComponent(offsetX + 86, offsetY + 10,
+                "output", -1, SlotComponent.SlotRole.OUTPUT));
         
         return components;
     }
 
     @Override
     public Rectangle getBounds(int tier) {
-        return new Rectangle(0, 0, 210, 220);
+        return new Rectangle(0, 0, 114, 105);
     }
 
     @Override

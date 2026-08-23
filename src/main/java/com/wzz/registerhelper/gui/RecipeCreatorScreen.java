@@ -4,11 +4,15 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.wzz.registerhelper.gui.recipe.*;
 import com.wzz.registerhelper.gui.recipe.component.ComponentRenderManager;
 import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeBuilder;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig;
 import com.wzz.registerhelper.gui.recipe.dynamic.DynamicRecipeTypeConfig.*;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
+import com.wzz.registerhelper.integration.jei.JeiRecipePreviewFacade;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
 import com.wzz.registerhelper.network.BlacklistClientHelper;
+import com.wzz.registerhelper.network.RecipeJsonClientCache;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import com.wzz.registerhelper.tags.CustomTagManager;
@@ -23,6 +27,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
+import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fluids.FluidUtil;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.NotNull;
 
@@ -43,6 +49,8 @@ public class RecipeCreatorScreen extends Screen {
     private static final int MAX_RIGHT_PANEL_WIDTH = 180;
     private static final int GRID_TOP_OFFSET = 150;
     private static final int FOOTER_HEIGHT = 35;
+    private static final int BRUSH_SLOT_SIZE = 20;
+    private static final int BRUSH_SLOT_GAP = 3;
 
     // 核心组件
     private SlotManager slotManager;
@@ -82,10 +90,22 @@ public class RecipeCreatorScreen extends Screen {
     private Button cancelButton;
     private Button clearAllButton;
     private Button selectBrushItemButton;
+    private final List<ItemStack> favoriteBrushItems = new ArrayList<>();
+    private int currentBrushX = -1;
+    private int favoriteBrushX = -1;
+    private int brushControlY = -1;
+    private int favoriteBrushCount;
     private Button editExistingRecipeButton;
     private ComponentRenderManager componentRenderManager;
+    private List<ItemStack> extraOutputItems = new ArrayList<>();
     private boolean resetControlValuesOnInit;
     private boolean menuOpen = false;
+    private Object jeiRecipeLayout;
+    private ResourceLocation jeiPreviewRecipeId;
+    private boolean jeiPreviewAttempted;
+    private boolean jeiPreviewActive;
+    private Object runtimeRecipe;
+    private String jeiControlsLayout;
     /** 下拉菜单的屏幕坐标（render 时计算，mouseClicked 时判断） */
     private int menuBtnX, menuBtnY, menuBtnW = 68;
 
@@ -119,6 +139,7 @@ public class RecipeCreatorScreen extends Screen {
         initializeComponents();
         pendingLoadResult = recipeLoader.loadRecipe(recipeId);
         if (pendingLoadResult.success) {
+            this.runtimeRecipe = pendingLoadResult.runtimeRecipe;
             RecipeTypeDefinition loadedType = findRecipeTypeDefinition(pendingLoadResult);
             if (loadedType != null) {
                 this.currentRecipeType = loadedType;
@@ -266,6 +287,9 @@ public class RecipeCreatorScreen extends Screen {
                 PADDING * 3 + gridDim.getPixelWidth() + PREFERRED_RIGHT_PANEL_WIDTH);
         int preferredHeight = Math.max(PREFERRED_MIN_HEIGHT,
                 GRID_TOP_OFFSET + gridDim.getPixelHeight() + FOOTER_HEIGHT + PADDING);
+        if (currentRecipeType.getProperty("layout", String.class) != null) {
+            preferredHeight += 70;
+        }
         GuiLayoutHelper.Bounds panel = GuiLayoutHelper.centered(this.width, this.height,
                 preferredWidth, preferredHeight, MIN_CONTENT_WIDTH, MIN_CONTENT_HEIGHT,
                 SCREEN_MARGIN, SCREEN_MARGIN);
@@ -347,6 +371,15 @@ public class RecipeCreatorScreen extends Screen {
      * 从选择器加载配方
      */
     private void loadSelectedRecipe(ResourceLocation recipeId) {
+        if (RecipeLoader.isRemoteServer() && !RecipeJsonClientCache.contains(recipeId)) {
+            displayInfo(GuiText.component("registerhelper.message.recipe.loading"));
+            RecipeJsonClientCache.request(recipeId, ignored -> {
+                if (minecraft != null) {
+                    minecraft.execute(() -> loadSelectedRecipe(recipeId));
+                }
+            });
+            return;
+        }
         UnifiedRecipeInfo info = recipeLoader.findRecipeInfo(recipeId);
         if (info == null) {
             displayError(GuiText.component("registerhelper.message.recipe.info_not_found", recipeId));
@@ -355,6 +388,10 @@ public class RecipeCreatorScreen extends Screen {
 
         this.editingRecipeId = recipeId;
         this.isEditingExisting = true;
+        this.jeiPreviewAttempted = false;
+        this.jeiRecipeLayout = null;
+        this.jeiPreviewRecipeId = null;
+        this.jeiControlsLayout = null;
 
         RecipeLoader.LoadResult result = recipeLoader.loadRecipe(recipeId);
         if (!result.success) {
@@ -402,6 +439,7 @@ public class RecipeCreatorScreen extends Screen {
             this.clearWidgets();
             this.init();
         }
+        this.runtimeRecipe = result.runtimeRecipe;
 
         String buttonKey = info.hasOverride || !recipeLoader.isCustomRecipe(recipeId)
                 ? "registerhelper.gui.recipe_creator.update_override"
@@ -499,7 +537,10 @@ public class RecipeCreatorScreen extends Screen {
         // 设置回调
         componentRenderManager.setSlotCallbacks(
                 this::openItemSelectorForSlot,
-                slotManager::clearSlot
+                index -> {
+                    slotManager.clearSlot(index);
+                    syncDataToRenderer();
+                }
         );
         componentRenderManager.setResultCallback(this::openResultSelector);
 
@@ -532,6 +573,14 @@ public class RecipeCreatorScreen extends Screen {
                 slotManager.setIngredients(result.ingredients);          // 回退
             }
             slotManager.setResultItem(result.resultItem);
+            extraOutputItems = new ArrayList<>();
+            for (ItemStack stack : result.extraOutputs) {
+                extraOutputItems.add(stack.copy());
+            }
+            ItemStack fluidDisplay = fluidDisplayStack(result.componentData.get("fluidOutput"));
+            if (!fluidDisplay.isEmpty()) {
+                extraOutputItems.add(fluidDisplay);
+            }
         }
         syncDataToRenderer();
     }
@@ -553,7 +602,8 @@ public class RecipeCreatorScreen extends Screen {
         // 同步所有槽位物品
         List<ItemStack> ingredients = slotManager.getIngredients();
         for (int i = 0; i < ingredients.size(); i++) {
-            ItemStack item = ingredients.get(i);
+            IngredientData data = slotManager.getIngredientData(i);
+            ItemStack item = data.isEmpty() ? ingredients.get(i) : data.getDisplayStack();
             componentRenderManager.updateSlotItem(i, item);
         }
 
@@ -649,7 +699,8 @@ public class RecipeCreatorScreen extends Screen {
                 if (supportedTypes != null) {
                     for (String supportedType : supportedTypes) {
                         String fullType = supportedType.contains(":") ? supportedType : definition.getModId() + ":" + supportedType;
-                        if (recipeTypeId.equals(fullType) || recipeTypeId.endsWith(":" + supportedType)) {
+                        if (definition.getId().equals(fullType)
+                                && (recipeTypeId.equals(fullType) || recipeTypeId.endsWith(":" + supportedType))) {
                             return definition;
                         }
                     }
@@ -735,11 +786,32 @@ public class RecipeCreatorScreen extends Screen {
 
         int brushWidth = Math.max(70, Math.min(120,
                 rightPanelX - currentX - 12));
+        refreshBrushFavorites();
+        int brushAreaRight = rightPanelX - 12;
+        int brushAreaWidth = Math.max(1, brushAreaRight - currentX);
+        int favoriteReservation = 5 + BRUSH_SLOT_SIZE + 5
+                + BRUSH_SLOT_SIZE * 3 + BRUSH_SLOT_GAP * 2;
+        int widthWithFavorites = brushAreaWidth - favoriteReservation;
+        brushWidth = Math.min(brushWidth, Math.max(1,
+                widthWithFavorites >= 48 ? widthWithFavorites : brushAreaWidth - 1));
+        brushWidth = Math.max(1, brushWidth);
         selectBrushItemButton = addRenderableWidget(Button.builder(
                         GuiText.component("registerhelper.gui.recipe_creator.select_brush"),
                         button -> fillModeHandler.openBrushSelector())
                 .bounds(currentX, controlY2, brushWidth, 20)
                 .build());
+        brushControlY = controlY2;
+        currentBrushX = currentX + brushWidth + 5;
+        favoriteBrushX = currentBrushX + BRUSH_SLOT_SIZE + 5;
+        int remainingWidth = Math.max(0, brushAreaRight - favoriteBrushX);
+        favoriteBrushCount = Math.min(3,
+                Math.max(0, (remainingWidth + BRUSH_SLOT_GAP)
+                        / (BRUSH_SLOT_SIZE + BRUSH_SLOT_GAP)));
+        if (currentBrushX + BRUSH_SLOT_SIZE > brushAreaRight) {
+            currentBrushX = -1;
+            favoriteBrushX = -1;
+            favoriteBrushCount = 0;
+        }
 
         // 右侧面板
         initializeRightPanel();
@@ -813,7 +885,7 @@ public class RecipeCreatorScreen extends Screen {
         int inputX = panelContentX + labelWidth;
         int inputWidth = Math.max(32, rightPanelWidth - labelWidth - 20);
 
-        resultCountBox = new EditBox(this.font, inputX,
+        resultCountBox = new CenteredEditBox(this.font, inputX,
                 rightPanelStartY + rightPanelRowGap, inputWidth, 20,
                 GuiText.component("registerhelper.gui.recipe_creator.count"));
         GuiTheme.styleInput(resultCountBox);
@@ -826,7 +898,7 @@ public class RecipeCreatorScreen extends Screen {
         String defaultTime = getDefaultTimeForCurrentType();
         String defaultExp = getDefaultExpForCurrentType();
 
-        cookingTimeBox = new EditBox(this.font, inputX,
+        cookingTimeBox = new CenteredEditBox(this.font, inputX,
                 rightPanelStartY + rightPanelRowGap * 2, inputWidth, 20,
                 GuiText.component("registerhelper.gui.recipe_creator.cooking_time"));
         GuiTheme.styleInput(cookingTimeBox);
@@ -835,7 +907,7 @@ public class RecipeCreatorScreen extends Screen {
                 (text.isEmpty() || Integer.parseInt(text) <= 32000));
         addRenderableWidget(cookingTimeBox);
 
-        cookingExpBox = new EditBox(this.font, inputX,
+        cookingExpBox = new CenteredEditBox(this.font, inputX,
                 rightPanelStartY + rightPanelRowGap * 3, inputWidth, 20,
                 GuiText.component("registerhelper.gui.recipe_creator.cooking_exp"));
         GuiTheme.styleInput(cookingExpBox);
@@ -1108,14 +1180,10 @@ public class RecipeCreatorScreen extends Screen {
 
         switch (type) {
             case ALL_ITEMS -> minecraft.setScreen(new ItemSelectorScreen(this, item -> {
-                IngredientData data = IngredientData.fromItem(item);
-                fillModeHandler.setBrushData(data);
-                displayInfo(GuiText.component("registerhelper.message.recipe.brush_set", data.getDisplayText()));
+                setCurrentBrushItem(item, true);
             }));
             case INVENTORY -> minecraft.setScreen(new InventoryItemSelectorScreen(this, item -> {
-                IngredientData data = IngredientData.fromItem(item);
-                fillModeHandler.setBrushData(data);
-                displayInfo(GuiText.component("registerhelper.message.recipe.brush_set", data.getDisplayText()));
+                setCurrentBrushItem(item, true);
             }));
             case TAG -> minecraft.setScreen(new TagSelectorScreen(this, tagId -> {
                 IngredientData data = IngredientData.fromTag(tagId);
@@ -1145,10 +1213,24 @@ public class RecipeCreatorScreen extends Screen {
 
     private void clearAllIngredients() {
         slotManager.clearAllIngredients();
+        extraOutputItems.clear();
+        if (componentRenderManager != null) {
+            componentRenderManager.getDataManager().clear();
+        }
         fillModeHandler.reset();
         editingRecipeId = null;
         isEditingExisting = false;
         createButton.setMessage(GuiText.component("registerhelper.gui.recipe_creator.create"));
+        syncDataToRenderer();
+    }
+
+    private void invalidateRawIngredientData() {
+        if (componentRenderManager == null) return;
+        var data = componentRenderManager.getDataManager();
+        data.remove("rawInput");
+        data.remove("rawIngredients");
+        data.remove("fluidInputs");
+        data.remove("sequence");
     }
 
     private void openRecipeSelector() {
@@ -1236,6 +1318,7 @@ public class RecipeCreatorScreen extends Screen {
      */
     private void handleIngredientTypeSelection(int slotIndex, IngredientTypeSelector.SelectionType type) {
         if (minecraft == null) return;
+        invalidateRawIngredientData();
 
         switch (type) {
             case ALL_ITEMS -> {
@@ -1363,13 +1446,15 @@ public class RecipeCreatorScreen extends Screen {
             }
 
             ItemStack resultItem = slotManager.getResultItem();
-            if (resultItem.isEmpty()) {
+            if (resultItem.isEmpty() && !allowsEmptyItemResult()) {
                 displayError(GuiText.component("registerhelper.message.recipe.select_result"));
                 return;
             }
 
             resultItem = resultItem.copy();
-            resultItem.setCount(count);
+            if (!resultItem.isEmpty()) {
+                resultItem.setCount(count);
+            }
 
             float cookingTime = currentRecipeType.supportsCookingSettings() ?
                     Float.parseFloat(cookingTimeBox.getValue()) : 0;
@@ -1389,6 +1474,14 @@ public class RecipeCreatorScreen extends Screen {
         Map<String, Object> componentData = new HashMap<>();
         if (componentRenderManager != null) {
             componentData = componentRenderManager.getDataManager().getAllData();
+        }
+        if (slotManager != null) {
+            List<String> slotRoles = new ArrayList<>();
+            for (com.wzz.registerhelper.gui.recipe.component.SlotComponent.SlotRole role
+                    : slotManager.getIngredientRoles()) {
+                slotRoles.add(role.name());
+            }
+            componentData.put("slotRoles", slotRoles);
         }
 
         List<IngredientData> ingredientsData = slotManager.getIngredientsData();
@@ -1460,13 +1553,30 @@ public class RecipeCreatorScreen extends Screen {
         if (cookingTimeBox.visible) GuiTheme.drawInput(guiGraphics, cookingTimeBox);
         if (cookingExpBox.visible) GuiTheme.drawInput(guiGraphics, cookingExpBox);
 
+        boolean recipeCanvas = hasRecipeCanvas();
+        if (recipeCanvas) {
+            GuiTheme.beginRecipeCanvas(currentRecipeType.getProperty("layout", String.class));
+        }
+
+        jeiPreviewActive = renderJeiPreview(guiGraphics, mouseX, mouseY);
+
         // 使用组件渲染器渲染
         if (componentRenderManager != null && !slotManager.getComponents().isEmpty()) {
-            componentRenderManager.renderAll(guiGraphics, mouseX, mouseY);
+            if (!jeiPreviewActive) {
+                drawSpecialRecipePreview(guiGraphics);
+                componentRenderManager.renderAllWithoutSlots(guiGraphics, mouseX, mouseY);
+                renderIngredientSlots(guiGraphics, mouseX, mouseY);
+            } else {
+                componentRenderManager.renderAllWithoutSlots(guiGraphics, mouseX, mouseY);
+            }
             // 如果使用组件渲染器，还需要手动渲染结果槽
-            renderResultSlot(guiGraphics, mouseX, mouseY);
+            if (!jeiPreviewActive) renderResultSlot(guiGraphics, mouseX, mouseY);
         } else {
             renderSlots(guiGraphics, mouseX, mouseY);
+        }
+
+        if (recipeCanvas) {
+            GuiTheme.endRecipeCanvas();
         }
 
         if (currentRecipeType != null && currentRecipeType.supportsFillMode()) {
@@ -1495,7 +1605,152 @@ public class RecipeCreatorScreen extends Screen {
             }
         }
         super.render(guiGraphics, mouseX, mouseY, partialTick);
-        renderTooltips(guiGraphics, mouseX, mouseY);
+        renderBrushControls(guiGraphics, mouseX, mouseY);
+        boolean brushTooltipShown = renderBrushTooltip(guiGraphics, mouseX, mouseY);
+        if (jeiPreviewActive) {
+            JeiRecipePreviewFacade.drawOverlays(jeiRecipeLayout, guiGraphics, mouseX, mouseY);
+        } else if (!brushTooltipShown) {
+            renderTooltips(guiGraphics, mouseX, mouseY);
+        }
+    }
+
+    private void setCurrentBrushItem(ItemStack item, boolean remember) {
+        if (item == null || item.isEmpty()) return;
+        IngredientData data = IngredientData.fromItem(item);
+        fillModeHandler.setBrushData(data);
+        if (remember) {
+            com.wzz.registerhelper.init.ModConfig.rememberBrushItem(item);
+            refreshBrushFavorites();
+        }
+        displayInfo(GuiText.component("registerhelper.message.recipe.brush_set", data.getDisplayText()));
+    }
+
+    private void refreshBrushFavorites() {
+        favoriteBrushItems.clear();
+        favoriteBrushItems.addAll(com.wzz.registerhelper.init.ModConfig.getBrushFavoriteStacks());
+    }
+
+    private boolean isBrushControlsVisible() {
+        return currentRecipeType != null && currentRecipeType.supportsFillMode()
+                && fillModeHandler != null && fillModeHandler.shouldShowBrushSelector()
+                && currentBrushX >= 0 && brushControlY >= 0;
+    }
+
+    private ItemStack getCurrentBrushDisplayStack() {
+        if (fillModeHandler == null || !fillModeHandler.hasBrushItem()) {
+            return ItemStack.EMPTY;
+        }
+        return fillModeHandler.getBrushData().getDisplayStack();
+    }
+
+    private void renderBrushControls(GuiGraphics graphics, int mouseX, int mouseY) {
+        if (!isBrushControlsVisible()) return;
+
+        ItemStack current = getCurrentBrushDisplayStack();
+        drawBrushSlot(graphics, currentBrushX, brushControlY, current,
+                true, false, currentBrushX <= mouseX && mouseX < currentBrushX + BRUSH_SLOT_SIZE
+                        && brushControlY <= mouseY && mouseY < brushControlY + BRUSH_SLOT_SIZE);
+
+        for (int i = 0; i < favoriteBrushCount; i++) {
+            int x = favoriteBrushX + i * (BRUSH_SLOT_SIZE + BRUSH_SLOT_GAP);
+            ItemStack favorite = i < favoriteBrushItems.size()
+                    ? favoriteBrushItems.get(i) : ItemStack.EMPTY;
+            boolean selected = !current.isEmpty() && !favorite.isEmpty()
+                    && ItemStack.isSameItem(current, favorite);
+            boolean hovered = x <= mouseX && mouseX < x + BRUSH_SLOT_SIZE
+                    && brushControlY <= mouseY && mouseY < brushControlY + BRUSH_SLOT_SIZE;
+            drawBrushSlot(graphics, x, brushControlY, favorite, false, selected, hovered);
+        }
+    }
+
+    private void drawBrushSlot(GuiGraphics graphics, int x, int y, ItemStack stack,
+                               boolean current, boolean selected, boolean hovered) {
+        GuiTheme.drawSlot(graphics, x, y, BRUSH_SLOT_SIZE, BRUSH_SLOT_SIZE, hovered);
+        if (!stack.isEmpty()) {
+            RenderSystem.enableDepthTest();
+            renderScaledItem(graphics, stack, x, y, BRUSH_SLOT_SIZE, BRUSH_SLOT_SIZE);
+            RenderSystem.disableDepthTest();
+        }
+        int accent = current ? GuiTheme.INFO : (selected ? GuiTheme.SUCCESS : GuiTheme.DIVIDER);
+        graphics.fill(x, y, x + BRUSH_SLOT_SIZE, y + 2, accent);
+        graphics.fill(x, y + BRUSH_SLOT_SIZE - 2, x + BRUSH_SLOT_SIZE,
+                y + BRUSH_SLOT_SIZE, accent);
+    }
+
+    private boolean handleBrushControlClick(double mouseX, double mouseY, int button) {
+        if (button != 0 || !isBrushControlsVisible()) return false;
+        if (mouseX >= favoriteBrushX && mouseY >= brushControlY
+                && mouseY < brushControlY + BRUSH_SLOT_SIZE) {
+            int index = (int) ((mouseX - favoriteBrushX)
+                    / (BRUSH_SLOT_SIZE + BRUSH_SLOT_GAP));
+            int slotX = favoriteBrushX + index * (BRUSH_SLOT_SIZE + BRUSH_SLOT_GAP);
+            if (index >= 0 && index < favoriteBrushCount
+                    && mouseX < slotX + BRUSH_SLOT_SIZE
+                    && index < favoriteBrushItems.size()) {
+                setCurrentBrushItem(favoriteBrushItems.get(index), false);
+                return true;
+            }
+        }
+        if (mouseX >= currentBrushX && mouseX < currentBrushX + BRUSH_SLOT_SIZE
+                && mouseY >= brushControlY && mouseY < brushControlY + BRUSH_SLOT_SIZE) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean renderBrushTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
+        if (!isBrushControlsVisible() || mouseY < brushControlY
+                || mouseY >= brushControlY + BRUSH_SLOT_SIZE) return false;
+        if (mouseX >= currentBrushX && mouseX < currentBrushX + BRUSH_SLOT_SIZE) {
+            ItemStack current = getCurrentBrushDisplayStack();
+            if (!current.isEmpty()) graphics.renderTooltip(this.font, current, mouseX, mouseY);
+            else graphics.renderTooltip(this.font,
+                    GuiText.component("registerhelper.gui.recipe_creator.current_brush_empty"),
+                    mouseX, mouseY);
+            return true;
+        }
+        if (mouseX < favoriteBrushX) return false;
+        int index = (int) ((mouseX - favoriteBrushX)
+                / (BRUSH_SLOT_SIZE + BRUSH_SLOT_GAP));
+        int slotX = favoriteBrushX + index * (BRUSH_SLOT_SIZE + BRUSH_SLOT_GAP);
+        if (index < 0 || index >= favoriteBrushCount
+                || mouseX >= slotX + BRUSH_SLOT_SIZE) return false;
+        if (index < favoriteBrushItems.size()) {
+            graphics.renderTooltip(this.font, favoriteBrushItems.get(index), mouseX, mouseY);
+        } else {
+            graphics.renderTooltip(this.font,
+                    GuiText.component("registerhelper.gui.recipe_creator.favorite_brush_empty"),
+                    mouseX, mouseY);
+        }
+        return true;
+    }
+
+    private boolean renderJeiPreview(GuiGraphics graphics, int mouseX, int mouseY) {
+        if (!isJeiPreviewEligible()) return false;
+        if (!jeiPreviewAttempted || !editingRecipeId.equals(jeiPreviewRecipeId)) {
+            jeiPreviewAttempted = true;
+            jeiPreviewRecipeId = editingRecipeId;
+            jeiRecipeLayout = JeiRecipePreviewFacade.create(editingRecipeId, runtimeRecipe);
+        }
+        if (jeiRecipeLayout == null) return false;
+        String layoutId = currentRecipeType.getProperty("layout", String.class);
+        if (!layoutId.equals(jeiControlsLayout)) {
+            int targetY = topPos + gridTopOffset + JeiRecipePreviewFacade.height(jeiRecipeLayout) + 28;
+            int shift = slotManager.moveNonSlotComponentsBelow(targetY);
+            componentRenderManager.shiftEditBoxes(shift);
+            jeiControlsLayout = layoutId;
+        }
+        GuiLayoutHelper.Bounds canvas = getRecipeCanvasBounds();
+        GuiTheme.drawRecipeCanvas(graphics, canvas);
+        JeiRecipePreviewFacade.setPosition(jeiRecipeLayout, canvas.x() + 4, canvas.y() + 4);
+        JeiRecipePreviewFacade.draw(jeiRecipeLayout, graphics, mouseX, mouseY);
+        return true;
+    }
+
+    private boolean isJeiPreviewEligible() {
+        return editingRecipeId != null && currentRecipeType != null
+                && hasRecipeCanvas()
+                && net.minecraftforge.fml.ModList.get().isLoaded("jei");
     }
 
     private void renderLabels(GuiGraphics guiGraphics) {
@@ -1517,6 +1772,23 @@ public class RecipeCreatorScreen extends Screen {
             } else if (currentRecipeType.supportsCookingSettings()) {
                 guiGraphics.drawString(this.font, GuiText.string("registerhelper.gui.recipe_creator.cooking_type_label"),
                         secondaryControlX, labelY1, GuiTheme.TEXT_MUTED, false);
+            }
+
+            if (currentRecipeType.supportsFillMode()
+                    && !"crafting".equals(category) && !"avaritia".equals(category)) {
+                guiGraphics.drawString(this.font,
+                        GuiText.string("registerhelper.gui.recipe_creator.fill_mode_label"),
+                        labelStartX, labelY2, GuiTheme.TEXT_MUTED, false);
+            }
+            if (isBrushControlsVisible()) {
+                guiGraphics.drawString(this.font,
+                        GuiText.string("registerhelper.gui.recipe_creator.current_brush_label"),
+                        currentBrushX, labelY2, GuiTheme.TEXT_MUTED, false);
+                if (favoriteBrushCount > 0) {
+                    guiGraphics.drawString(this.font,
+                            GuiText.string("registerhelper.gui.recipe_creator.favorite_brush_label"),
+                            favoriteBrushX, labelY2, GuiTheme.TEXT_MUTED, false);
+                }
             }
 
             if (currentRecipeType.isAvaritiaType() || Boolean.TRUE.equals(currentRecipeType.getProperty("supportsTiers", Boolean.class))) {
@@ -1549,7 +1821,9 @@ public class RecipeCreatorScreen extends Screen {
 
         // 显示当前配方类型信息
         if (currentRecipeType != null && showStatusLine) {
-            String typeInfo = currentRecipeType.getModId() + ":" + currentRecipeType.getId();
+            String typeInfo = currentRecipeType.getId().contains(":")
+                    ? currentRecipeType.getId()
+                    : currentRecipeType.getModId() + ":" + currentRecipeType.getId();
             int maxTypeWidth = Math.max(1, rightPanelX - labelStartX - 100);
             guiGraphics.drawString(this.font,
                     GuiLayoutHelper.ellipsis(this.font, typeInfo, maxTypeWidth),
@@ -1561,19 +1835,340 @@ public class RecipeCreatorScreen extends Screen {
     private void renderResultSlot(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         if (slotManager == null) return;
         renderSlot(guiGraphics, slotManager.getResultSlot(), mouseX, mouseY, slotManager.getResultItem());
+        for (int i = 0; i < extraOutputItems.size(); i++) {
+            int x = slotManager.getResultSlot().x() + 24 * (i + 1);
+            int y = slotManager.getResultSlot().y();
+            SlotManager.IngredientSlot extraSlot = new SlotManager.IngredientSlot(
+                    x, y, slotManager.getResultSlot().width(), slotManager.getResultSlot().height(), -1);
+            renderSlot(guiGraphics, extraSlot, mouseX, mouseY, extraOutputItems.get(i));
+        }
+    }
+
+    private boolean hasRecipeCanvas() {
+        return currentRecipeType != null
+                && currentRecipeType.getProperty("layout", String.class) != null;
+    }
+
+    private GuiLayoutHelper.Bounds getRecipeCanvasBounds() {
+        if (slotManager == null) {
+            return new GuiLayoutHelper.Bounds(leftPos + PADDING, topPos + gridTopOffset,
+                    64, 64);
+        }
+        int layoutOriginX = slotManager.getLayoutOriginX();
+        int layoutOriginY = slotManager.getLayoutOriginY();
+        int minX = layoutOriginX;
+        int minY = layoutOriginY;
+        int maxX = layoutOriginX + slotManager.getFittedLayoutWidth();
+        int maxY = layoutOriginY + slotManager.getFittedLayoutHeight();
+        for (RecipeComponent component : slotManager.getComponents()) {
+            minX = Math.min(minX, component.getX());
+            minY = Math.min(minY, component.getY());
+            maxX = Math.max(maxX, component.getX() + component.getWidth());
+            maxY = Math.max(maxY, component.getY() + component.getHeight());
+        }
+        for (SlotManager.IngredientSlot slot : slotManager.getIngredientSlots()) {
+            if (slot.x() < -500 || slot.y() < -500) continue;
+            minX = Math.min(minX, slot.x());
+            minY = Math.min(minY, slot.y());
+            maxX = Math.max(maxX, slot.x() + slot.width());
+            maxY = Math.max(maxY, slot.y() + slot.height());
+        }
+        SlotManager.IngredientSlot result = slotManager.getResultSlot();
+        if (result != null && result.x() >= -500 && result.y() >= -500) {
+            minX = Math.min(minX, result.x());
+            minY = Math.min(minY, result.y());
+            maxX = Math.max(maxX, result.x() + result.width()
+                    + Math.max(0, extraOutputItems.size()) * 24);
+            maxY = Math.max(maxY, result.y() + result.height());
+        }
+        if (minX == Integer.MAX_VALUE) {
+            return new GuiLayoutHelper.Bounds(leftPos + PADDING, topPos + gridTopOffset,
+                    114, 90);
+        }
+        int padding = 8;
+        int canvasX = Math.max(leftPos + 4, minX - padding);
+        int canvasY = Math.max(topPos + 90, minY - padding);
+        int rightLimit = Math.max(canvasX + 1, rightPanelX - 6);
+        int bottomLimit = Math.max(canvasY + 1,
+                topPos + contentHeight - FOOTER_HEIGHT - 4);
+        int availableWidth = Math.max(1, rightLimit - canvasX);
+        int availableHeight = Math.max(1, bottomLimit - canvasY);
+        int desiredWidth = Math.max(64,
+                Math.max(maxX + padding - canvasX, slotManager.getFittedLayoutWidth() + 16));
+        int desiredHeight = Math.max(64,
+                Math.max(maxY + padding - canvasY, slotManager.getFittedLayoutHeight() + 16));
+        int minimumWidth = Math.min(64, availableWidth);
+        int minimumHeight = Math.min(64, availableHeight);
+        return new GuiLayoutHelper.Bounds(canvasX, canvasY,
+                GuiLayoutHelper.fit(desiredWidth, minimumWidth, availableWidth),
+                GuiLayoutHelper.fit(desiredHeight, minimumHeight, availableHeight));
+    }
+
+    private void drawSpecialRecipePreview(GuiGraphics graphics) {
+        if (currentRecipeType == null) return;
+        String layout = currentRecipeType.getProperty("layout", String.class);
+        if (layout == null) return;
+        slotManager.reflowSpecialSlots();
+        GuiLayoutHelper.Bounds canvas = getRecipeCanvasBounds();
+        GuiTheme.drawRecipeCanvas(graphics, canvas);
+        GuiLayoutHelper.Bounds machineBounds = getMachineBounds();
+        GuiTheme.drawRecipeOverlayAt(graphics, layout,
+                slotManager.getLayoutOriginX(), slotManager.getLayoutOriginY(),
+                (float) slotManager.getLayoutScale());
+        drawSpecialMachine(graphics, layout);
+        if (isHorizontalCreateLayout(layout)) {
+            drawCreateFlowArrow(graphics, canvas);
+        } else if ("sequenced_assembly".equals(layout)) {
+            GuiLayoutHelper.Bounds inputs = getComponentSlotBounds(false);
+            GuiLayoutHelper.Bounds output = getResultSlotBounds();
+            float scale = (float) slotManager.getLayoutScale();
+            int arrowWidth = Math.max(2, Math.round(18 * scale));
+            int arrowHeight = Math.max(2, Math.round(14 * scale));
+            int arrowX = inputs != null && output != null
+                    ? (inputs.centerX() + output.centerX()) / 2 - arrowWidth / 2
+                    : canvas.centerX() - arrowWidth / 2;
+            int arrowY = inputs != null
+                    ? GuiLayoutHelper.clamp(inputs.bottom() + 4,
+                    canvas.y() + 4, Math.max(canvas.y() + 4, canvas.bottom() - arrowHeight))
+                    : canvas.centerY() - arrowHeight / 2;
+            GuiTheme.drawCreateDownArrow(graphics, arrowX, arrowY, scale);
+        }
+        if ("mana_infusion".equals(layout) || "runic_altar".equals(layout)
+                || "terra_plate".equals(layout)) {
+            drawManaPreviewBar(graphics, layout, canvas);
+        }
+    }
+
+    private boolean isHorizontalCreateLayout(String layout) {
+        return switch (layout) {
+            case "create_cutting", "pressing", "filling", "emptying", "compacting" -> true;
+            default -> false;
+        };
+    }
+
+    private void drawCreateFlowArrow(GuiGraphics graphics, GuiLayoutHelper.Bounds canvas) {
+        GuiLayoutHelper.Bounds inputs = getComponentSlotBounds(false);
+        GuiLayoutHelper.Bounds output = getResultSlotBounds();
+        if (inputs == null || output == null) return;
+        float scale = (float) slotManager.getLayoutScale();
+        int arrowWidth = Math.max(4, Math.round(42 * scale));
+        int arrowHeight = Math.max(2, Math.round(10 * scale));
+        int centerX = (inputs.centerX() + output.centerX()) / 2;
+        int centerY = (inputs.centerY() + output.centerY()) / 2;
+        int arrowX = GuiLayoutHelper.clamp(centerX - arrowWidth / 2,
+                canvas.x() + 2, Math.max(canvas.x() + 2, canvas.right() - arrowWidth - 2));
+        int arrowY = GuiLayoutHelper.clamp(centerY - arrowHeight / 2,
+                canvas.y() + 2, Math.max(canvas.y() + 2, canvas.bottom() - arrowHeight - 2));
+        GuiTheme.drawCreateArrow(graphics, arrowX, arrowY, scale);
+    }
+
+    private void drawManaPreviewBar(GuiGraphics graphics, String layout,
+                                    GuiLayoutHelper.Bounds canvas) {
+        if (componentRenderManager == null) return;
+        double scale = slotManager.getLayoutScale();
+        int originX = slotManager.getLayoutOriginX();
+        int originY = slotManager.getLayoutOriginY();
+        int width = Math.max(8, (int) Math.round(102 * scale));
+        int x = originX + (int) Math.round(6 * scale);
+        int y = originY + (int) Math.round(
+                ("mana_infusion".equals(layout) ? 50 : "terra_plate".equals(layout) ? 126 : 98) * scale);
+        x = GuiLayoutHelper.clamp(x, canvas.x() + 2,
+                Math.max(canvas.x() + 2, canvas.right() - width - 2));
+        y = GuiLayoutHelper.clamp(y, canvas.y() + 2,
+                Math.max(canvas.y() + 2, canvas.bottom() - 8));
+        int mana = componentRenderManager.getDataManager().getNumber("mana", 0);
+        int maximum = 100000;
+        GuiTheme.drawManaBar(graphics, x, y, width, mana, maximum);
+    }
+
+    private GuiLayoutHelper.Bounds getMachineBounds() {
+        String layout = currentRecipeType == null ? ""
+                : currentRecipeType.getProperty("layout", String.class);
+        double scale = slotManager.getLayoutScale();
+        int originX = slotManager.getLayoutOriginX();
+        int originY = slotManager.getLayoutOriginY();
+        int anchoredX;
+        int anchoredY;
+        switch (layout) {
+            case "mana_infusion" -> {
+                anchoredX = originX + (int) Math.round(71 * scale);
+                anchoredY = originY + (int) Math.round(20 * scale);
+            }
+            case "terra_plate" -> {
+                anchoredX = originX + (int) Math.round(57 * scale);
+                anchoredY = originY + (int) Math.round(101 * scale);
+            }
+            case "runic_altar", "petal_apothecary" -> {
+                // The catalyst slot is at (48,55); item icons are centered
+                // nine pixels inside the 18px JEI slot.
+                anchoredX = originX + (int) Math.round(57 * scale);
+                anchoredY = originY + (int) Math.round(64 * scale);
+            }
+            case "pure_daisy" -> {
+                anchoredX = originX + (int) Math.round(47 * scale);
+                anchoredY = originY + (int) Math.round(20 * scale);
+            }
+            case "elven_trade" -> {
+                anchoredX = originX + (int) Math.round(46 * scale);
+                anchoredY = originY + (int) Math.round(49 * scale);
+            }
+            default -> {
+                anchoredX = Integer.MIN_VALUE;
+                anchoredY = Integer.MIN_VALUE;
+            }
+        }
+        if (anchoredX != Integer.MIN_VALUE) {
+            return new GuiLayoutHelper.Bounds(anchoredX - 12, anchoredY - 12, 24, 24);
+        }
+
+        GuiLayoutHelper.Bounds inputs = ("terra_plate".equals(layout)
+                || "runic_altar".equals(layout) || "petal_apothecary".equals(layout))
+                ? getComponentSlotBounds(true) : getComponentSlotBounds(false);
+        GuiLayoutHelper.Bounds output = getResultSlotBounds();
+        int centerX;
+        int centerY;
+        boolean circularMachine = "terra_plate".equals(layout)
+                || "runic_altar".equals(layout) || "petal_apothecary".equals(layout);
+        if (circularMachine && inputs != null) {
+            centerX = inputs.centerX();
+            centerY = inputs.centerY();
+        } else if ("elven_trade".equals(layout)) {
+            GuiLayoutHelper.Bounds canvas = getRecipeCanvasBounds();
+            centerX = canvas.centerX();
+            centerY = canvas.centerY();
+        } else if (inputs != null && output != null) {
+            centerX = (inputs.centerX() + output.centerX()) / 2;
+            if ("compacting".equals(layout)) {
+                centerY = originY + (int) Math.round(34 * scale);
+            } else if (isHorizontalCreateLayout(layout)) {
+                centerY = Math.min(inputs.y(), output.y())
+                        - Math.max(6, (int) Math.round(20 * scale));
+            } else if ("sequenced_assembly".equals(layout)) {
+                centerY = originY + (int) Math.round(34 * scale);
+            } else {
+                centerY = (inputs.centerY() + output.centerY()) / 2;
+            }
+        } else if (inputs != null) {
+            centerX = inputs.centerX();
+            centerY = inputs.centerY();
+        } else {
+            GuiLayoutHelper.Bounds canvas = getRecipeCanvasBounds();
+            centerX = canvas.centerX();
+            centerY = canvas.centerY();
+        }
+        int size = Math.max(24, (int) Math.round(64 * slotManager.getLayoutScale()));
+        return new GuiLayoutHelper.Bounds(centerX - size / 2, centerY - size / 2, size, size);
+    }
+
+    private GuiLayoutHelper.Bounds getComponentSlotBounds(boolean onlyInputRole) {
+        if (slotManager == null) return null;
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (RecipeComponent component : slotManager.getComponents()) {
+            if (!(component instanceof SlotComponent slot)
+                    || slot.getRole() == SlotComponent.SlotRole.OUTPUT) continue;
+            if (onlyInputRole && slot.getRole() != SlotComponent.SlotRole.INPUT) continue;
+            minX = Math.min(minX, component.getX());
+            minY = Math.min(minY, component.getY());
+            maxX = Math.max(maxX, component.getX() + component.getWidth());
+            maxY = Math.max(maxY, component.getY() + component.getHeight());
+        }
+        if (minX == Integer.MAX_VALUE) return null;
+        return new GuiLayoutHelper.Bounds(minX, minY,
+                Math.max(1, maxX - minX), Math.max(1, maxY - minY));
+    }
+
+    private GuiLayoutHelper.Bounds getResultSlotBounds() {
+        if (slotManager == null || slotManager.getResultSlot() == null) return null;
+        SlotManager.IngredientSlot slot = slotManager.getResultSlot();
+        if (slot.x() < -500 || slot.y() < -500) return null;
+        return new GuiLayoutHelper.Bounds(slot.x(), slot.y(), slot.width(), slot.height());
+    }
+
+    private void drawSpecialMachine(GuiGraphics graphics, String layout) {
+        String itemId = switch (layout) {
+            case "mana_infusion" -> "botania:mana_pool";
+            case "runic_altar" -> "botania:rune_altar";
+            case "petal_apothecary" -> "botania:default_altar";
+            case "terra_plate" -> "botania:terra_plate";
+            case "pure_daisy" -> "botania:pure_daisy";
+            case "elven_trade" -> "botania:alfheim_portal";
+            case "create_cutting" -> createMachineForCurrentType();
+            case "pressing" -> "create:mechanical_press";
+            case "filling" -> "create:spout";
+            case "emptying" -> "create:item_drain";
+            case "compacting" -> "create:mechanical_mixer";
+            case "sequenced_assembly" -> "create:mechanical_press";
+            default -> null;
+        };
+        if (itemId == null) return;
+        ResourceLocation machineId = ResourceLocation.tryParse(itemId);
+        if (machineId == null) return;
+        var item = ForgeRegistries.ITEMS.getValue(machineId);
+        if (item == null) return;
+        GuiLayoutHelper.Bounds slotBounds = getMachineBounds();
+        GuiTheme.drawCenteredItem(graphics, new ItemStack(item),
+                slotBounds.centerX(), slotBounds.centerY(),
+                (float) slotManager.getLayoutScale());
+    }
+
+    private String createMachineForCurrentType() {
+        if (currentRecipeType == null) return "create:crushing_wheel";
+        return switch (currentRecipeType.getId()) {
+            case "create:crushing" -> "create:crushing_wheel";
+            case "create:milling" -> "create:millstone";
+            case "create:splashing" -> "create:encased_fan";
+            case "create:haunting" -> "create:encased_fan";
+            case "create:sandpaper_polishing" -> "create:sand_paper";
+            case "create:deploying", "create:item_application" -> "create:deployer";
+            default -> "create:mechanical_saw";
+        };
+    }
+
+    private boolean allowsEmptyItemResult() {
+        if (currentRecipeType == null) return false;
+        String id = currentRecipeType.getId();
+        return "botania:brew".equals(id)
+                || "create:emptying".equals(id)
+                || "create:filling".equals(id)
+                || "create:mixing".equals(id)
+                || "create:compacting".equals(id);
+    }
+
+    private ItemStack fluidDisplayStack(Object value) {
+        if (!(value instanceof Map<?, ?> map) || map.get("fluid") == null) {
+            return ItemStack.EMPTY;
+        }
+        String id = String.valueOf(map.get("fluid"));
+        if (id.startsWith("#")) return ItemStack.EMPTY;
+        try {
+            var fluid = ForgeRegistries.FLUIDS.getValue(new ResourceLocation(id));
+            if (fluid == null) return ItemStack.EMPTY;
+            int amount = map.get("amount") instanceof Number number ? number.intValue() : 250;
+            return FluidUtil.getFilledBucket(new FluidStack(fluid, amount));
+        } catch (Exception ignored) {
+            return ItemStack.EMPTY;
+        }
     }
 
     private void renderSlots(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        renderIngredientSlots(guiGraphics, mouseX, mouseY);
+
+        // 渲染结果槽位
+        renderSlot(guiGraphics, slotManager.getResultSlot(), mouseX, mouseY, slotManager.getResultItem());
+    }
+
+    private void renderIngredientSlots(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         // 渲染材料槽位
         for (int i = 0; i < slotManager.getIngredientSlots().size(); i++) {
             SlotManager.IngredientSlot slot = slotManager.getIngredientSlots().get(i);
+            if (slot.x() < -500 || slot.y() < -500) continue;
             IngredientData data = slotManager.getIngredientData(i);
             ItemStack displayItem = data != null ? data.getDisplayStack() : ItemStack.EMPTY;
             renderSlot(guiGraphics, slot, mouseX, mouseY, displayItem);
         }
-
-        // 渲染结果槽位
-        renderSlot(guiGraphics, slotManager.getResultSlot(), mouseX, mouseY, slotManager.getResultItem());
     }
 
     private void renderSlot(GuiGraphics guiGraphics, SlotManager.IngredientSlot slot,
@@ -1816,7 +2411,14 @@ public class RecipeCreatorScreen extends Screen {
             // 点击菜单外 → 关闭
             menuOpen = false;
         }
+        if (handleBrushControlClick(mouseX, mouseY, button)) {
+            return true;
+        }
         if (slotManager != null) {
+            if (jeiPreviewActive && (button == 0 || button == 1)
+                    && handleJeiSlotClick(mouseX, mouseY, button)) {
+                return true;
+            }
             for (int i = 0; i < slotManager.getIngredientSlots().size(); i++) {
                 SlotManager.IngredientSlot slot = slotManager.getIngredientSlots().get(i);
                 if (mouseX >= slot.x() && mouseX < slot.x() + slot.width() &&
@@ -1860,6 +2462,9 @@ public class RecipeCreatorScreen extends Screen {
                         return true;
                     }
                     // 左键/右键：正常填充模式处理（左键选材料，右键清空）
+                    if (button == 1 || fillModeHandler.getCurrentMode() != FillMode.NORMAL) {
+                        invalidateRawIngredientData();
+                    }
                     fillModeHandler.handleSlotClick(slotManager, i, button == 1);
                     // 同步到渲染器
                     if (componentRenderManager != null) {
@@ -1897,6 +2502,62 @@ public class RecipeCreatorScreen extends Screen {
         }
 
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean handleJeiSlotClick(double mouseX, double mouseY, int button) {
+        int output = JeiRecipePreviewFacade.hoveredRoleIndex(jeiRecipeLayout,
+                mouseX, mouseY, "OUTPUT");
+        if (output >= 0) {
+            if (button == 0) {
+                openResultSelector();
+            } else {
+                slotManager.setResultItem(ItemStack.EMPTY);
+                extraOutputItems.clear();
+                syncDataToRenderer();
+            }
+            return true;
+        }
+        String role = JeiRecipePreviewFacade.hoveredRoleIndex(jeiRecipeLayout,
+                mouseX, mouseY, "INPUT") >= 0 ? "INPUT" : "";
+        if (role.isEmpty()) {
+            int catalyst = JeiRecipePreviewFacade.hoveredRoleIndex(jeiRecipeLayout,
+                    mouseX, mouseY, "CATALYST");
+            if (catalyst >= 0) role = "CATALYST";
+        }
+        if (role.isEmpty()) return false;
+
+        int ordinal = JeiRecipePreviewFacade.hoveredRoleIndex(jeiRecipeLayout,
+                mouseX, mouseY, role);
+        if (ordinal < 0) return false;
+        int editorIndex = editorSlotForRole(role, ordinal);
+        if (editorIndex < 0) return false;
+        if (button == 1) {
+            slotManager.clearSlot(editorIndex);
+            syncDataToRenderer();
+            return true;
+        }
+        openItemSelectorForSlot(editorIndex);
+        return true;
+    }
+
+    private int editorSlotForRole(String role, int ordinal) {
+        int seen = 0;
+        for (int i = 0; i < slotManager.getIngredientRoles().size(); i++) {
+            String editorRole = slotManager.getIngredientRole(i) ==
+                    com.wzz.registerhelper.gui.recipe.component.SlotComponent.SlotRole.INPUT
+                    ? "INPUT" : "CATALYST";
+            if (!editorRole.equals(role)) continue;
+            if (seen++ == ordinal) return i;
+        }
+        return -1;
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (jeiRecipeLayout != null) {
+            JeiRecipePreviewFacade.tick(jeiRecipeLayout);
+        }
     }
 
     @Override

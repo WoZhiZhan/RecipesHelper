@@ -6,6 +6,7 @@ import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
 import com.wzz.registerhelper.recipe.RecipeTracker;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
+import com.wzz.registerhelper.recipe.integration.LearnedRecipeRegistry;
 import net.minecraft.network.protocol.game.ClientboundUpdateRecipesPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -50,6 +51,7 @@ public class RecipeManagerMixin {
         try {
             // 清空旧的配方追踪
             RecipeTracker.clearTrackedRecipes();
+            LearnedRecipeRegistry.learn(originalRecipes);
             
             Map<ResourceLocation, JsonElement> customRecipes = loadCustomRecipes();
             if (!customRecipes.isEmpty()) {

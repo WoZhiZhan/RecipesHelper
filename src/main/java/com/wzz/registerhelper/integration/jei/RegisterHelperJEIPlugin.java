@@ -7,6 +7,7 @@ import mezz.jei.api.JeiPlugin;
 import mezz.jei.api.registration.IRecipeCategoryRegistration;
 import mezz.jei.api.registration.IRecipeRegistration;
 import net.minecraft.resources.ResourceLocation;
+import mezz.jei.api.runtime.IJeiRuntime;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -61,5 +62,15 @@ public class RegisterHelperJEIPlugin implements IModPlugin {
                 anvilRecipes
             );
         }
+    }
+
+    @Override
+    public void onRuntimeAvailable(IJeiRuntime runtime) {
+        JeiRecipePreviewBridge.setRuntime(runtime);
+    }
+
+    @Override
+    public void onRuntimeUnavailable() {
+        JeiRecipePreviewBridge.clearRuntime();
     }
 }

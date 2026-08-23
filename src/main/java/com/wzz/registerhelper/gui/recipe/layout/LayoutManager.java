@@ -8,6 +8,7 @@ import com.wzz.registerhelper.gui.recipe.layout.integration.create.CompactingLay
 import com.wzz.registerhelper.gui.recipe.layout.integration.create.EmptyingLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.create.FillingLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.create.PressingLayout;
+import com.wzz.registerhelper.gui.recipe.layout.integration.create.SequencedAssemblyLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.farmersdelight.CookingLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.farmersdelight.CuttingLayout;
 import com.wzz.registerhelper.gui.recipe.layout.integration.immersive_engineering.ArcFurnaceLayout;
@@ -42,6 +43,7 @@ public class LayoutManager {
         // Mod 集成布局
         registerLayout("runic_altar", new RunicAltarLayout());
         registerLayout("arc_furnace", new ArcFurnaceLayout());
+        registerLayout("orechid", new OrechidLayout());
         registerLayout("infusion", new InfusionLayout());
         registerLayout("reprocessor", new ReprocessorLayout());
         registerLayout("cutting", new CuttingLayout());
@@ -51,6 +53,7 @@ public class LayoutManager {
         registerLayout("compacting", new CompactingLayout());
         registerLayout("filling", new FillingLayout());
         registerLayout("pressing", new PressingLayout());
+        registerLayout("sequenced_assembly", new SequencedAssemblyLayout());
         registerLayout("path_ascension", new PathAscension());
         registerLayout("path_transmuter", new PathTransmuter());
     }

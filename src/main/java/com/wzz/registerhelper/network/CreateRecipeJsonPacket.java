@@ -3,6 +3,7 @@ package com.wzz.registerhelper.network;
 import com.google.gson.*;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.recipe.UnifiedRecipeOverrideManager;
+import com.wzz.registerhelper.tags.CustomTagManager;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -14,6 +15,8 @@ import java.io.FileWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Supplier;
+import java.util.Map;
+import java.util.List;
 
 /**
  * 配方创建网络包 - 直接传输完整的JSON
@@ -27,24 +30,46 @@ public class CreateRecipeJsonPacket {
     private final String recipeId;      // 配方ID (namespace:path)
     private final String recipeJson;    // 完整的配方JSON字符串
     private final boolean isOverride;   // 是否为覆盖模式
+    private final Map<String, List<String>> customTags;
 
     public CreateRecipeJsonPacket(String recipeId, String recipeJson, boolean isOverride) {
+        this(recipeId, recipeJson, isOverride, Map.of());
+    }
+
+    public CreateRecipeJsonPacket(String recipeId, String recipeJson, boolean isOverride,
+                                  Map<String, List<String>> customTags) {
         this.recipeId = recipeId;
         this.recipeJson = recipeJson;
         this.isOverride = isOverride;
+        this.customTags = customTags == null ? Map.of() : customTags;
     }
 
     public void toBytes(FriendlyByteBuf buf) {
         buf.writeUtf(recipeId);
         buf.writeUtf(recipeJson);
         buf.writeBoolean(isOverride);
+        buf.writeVarInt(customTags.size());
+        for (Map.Entry<String, List<String>> entry : customTags.entrySet()) {
+            buf.writeUtf(entry.getKey());
+            buf.writeVarInt(entry.getValue().size());
+            for (String item : entry.getValue()) buf.writeUtf(item);
+        }
     }
 
     public static CreateRecipeJsonPacket fromBytes(FriendlyByteBuf buf) {
         String recipeId = buf.readUtf(32767);
         String recipeJson = buf.readUtf(32767);
         boolean isOverride = buf.readBoolean();
-        return new CreateRecipeJsonPacket(recipeId, recipeJson, isOverride);
+        int tagCount = buf.readVarInt();
+        Map<String, List<String>> customTags = new java.util.HashMap<>();
+        for (int i = 0; i < tagCount; i++) {
+            String tagId = buf.readUtf(32767);
+            int itemCount = buf.readVarInt();
+            List<String> items = new java.util.ArrayList<>();
+            for (int j = 0; j < itemCount; j++) items.add(buf.readUtf(32767));
+            customTags.put(tagId, items);
+        }
+        return new CreateRecipeJsonPacket(recipeId, recipeJson, isOverride, customTags);
     }
 
     public static void handle(CreateRecipeJsonPacket packet, Supplier<NetworkEvent.Context> contextSupplier) {
@@ -74,6 +99,7 @@ public class CreateRecipeJsonPacket {
                 }
 
                 ResourceLocation recipeIdLoc = new ResourceLocation(packet.recipeId);
+                registerCustomTags(packet.customTags);
                 boolean success;
 
                 if (packet.isOverride) {
@@ -146,12 +172,17 @@ public class CreateRecipeJsonPacket {
             // 创建目录
             Files.createDirectories(baseDir);
 
+            Path existingPath = findExistingRecipeFile(recipeId);
+
             // 检查文件是否存在，如果存在则追加数字后缀
             String fileName = baseFileName;
             Path recipePath = baseDir.resolve(fileName + ".json");
+            if (existingPath != null) {
+                recipePath = existingPath;
+            }
             int counter = 1;
 
-            while (Files.exists(recipePath)) {
+            while (existingPath == null && Files.exists(recipePath)) {
                 fileName = baseFileName + "_" + counter;
                 recipePath = baseDir.resolve(fileName + ".json");
                 counter++;
@@ -162,12 +193,70 @@ public class CreateRecipeJsonPacket {
                 GSON.toJson(recipeJson, writer);
             }
 
-            LOGGER.info("配方已保存: {} -> {}", recipeId, recipePath);
+            LOGGER.info(existingPath == null ? "配方已保存: {} -> {}" : "配方已更新: {} -> {}",
+                    recipeId, recipePath);
             return true;
 
         } catch (Exception e) {
             LOGGER.error("保存配方文件失败: {}", recipeId, e);
             return false;
+        }
+    }
+
+    private static void registerCustomTags(Map<String, List<String>> customTags) {
+        for (Map.Entry<String, List<String>> entry : customTags.entrySet()) {
+            try {
+                ResourceLocation tagId = new ResourceLocation(entry.getKey());
+                List<net.minecraft.world.item.ItemStack> stacks = new java.util.ArrayList<>();
+                for (String itemId : entry.getValue()) {
+                    var item = net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(
+                            new ResourceLocation(itemId));
+                    if (item != null && item != net.minecraft.world.item.Items.AIR) {
+                        stacks.add(new net.minecraft.world.item.ItemStack(item));
+                    }
+                }
+                if (!stacks.isEmpty()) CustomTagManager.registerTag(tagId, stacks);
+            } catch (Exception e) {
+                LOGGER.warn("同步自定义标签失败: {}", entry.getKey(), e);
+            }
+        }
+    }
+
+    private static Path findExistingRecipeFile(ResourceLocation recipeId) {
+        Path recipesRoot = FMLPaths.CONFIGDIR.get().resolve("registerhelper/recipes");
+        Path namespaceDir = recipesRoot.resolve(recipeId.getNamespace());
+        Path exact = findByRecipePath(namespaceDir, recipeId.getPath(), namespaceDir);
+        if (exact != null) return exact;
+
+        Path customRoot = FMLPaths.CONFIGDIR.get().resolve("registerhelper/custom_recipes");
+        if (Files.exists(customRoot)) {
+            try (var paths = Files.walk(customRoot)) {
+                return paths.filter(Files::isRegularFile)
+                        .filter(path -> path.toString().endsWith(".json"))
+                        .filter(path -> path.getFileName().toString()
+                                .equals(recipeId.getPath() + ".json"))
+                        .findFirst().orElse(null);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static Path findByRecipePath(Path namespaceDir, String recipePath, Path root) {
+        if (!Files.exists(namespaceDir)) return null;
+        try (var paths = Files.walk(namespaceDir)) {
+            return paths.filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".json"))
+                    .filter(path -> {
+                        String relative = root.relativize(path).toString();
+                        relative = relative.substring(0, relative.length() - 5)
+                                .replace(java.io.File.separatorChar, '_');
+                        return relative.equals(recipePath);
+                    })
+                    .findFirst().orElse(null);
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

@@ -18,7 +18,6 @@ import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 
 import java.util.*;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static com.wzz.registerhelper.network.CreateRecipeJsonPacket.generateOptimizedFileName;
@@ -107,8 +106,9 @@ public class DynamicRecipeBuilder {
 
             Gson gson = new Gson();
             String jsonString = gson.toJson(recipeJson);
+            Map<String, List<String>> customTags = collectCustomTags(params);
             CreateRecipeJsonPacket packet =
-                    new CreateRecipeJsonPacket(recipeId, jsonString, isOverride);
+                    new CreateRecipeJsonPacket(recipeId, jsonString, isOverride, customTags);
             ModNetwork.CHANNEL.sendToServer(packet);
 
             String action = GuiText.string(params.isEditing
@@ -140,6 +140,22 @@ public class DynamicRecipeBuilder {
                 }
             }
         }
+    }
+
+    private Map<String, List<String>> collectCustomTags(BuildParams params) {
+        Map<String, List<String>> tags = new HashMap<>();
+        if (params.ingredientsData == null) return tags;
+        for (IngredientData data : params.ingredientsData) {
+            if (data.getType() != IngredientData.Type.CUSTOM_TAG || data.getTagId() == null) continue;
+            List<String> items = new ArrayList<>();
+            for (ItemStack stack : data.getCustomTagItems()) {
+                if (!stack.isEmpty()) {
+                    items.add(ForgeRegistries.ITEMS.getKey(stack.getItem()).toString());
+                }
+            }
+            if (!items.isEmpty()) tags.put(data.getTagId().toString(), items);
+        }
+        return tags;
     }
 
     /**
@@ -177,6 +193,7 @@ public class DynamicRecipeBuilder {
                 Boolean includeNBT = (Boolean) params.extraProperties.getOrDefault("includeNBT", true);
                 request.properties.put("includeNBT", includeNBT);
             }
+            request.properties.put("slotRoles", compactSlotRoles(params));
             return request;
         }
     }
@@ -189,9 +206,16 @@ public class DynamicRecipeBuilder {
      */
     private String generateOptimizedRecipeId(BuildParams params, JsonObject recipeJson) {
         // 构建原始路径用于推断
-        String itemName = ForgeRegistries.ITEMS.getKey(params.resultItem.getItem()).getPath();
+        String itemName = params.resultItem.isEmpty()
+                ? "recipe"
+                : ForgeRegistries.ITEMS.getKey(params.resultItem.getItem()).getPath();
         String typeName = params.recipeType.getId().replace(":", "_");
-        String originalPath = "custom_" + typeName + "_" + itemName;
+        List<String> ingredientKeys = params.ingredientsData == null ? List.of()
+                : params.ingredientsData.stream()
+                .map(data -> data.isEmpty() ? "empty" : getIngredientKey(data)).toList();
+        String ingredientSuffix = Integer.toUnsignedString(
+                Objects.hash(ingredientKeys, params.extraProperties), 36);
+        String originalPath = "custom_" + typeName + "_" + itemName + "_" + ingredientSuffix;
 
         String fileName = generateOptimizedFileName(originalPath, recipeJson);
 
@@ -233,7 +257,7 @@ public class DynamicRecipeBuilder {
             cookingType = params.recipeType.getId();
         }
 
-        return RecipeRequest.cooking(
+        RecipeRequest request = RecipeRequest.cooking(
                 params.recipeType.getModId(),
                 cookingType,
                 recipeId,
@@ -242,6 +266,8 @@ public class DynamicRecipeBuilder {
                 params.cookingExp,
                 (int) params.cookingTime
         );
+        mergeEditorProperties(request, params);
+        return request;
     }
 
     /**
@@ -250,7 +276,9 @@ public class DynamicRecipeBuilder {
     private RecipeRequest createCraftingRequest(BuildParams params, String recipeId) {
         if ("shaped".equals(params.craftingMode)) {
             Map<Character, Object> symbolMapping = new HashMap<>();
-            String[] pattern = generateCraftingPatternWithMapping(params, symbolMapping);
+            int width = intProperty(params.extraProperties, "patternWidth", 3);
+            int height = intProperty(params.extraProperties, "patternHeight", 3);
+            String[] pattern = generatePatternWithMapping(params, width, height, symbolMapping);
             List<Object> ingredientsList = new ArrayList<>();
             for (Map.Entry<Character, Object> entry : symbolMapping.entrySet()) {
                 ingredientsList.add(entry.getKey());   // 符号
@@ -258,32 +286,33 @@ public class DynamicRecipeBuilder {
             }
             Object[] ingredients = ingredientsList.toArray();
 
-            return RecipeRequest.shaped(
+            RecipeRequest request = RecipeRequest.shaped(
                     params.recipeType.getModId(),
                     recipeId,
                     params.resultItem,
                     pattern,
                     ingredients
             );
+            mergeEditorProperties(request, params);
+            return request;
         } else {
             // Shapeless 配方只需要物品数组
             Object[] ingredients = convertIngredientsToArray(params);
-            return RecipeRequest.shapeless(
+            RecipeRequest request = RecipeRequest.shapeless(
                     params.recipeType.getModId(),
                     recipeId,
                     params.resultItem,
                     ingredients
             );
+            mergeEditorProperties(request, params);
+            return request;
         }
     }
 
-    /**
-     * 生成工作台配方模式并构建符号映射
-     */
-    private String[] generateCraftingPatternWithMapping(BuildParams params,
-                                                        Map<Character, Object> symbolMapping) {
-        String[] pattern = new String[3];
-        AtomicReference<Character> currentChar = new AtomicReference<>('A');
+    private String[] generatePatternWithMapping(BuildParams params, int gridWidth, int gridHeight,
+                                                Map<Character, Object> symbolMapping) {
+        String[] pattern = new String[gridHeight];
+        int charIndex = 0;
         Map<String, Character> itemToChar = new HashMap<>();
 
         List<IngredientData> dataList = params.ingredientsData;
@@ -291,17 +320,25 @@ public class DynamicRecipeBuilder {
             dataList = convertItemStacksToIngredientData(params.ingredients);
         }
 
-        for (int row = 0; row < 3; row++) {
+        for (int row = 0; row < gridHeight; row++) {
             StringBuilder rowPattern = new StringBuilder();
-            for (int col = 0; col < 3; col++) {
-                int index = row * 3 + col;
+            for (int col = 0; col < gridWidth; col++) {
+                int index = row * gridWidth + col;
                 if (index < dataList.size() && !dataList.get(index).isEmpty()) {
                     IngredientData data = dataList.get(index);
                     String key = getIngredientKey(data);
 
                     // 获取或创建符号
-                    char symbol = itemToChar.computeIfAbsent(key,
-                            k -> currentChar.getAndSet((char) (currentChar.get() + 1)));
+                    Character existing = itemToChar.get(key);
+                    if (existing == null) {
+                        if (charIndex >= SYMBOL_CHARS.length()) {
+                            throw new IllegalArgumentException(
+                                    GuiText.string("registerhelper.message.recipe.too_many_symbols", SYMBOL_CHARS.length()));
+                        }
+                        existing = SYMBOL_CHARS.charAt(charIndex++);
+                        itemToChar.put(key, existing);
+                    }
+                    char symbol = existing;
 
                     // 保存符号映射
                     if (!symbolMapping.containsKey(symbol)) {
@@ -317,6 +354,12 @@ public class DynamicRecipeBuilder {
         }
 
         return pattern;
+    }
+
+    private int intProperty(Map<String, Object> values, String key, int fallback) {
+        Object value = values == null ? null : values.get(key);
+        return value instanceof Number number && number.intValue() > 0
+                ? number.intValue() : fallback;
     }
 
     /**
@@ -349,7 +392,15 @@ public class DynamicRecipeBuilder {
         request.withProperty("tier", tier != null ? tier : params.customTier);
         request.withProperty("recipeType", params.recipeType.getId());
 
+        mergeEditorProperties(request, params);
         return request;
+    }
+
+    private void mergeEditorProperties(RecipeRequest request, BuildParams params) {
+        if (params.extraProperties != null) {
+            params.extraProperties.forEach(request::withProperty);
+        }
+        request.properties.put("slotRoles", compactSlotRoles(params));
     }
 
     /**
@@ -365,15 +416,17 @@ public class DynamicRecipeBuilder {
         ModRecipeProcessor processor = params.recipeType.getProcessor();
         boolean isShaped = processor.isShapedRecipe(params.recipeType.getId());
         if (isShaped) {
-            int gridWidth = params.recipeType.getMaxGridWidth();
-            int gridHeight = params.recipeType.getMaxGridHeight();
+            int gridWidth = intProperty(params.extraProperties, "patternWidth",
+                    params.recipeType.getMaxGridWidth());
+            int gridHeight = intProperty(params.extraProperties, "patternHeight",
+                    params.recipeType.getMaxGridHeight());
             if (Boolean.TRUE.equals(params.recipeType.getProperty("supportsTiers", Boolean.class))) {
                 int dynamicSize = getGridSizeForTier(params.customTier);
                 gridWidth = dynamicSize;
                 gridHeight = dynamicSize;
             }
             Map<Character, Object> symbolMapping = new HashMap<>();
-            request.pattern = generateCustomPatternWithMapping(
+            request.pattern = generatePatternWithMapping(
                     params, gridWidth, gridHeight, symbolMapping);
 
             List<Object> ingredientsList = new ArrayList<>();
@@ -402,6 +455,9 @@ public class DynamicRecipeBuilder {
         if (params.componentDataManager != null) {
             extractComponentData(params.extraProperties, request);
         }
+        // Keep the semantic role of auxiliary slots aligned with the compacted
+        // ingredient array after all persisted component values are merged.
+        request.properties.put("slotRoles", compactSlotRoles(params));
         return request;
     }
 
@@ -452,62 +508,46 @@ public class DynamicRecipeBuilder {
         for (Map.Entry<String, Object> entry : allData.entrySet()) {
             request.withProperty(entry.getKey(), entry.getValue());
         }
-        if (allData.containsKey("fluidAmount")) {
+        boolean createEmptying = request.recipeType != null
+                && request.recipeType.endsWith(":emptying");
+        if (createEmptying && !request.properties.containsKey("fluidOutput")
+                && allData.containsKey("fluidAmount") && allData.get("fluid") != null) {
             Map<String, Object> fluidOutput = new HashMap<>();
             fluidOutput.put("fluid", allData.get("fluid"));
             fluidOutput.put("amount", allData.get("fluidAmount"));
-            allData.put("fluidOutput", fluidOutput);
+            request.withProperty("fluidOutput", fluidOutput);
+        }
+        if (request.recipeType != null && request.recipeType.startsWith("create:")
+                && allData.get("fluidOut") != null && !String.valueOf(allData.get("fluidOut")).isBlank()) {
+            Map<String, Object> fluidOutput = new HashMap<>();
+            fluidOutput.put("fluid", allData.get("fluidOut"));
+            fluidOutput.put("amount", allData.getOrDefault("fluidOutAmount", 250));
+            request.properties.put("fluidOutput", fluidOutput);
+            request.properties.put("fluidOutputs", List.of(fluidOutput));
+        }
+        Object currentAmount = allData.get("fluidAmount") != null
+                ? allData.get("fluidAmount") : allData.get("amount");
+        if (request.recipeType != null && request.recipeType.startsWith("create:")
+                && allData.get("fluid") != null && currentAmount != null) {
+            Map<String, Object> currentFluid = new HashMap<>();
+            currentFluid.put("fluid", allData.get("fluid"));
+            currentFluid.put("amount", currentAmount);
+            if (createEmptying) {
+                if (!fluidListContains(request.properties.get("fluidOutputs"), currentFluid)) {
+                    request.properties.put("fluidOutputs", List.of(currentFluid));
+                    request.properties.put("fluidOutput", currentFluid);
+                }
+            } else if (request.recipeType.endsWith(":filling")
+                    || request.recipeType.endsWith(":mixing")
+                    || request.recipeType.endsWith(":compacting")) {
+                if (!fluidListContains(request.properties.get("fluidInputs"), currentFluid)) {
+                    request.properties.put("fluidInputs", List.of(currentFluid));
+                }
+            }
         }
 //        if (allData.containsKey("create_cutting")) {
 //            allData.put("processingTime", allData.get("processingTime"));
 //        }
-    }
-
-    /**
-     * 生成自定义 pattern 并构建符号映射
-     */
-    private String[] generateCustomPatternWithMapping(BuildParams params, int gridWidth,
-                                                      int gridHeight, Map<Character, Object> symbolMapping) {
-        String[] pattern = new String[gridHeight];
-
-        int charIndex = 0;
-        Map<String, Character> itemToChar = new HashMap<>();
-
-        List<IngredientData> dataList = params.ingredientsData;
-        if (dataList == null || dataList.isEmpty()) {
-            dataList = convertItemStacksToIngredientData(params.ingredients);
-        }
-
-        for (int row = 0; row < gridHeight; row++) {
-            StringBuilder rowPattern = new StringBuilder();
-            for (int col = 0; col < gridWidth; col++) {
-                int index = row * gridWidth + col;
-                if (index < dataList.size() && !dataList.get(index).isEmpty()) {
-                    IngredientData data = dataList.get(index);
-                    String key = getIngredientKey(data);
-
-                    if (!itemToChar.containsKey(key)) {
-                        if (charIndex >= SYMBOL_CHARS.length()) {
-                            throw new IllegalArgumentException(
-                                    GuiText.string("registerhelper.message.recipe.too_many_symbols", SYMBOL_CHARS.length())
-                            );
-                        }
-                        char symbol = SYMBOL_CHARS.charAt(charIndex);
-                        itemToChar.put(key, symbol);
-                        symbolMapping.put(symbol, convertIngredientDataToObject(data));
-                        charIndex++;
-                    }
-
-                    char symbol = itemToChar.get(key);
-                    rowPattern.append(symbol);
-                } else {
-                    rowPattern.append(' ');
-                }
-            }
-            pattern[row] = rowPattern.toString();
-        }
-
-        return pattern;
     }
 
     /**
@@ -526,6 +566,32 @@ public class DynamicRecipeBuilder {
                 .filter(item -> !item.isEmpty())
                 .map(item -> ForgeRegistries.ITEMS.getKey(item.getItem()).toString())
                 .toArray(Object[]::new);
+    }
+
+    private boolean fluidListContains(Object raw, Map<String, Object> current) {
+        if (!(raw instanceof List<?> list) || list.isEmpty()) return false;
+        Object first = list.get(0);
+        if (!(first instanceof Map<?, ?> map)) return false;
+        return String.valueOf(map.get("fluid")).equals(String.valueOf(current.get("fluid")))
+                && String.valueOf(map.get("amount")).equals(String.valueOf(current.get("amount")));
+    }
+
+    private List<String> compactSlotRoles(BuildParams params) {
+        List<String> roles = new ArrayList<>();
+        List<IngredientData> data = params.ingredientsData;
+        if (data == null || data.isEmpty()) {
+            data = convertItemStacksToIngredientData(params.ingredients);
+        }
+
+        @SuppressWarnings("unchecked")
+        List<String> originalRoles = params.extraProperties.get("slotRoles") instanceof List<?> list
+                ? (List<String>) (List<?>) list : List.of();
+        for (int i = 0; i < data.size(); i++) {
+            if (!data.get(i).isEmpty()) {
+                roles.add(originalRoles.size() > i ? originalRoles.get(i) : "INPUT");
+            }
+        }
+        return roles;
     }
 
     /**
@@ -552,6 +618,8 @@ public class DynamicRecipeBuilder {
                     // 使用NBT的字符串表示，确保内容相同的NBT得到相同的key
                     key += "_nbt_" + stack.getTag().toString();
                 }
+                key += "_mode_" + data.getNbtMode()
+                        + "_ignore_" + String.join(",", data.getIgnoreNbtKeys());
                 yield key;
             }
             case TAG, CUSTOM_TAG -> "#" + data.getTagId().toString();
@@ -617,12 +685,19 @@ public class DynamicRecipeBuilder {
             return false;
         }
 
-        if (params.resultItem.isEmpty()) {
+        String recipeId = params.recipeType.getId();
+        boolean resultOptional = recipeId.endsWith(":brew")
+                || recipeId.equals("botania:brew")
+                || recipeId.equals("create:emptying")
+                || recipeId.equals("create:filling")
+                || recipeId.equals("create:mixing")
+                || recipeId.equals("create:compacting");
+        if (params.resultItem.isEmpty() && !resultOptional) {
             showError(GuiText.string("registerhelper.message.recipe.select_result"));
             return false;
         }
 
-        if (params.resultItem.getCount() <= 0) {
+        if (!params.resultItem.isEmpty() && params.resultItem.getCount() <= 0) {
             showError(GuiText.string("registerhelper.message.recipe.positive_count"));
             return false;
         }
@@ -632,12 +707,33 @@ public class DynamicRecipeBuilder {
 
         // 优先检查 ingredientsData
         if (params.ingredientsData != null && !params.ingredientsData.isEmpty()) {
-            hasIngredients = params.ingredientsData.stream()
-                    .anyMatch(data -> !data.isEmpty());
+            List<String> roles = params.extraProperties.get("slotRoles") instanceof List<?> list
+                    ? list.stream().map(String::valueOf).toList() : List.of();
+            for (int i = 0; i < params.ingredientsData.size(); i++) {
+                String role = roles.size() > i ? roles.get(i) : "INPUT";
+                if ("INPUT".equals(role) && !params.ingredientsData.get(i).isEmpty()) {
+                    hasIngredients = true;
+                    break;
+                }
+            }
         } else if (params.ingredients != null && !params.ingredients.isEmpty()) {
             // 兼容旧版本：检查 ingredients
             hasIngredients = params.ingredients.stream()
                     .anyMatch(item -> !item.isEmpty());
+        }
+
+        if (!hasIngredients) {
+            boolean hasFluidInput = params.recipeType.getModId().equals("create")
+                    && (params.extraProperties.containsKey("fluid")
+                    || params.extraProperties.containsKey("fluidInputs"));
+            if (hasFluidInput) {
+                hasIngredients = true;
+            }
+        }
+
+        if ("create".equals(params.recipeType.getModId())
+                && !validateCreateShape(params, hasIngredients)) {
+            return false;
         }
 
         if (!hasIngredients) {
@@ -654,6 +750,110 @@ public class DynamicRecipeBuilder {
         }
 
         return true;
+    }
+
+    private boolean validateCreateShape(BuildParams params, boolean hasIngredients) {
+        String type = params.recipeType.getId();
+        int itemInputs = countRole(params, "INPUT");
+        boolean fluidInput = hasFluid(params.extraProperties, "fluidInputs")
+                || params.extraProperties.containsKey("fluid");
+        boolean fluidOutput = hasFluid(params.extraProperties, "fluidOutputs")
+                || params.extraProperties.containsKey("fluidOutput")
+                || (type.endsWith(":emptying") && params.extraProperties.containsKey("fluid"));
+
+        if (type.endsWith(":emptying")) {
+            if (itemInputs < 1 || !fluidOutput) {
+                showError("Create emptying requires one item input and one fluid output");
+                return false;
+            }
+        } else if (type.endsWith(":filling")) {
+            if (itemInputs < 1 || !fluidInput || params.resultItem.isEmpty()) {
+                showError("Create filling requires an item input, fluid input, and item output");
+                return false;
+            }
+        } else if (type.endsWith(":deploying") || type.endsWith(":item_application")) {
+            if (itemInputs < 2 || params.resultItem.isEmpty()) {
+                showError("Create deployment requires two item inputs and an item output");
+                return false;
+            }
+            if (type.endsWith(":item_application")
+                    && (!isBlockIngredient(params, 0) || !(params.resultItem.getItem()
+                    instanceof net.minecraft.world.item.BlockItem))) {
+                showError("Create item application requires a block input and block output");
+                return false;
+            }
+        } else if (type.endsWith(":sequenced_assembly")) {
+            if (countRole(params, "INPUT") < 1 || countRole(params, "TRANSITIONAL") < 1
+                    || params.resultItem.isEmpty()) {
+                showError("Create sequenced assembly requires input, transitional item, and output");
+                return false;
+            }
+            if (!isTransitionalItem(params)) {
+                showError("Create sequenced assembly transitional item must be a concrete item");
+                return false;
+            }
+        } else if (type.endsWith(":mixing") || type.endsWith(":compacting")) {
+            if (!hasIngredients && !fluidInput) {
+                showError("Create basin recipe requires an item or fluid input");
+                return false;
+            }
+            if (params.resultItem.isEmpty() && !fluidOutput) {
+                showError("Create basin recipe requires an item or fluid output");
+                return false;
+            }
+        } else if (!hasIngredients || params.resultItem.isEmpty()) {
+            showError("Create recipe requires item inputs and an item output");
+            return false;
+        }
+        return true;
+    }
+
+    private int countRole(BuildParams params, String role) {
+        List<IngredientData> data = params.ingredientsData;
+        if (data == null || data.isEmpty()) data = convertItemStacksToIngredientData(params.ingredients);
+        Object rawRoles = params.extraProperties.get("slotRoles");
+        List<?> roles = rawRoles instanceof List<?> list ? list : List.of();
+        int count = 0;
+        for (int i = 0; i < data.size(); i++) {
+            String actual = roles.size() > i ? String.valueOf(roles.get(i)) : "INPUT";
+            if (role.equals(actual) && !data.get(i).isEmpty()) count++;
+        }
+        return count;
+    }
+
+    private boolean hasFluid(Map<String, Object> properties, String key) {
+        Object value = properties.get(key);
+        return value instanceof Iterable<?> iterable && iterable.iterator().hasNext();
+    }
+
+    private boolean isBlockIngredient(BuildParams params, int logicalIndex) {
+        List<IngredientData> data = params.ingredientsData;
+        if (data == null) return false;
+        int seen = 0;
+        Object rawRoles = params.extraProperties.get("slotRoles");
+        List<?> roles = rawRoles instanceof List<?> list ? list : List.of();
+        for (int i = 0; i < data.size(); i++) {
+            String role = roles.size() > i ? String.valueOf(roles.get(i)) : "INPUT";
+            if (!"INPUT".equals(role) || data.get(i).isEmpty()) continue;
+            if (seen++ != logicalIndex) continue;
+            return data.get(i).getType() == IngredientData.Type.ITEM
+                    && data.get(i).getItemStack().getItem() instanceof net.minecraft.world.item.BlockItem;
+        }
+        return false;
+    }
+
+    private boolean isTransitionalItem(BuildParams params) {
+        List<IngredientData> data = params.ingredientsData;
+        if (data == null) return false;
+        Object rawRoles = params.extraProperties.get("slotRoles");
+        List<?> roles = rawRoles instanceof List<?> list ? list : List.of();
+        for (int i = 0; i < data.size(); i++) {
+            if (roles.size() > i && "TRANSITIONAL".equals(String.valueOf(roles.get(i)))) {
+                return data.get(i).getType() == IngredientData.Type.ITEM
+                        && !data.get(i).getItemStack().isEmpty();
+            }
+        }
+        return false;
     }
 
     /**

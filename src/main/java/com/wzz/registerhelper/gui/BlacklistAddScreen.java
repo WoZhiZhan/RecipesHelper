@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui;
 
 import com.wzz.registerhelper.network.BlacklistClientHelper;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
 import com.wzz.registerhelper.recipe.RecipeBlacklistManager;
 import com.wzz.registerhelper.util.PinyinSearchHelper;
 import net.minecraft.client.Minecraft;
@@ -114,7 +115,7 @@ public class BlacklistAddScreen extends Screen {
                 panelBounds.bottom() - FOOTER_HEIGHT, panelWidth - 2, FOOTER_HEIGHT);
         visibleItems = Math.max(1, (listBounds.height() - 10) / ITEM_HEIGHT);
 
-        searchBox = new EditBox(this.font, listBounds.x(), panelY + 36,
+        searchBox = new CenteredEditBox(this.font, listBounds.x(), panelY + 36,
                 listBounds.width(), 20, GuiText.component("registerhelper.gui.blacklist_add.search"));
         GuiTheme.styleInput(searchBox);
         searchBox.setHint(GuiText.component("registerhelper.gui.blacklist_add.search_hint"));

@@ -3,6 +3,12 @@ package com.wzz.registerhelper.init;
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.config.ModConfig.Type;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
+import net.minecraftforge.registries.ForgeRegistries;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Mod配置管理类
@@ -35,7 +41,11 @@ public class ModConfig {
         public final ForgeConfigSpec.BooleanValue enablePerSlotNBT;
         public final ForgeConfigSpec.BooleanValue enableDebugLogging;
         public final ForgeConfigSpec.BooleanValue defaultIncludeNBT;
+        public final ForgeConfigSpec.BooleanValue enableLearnedRecipes;
         public final ForgeConfigSpec.ConfigValue<String> guiTheme;
+        public final ForgeConfigSpec.ConfigValue<String> brushFavorite1;
+        public final ForgeConfigSpec.ConfigValue<String> brushFavorite2;
+        public final ForgeConfigSpec.ConfigValue<String> brushFavorite3;
 
         public CommonConfig(ForgeConfigSpec.Builder builder) {
             builder.push("nbt_matching");
@@ -77,6 +87,14 @@ public class ModConfig {
 
             builder.pop();
 
+            builder.push("recipe_learning");
+            enableLearnedRecipes = builder
+                    .comment("Automatically discover ordinary square item recipes from loaded mods",
+                            "自动学习已加载模组中的普通方形物品配方",
+                            "Disabled by default; special recipes are never learned")
+                    .define("enableLearnedRecipes", false);
+            builder.pop();
+
             builder.push("client_ui");
 
             guiTheme = builder
@@ -87,6 +105,16 @@ public class ModConfig {
                             "Available themes: soft_dark, light")
                     .define("theme", "soft_dark",
                             value -> "soft_dark".equals(value) || "light".equals(value));
+
+            brushFavorite1 = builder
+                    .comment("First frequently used brush item id")
+                    .define("brushFavorite1", "");
+            brushFavorite2 = builder
+                    .comment("Second frequently used brush item id")
+                    .define("brushFavorite2", "");
+            brushFavorite3 = builder
+                    .comment("Third frequently used brush item id")
+                    .define("brushFavorite3", "");
 
             builder.pop();
         }
@@ -116,5 +144,71 @@ public class ModConfig {
     public static String getGuiTheme() {
         String theme = COMMON.guiTheme.get();
         return "light".equals(theme) ? "light" : "soft_dark";
+    }
+
+    public static boolean isLearnedRecipesEnabled() {
+        return COMMON.enableLearnedRecipes.get();
+    }
+
+    public static String getBrushFavorite(int index) {
+        return switch (index) {
+            case 0 -> COMMON.brushFavorite1.get();
+            case 1 -> COMMON.brushFavorite2.get();
+            case 2 -> COMMON.brushFavorite3.get();
+            default -> "";
+        };
+    }
+
+    public static List<String> getBrushFavoriteIds() {
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            String value = getBrushFavorite(i);
+            if (value != null && !value.isBlank() && !values.contains(value)) {
+                values.add(value);
+            }
+        }
+        return values;
+    }
+
+    public static List<ItemStack> getBrushFavoriteStacks() {
+        List<ItemStack> stacks = new ArrayList<>();
+        for (String id : getBrushFavoriteIds()) {
+            ResourceLocation location = ResourceLocation.tryParse(id);
+            if (location == null) continue;
+            var item = ForgeRegistries.ITEMS.getValue(location);
+            if (item != null && item != net.minecraft.world.item.Items.AIR) {
+                stacks.add(new ItemStack(item));
+            }
+        }
+        return stacks;
+    }
+
+    /** Adds an ordinary item to the front of the three persistent brush slots. */
+    public static void rememberBrushItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return;
+        ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
+        if (id == null || id.equals(new ResourceLocation("minecraft", "air"))) return;
+
+        List<String> values = getBrushFavoriteIds();
+        values.remove(id.toString());
+        values.add(0, id.toString());
+        setBrushFavorites(values);
+        COMMON_SPEC.save();
+    }
+
+    public static void setBrushFavorites(List<String> values) {
+        List<String> normalized = new ArrayList<>();
+        if (values != null) {
+            for (String value : values) {
+                if (value == null || value.isBlank() || ResourceLocation.tryParse(value) == null) {
+                    continue;
+                }
+                if (!normalized.contains(value)) normalized.add(value);
+                if (normalized.size() == 3) break;
+            }
+        }
+        COMMON.brushFavorite1.set(normalized.size() > 0 ? normalized.get(0) : "");
+        COMMON.brushFavorite2.set(normalized.size() > 1 ? normalized.get(1) : "");
+        COMMON.brushFavorite3.set(normalized.size() > 2 ? normalized.get(2) : "");
     }
 }

@@ -3,11 +3,24 @@ package com.wzz.registerhelper.gui;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
 
 /** Shared visual language for RegisterHelper screens. */
 public final class GuiTheme {
     private static final ResourceLocation GENERIC_54_TEXTURE =
             new ResourceLocation("minecraft", "textures/gui/container/generic_54.png");
+    private static final ResourceLocation BOTANIA_PETAL_OVERLAY =
+            new ResourceLocation("botania", "textures/gui/petal_overlay.png");
+    private static final ResourceLocation BOTANIA_PURE_DAISY_OVERLAY =
+            new ResourceLocation("botania", "textures/gui/pure_daisy_overlay.png");
+    private static final ResourceLocation BOTANIA_TERRA_OVERLAY =
+            new ResourceLocation("botania", "textures/gui/terrasteel_jei_overlay.png");
+    private static final ResourceLocation BOTANIA_ELVEN_OVERLAY =
+            new ResourceLocation("botania", "textures/gui/elven_trade_overlay.png");
+    private static final ResourceLocation CREATE_JEI_WIDGETS =
+            new ResourceLocation("create", "textures/gui/jei/widgets.png");
+    public static final ResourceLocation EDITOR_FONT =
+            new ResourceLocation("minecraft", "uniform");
     private static final int VANILLA_SLOT_SIZE = 18;
     private static final int VANILLA_SLOT_U = 7;
     private static final int VANILLA_SLOT_V = 17;
@@ -101,6 +114,8 @@ public final class GuiTheme {
     public static int SLOT_EDGE;
 
     private static String currentTheme;
+    private static boolean recipeCanvas;
+    private static String recipeCanvasLayout;
 
     static {
         applyTheme("soft_dark");
@@ -200,8 +215,16 @@ public final class GuiTheme {
     }
 
     public static void drawSlot(GuiGraphics graphics, int x, int y, int width, int height,
-                                boolean hovered) {
-        if (width == VANILLA_SLOT_SIZE && height == VANILLA_SLOT_SIZE) {
+                                 boolean hovered) {
+        if (recipeCanvas && width == VANILLA_SLOT_SIZE && height == VANILLA_SLOT_SIZE) {
+            graphics.fill(x, y, x + width, y + height, 0xFF5B5B5B);
+            graphics.fill(x + 1, y + 1, x + width - 1, y + height - 1, 0xFFB8B8B8);
+        }
+        if (recipeCanvas && isCreateRecipeLayout(recipeCanvasLayout)
+                && width == VANILLA_SLOT_SIZE && height == VANILLA_SLOT_SIZE) {
+            graphics.blit(CREATE_JEI_WIDGETS, x, y, 18, 18,
+                    VANILLA_SLOT_SIZE, VANILLA_SLOT_SIZE, 256, 256);
+        } else if (width == VANILLA_SLOT_SIZE && height == VANILLA_SLOT_SIZE) {
             graphics.blit(GENERIC_54_TEXTURE, x, y,
                     VANILLA_SLOT_U, VANILLA_SLOT_V,
                     VANILLA_SLOT_SIZE, VANILLA_SLOT_SIZE);
@@ -223,8 +246,8 @@ public final class GuiTheme {
 
     public static void styleInput(EditBox input) {
         input.setBordered(false);
-        input.setTextColor(TEXT);
-        input.setTextColorUneditable(TEXT_MUTED);
+        input.setTextColor(recipeCanvas ? 0xFF202020 : TEXT);
+        input.setTextColorUneditable(recipeCanvas ? 0xFF505050 : TEXT_MUTED);
     }
 
     public static void drawInput(GuiGraphics graphics, EditBox input) {
@@ -235,9 +258,204 @@ public final class GuiTheme {
         int y = input.getY();
         int right = x + input.getWidth();
         int bottom = y + input.getHeight();
-        int edge = input.isFocused() ? SELECTED_EDGE : INPUT_EDGE;
+        input.setTextColor(recipeCanvas ? 0xFF202020 : TEXT);
+        input.setTextColorUneditable(recipeCanvas ? 0xFF505050 : TEXT_MUTED);
+        int edge = recipeCanvas
+                ? (input.isFocused() ? 0xFF426A86 : 0xFF77838B)
+                : (input.isFocused() ? SELECTED_EDGE : INPUT_EDGE);
+        int fill = recipeCanvas ? 0xFFE8ECEF : INPUT;
         graphics.fill(x - 1, y - 1, right + 1, bottom + 1, edge);
-        graphics.fill(x, y, right, bottom, INPUT);
+        graphics.fill(x, y, right, bottom, fill);
+    }
+
+    /** Returns a readable color for labels placed on the current theme. */
+    public static int readableLabelColor(int requested) {
+        int red = requested >> 16 & 0xFF;
+        int green = requested >> 8 & 0xFF;
+        int blue = requested & 0xFF;
+        int luminance = (red * 299 + green * 587 + blue * 114) / 1000;
+        if (recipeCanvas) {
+            return luminance < 150 ? 0xFF202020 : requested;
+        }
+        if (!"light".equals(currentTheme) && luminance < 150) {
+            return TEXT;
+        }
+        return requested;
+    }
+
+    public static void beginRecipeCanvas() {
+        recipeCanvas = true;
+        recipeCanvasLayout = null;
+    }
+
+    public static void beginRecipeCanvas(String layout) {
+        recipeCanvas = true;
+        recipeCanvasLayout = layout;
+    }
+
+    private static boolean isCreateRecipeLayout(String layout) {
+        return layout != null && switch (layout) {
+            case "create_cutting", "pressing", "filling", "emptying",
+                    "compacting", "sequenced_assembly" -> true;
+            default -> false;
+        };
+    }
+
+    public static void endRecipeCanvas() {
+        recipeCanvas = false;
+        recipeCanvasLayout = null;
+    }
+
+    /** Draws a special-recipe overlay using the layout's logical top-left origin. */
+    public static void drawRecipeOverlayAt(GuiGraphics graphics, String layout,
+                                           int originX, int originY, float scale) {
+        float safeScale = Math.max(0.1F, Math.min(1.0F, scale));
+        ResourceLocation texture;
+        int u;
+        int v;
+        int width;
+        int height;
+        int offsetX;
+        int offsetY;
+        switch (layout) {
+            case "mana_infusion" -> {
+                // Botania's JEI category uses pure_daisy_overlay for the mana pool.
+                texture = BOTANIA_PURE_DAISY_OVERLAY;
+                u = 0;
+                v = 0;
+                width = 64;
+                height = 46;
+                offsetX = 40;
+                offsetY = 0;
+            }
+            case "terra_plate" -> {
+                texture = BOTANIA_TERRA_OVERLAY;
+                u = 42;
+                v = 29;
+                width = 64;
+                height = 64;
+                offsetX = 25;
+                offsetY = 14;
+            }
+            case "petal_apothecary", "runic_altar" -> {
+                texture = BOTANIA_PETAL_OVERLAY;
+                u = 17;
+                v = 11;
+                width = 114;
+                height = 82;
+                offsetX = 0;
+                offsetY = 4;
+            }
+            case "pure_daisy" -> {
+                texture = BOTANIA_PURE_DAISY_OVERLAY;
+                u = 0;
+                v = 0;
+                width = 64;
+                height = 44;
+                offsetX = 17;
+                offsetY = 0;
+            }
+            case "elven_trade" -> {
+                texture = BOTANIA_ELVEN_OVERLAY;
+                u = 0;
+                v = 15;
+                width = 140;
+                height = 90;
+                offsetX = 0;
+                offsetY = 4;
+            }
+            default -> {
+                return;
+            }
+        }
+        graphics.pose().pushPose();
+        try {
+            graphics.pose().translate(originX, originY, 0);
+            graphics.pose().scale(safeScale, safeScale, 1.0F);
+            graphics.blit(texture, offsetX, offsetY, u, v, width, height, 256, 256);
+        } finally {
+            graphics.pose().popPose();
+        }
+    }
+
+    public static void drawRecipeCanvas(GuiGraphics graphics, GuiLayoutHelper.Bounds bounds) {
+        graphics.fill(bounds.x() - 2, bounds.y() - 2,
+                bounds.right() + 2, bounds.bottom() + 2, 0xFF20262B);
+        graphics.fill(bounds.x(), bounds.y(), bounds.right(), bounds.bottom(), 0xFFC7C7C7);
+        graphics.fill(bounds.x() + 1, bounds.y() + 1,
+                bounds.right() - 1, bounds.bottom() - 1, 0xFFD6D6D6);
+        graphics.fill(bounds.x(), bounds.y(), bounds.right(), bounds.y() + 1, 0xFFF4F4F4);
+        graphics.fill(bounds.x(), bounds.y(), bounds.x() + 1, bounds.bottom(), 0xFFF4F4F4);
+        graphics.fill(bounds.x(), bounds.bottom() - 1, bounds.right(), bounds.bottom(), 0xFF777777);
+        graphics.fill(bounds.right() - 1, bounds.y(), bounds.right(), bounds.bottom(), 0xFF777777);
+    }
+
+    public static void drawManaBar(GuiGraphics graphics, int x, int y, int width,
+                                   int value, int maximum) {
+        int safeMaximum = Math.max(1, maximum);
+        int fill = Math.max(0, Math.min(width - 4, (width - 4) * value / safeMaximum));
+        graphics.fill(x, y, x + width, y + 8, 0xFF343434);
+        graphics.fill(x + 1, y + 1, x + width - 1, y + 7, 0xFF777777);
+        graphics.fill(x + 2, y + 2, x + 2 + fill, y + 6, 0xFF2838D0);
+        graphics.fill(x + 2, y + 2, x + 2 + fill, y + 3, 0xFF6C7BFF);
+    }
+
+    public static void drawCreateArrow(GuiGraphics graphics, int x, int y) {
+        drawScaledTexture(graphics, CREATE_JEI_WIDGETS, x, y,
+                19, 10, 42, 10, 1.0F);
+    }
+
+    public static void drawCreateDownArrow(GuiGraphics graphics, int x, int y) {
+        drawScaledTexture(graphics, CREATE_JEI_WIDGETS, x, y,
+                0, 21, 18, 14, 1.0F);
+    }
+
+    public static void drawCreateArrow(GuiGraphics graphics, int x, int y, float scale) {
+        drawScaledTexture(graphics, CREATE_JEI_WIDGETS, x, y,
+                19, 10, 42, 10, scale);
+    }
+
+    public static void drawCreateDownArrow(GuiGraphics graphics, int x, int y, float scale) {
+        drawScaledTexture(graphics, CREATE_JEI_WIDGETS, x, y,
+                0, 21, 18, 14, scale);
+    }
+
+    private static void drawScaledTexture(GuiGraphics graphics, ResourceLocation texture,
+                                          int x, int y, int u, int v,
+                                          int width, int height, float scale) {
+        float safeScale = Math.max(0.1F, Math.min(1.0F, scale));
+        graphics.pose().pushPose();
+        try {
+            graphics.pose().translate(x, y, 0);
+            graphics.pose().scale(safeScale, safeScale, 1.0F);
+            graphics.blit(texture, 0, 0, u, v, width, height, 256, 256);
+        } finally {
+            graphics.pose().popPose();
+        }
+    }
+
+    public static void drawCreateHeatBar(GuiGraphics graphics, int x, int y, boolean heated) {
+        graphics.blit(CREATE_JEI_WIDGETS, x, y, 0, heated ? 201 : 221,
+                169, 19, 256, 256);
+    }
+
+    public static void drawCenteredItem(GuiGraphics graphics, ItemStack stack, int centerX, int centerY) {
+        drawCenteredItem(graphics, stack, centerX, centerY, 1.0F);
+    }
+
+    public static void drawCenteredItem(GuiGraphics graphics, ItemStack stack,
+                                        int centerX, int centerY, float scale) {
+        if (stack == null || stack.isEmpty()) return;
+        float safeScale = Math.max(0.25F, Math.min(1.0F, scale));
+        graphics.pose().pushPose();
+        try {
+            graphics.pose().translate(centerX - 8 * safeScale,
+                    centerY - 8 * safeScale, 50);
+            graphics.pose().scale(safeScale, safeScale, 1.0F);
+            graphics.renderItem(stack, 0, 0);
+        } finally {
+            graphics.pose().popPose();
+        }
     }
 
     public static void drawScrollbar(GuiGraphics graphics, GuiLayoutHelper.Scrollbar scrollbar,

@@ -131,9 +131,15 @@ public class DynamicRecipeTypeConfig {
      */
     public static void registerRecipeType(RecipeTypeDefinition definition) {
         RECIPE_TYPES.put(definition.getId(), definition);
-        if (definition.getProcessor() != null) {
+        if (definition.getProcessor() != null
+                && !Boolean.TRUE.equals(definition.getProperty("learned", Boolean.class))) {
             MOD_PROCESSORS.put(definition.getModId(), definition.getProcessor());
         }
+    }
+
+    public static void clearLearnedRecipeTypes() {
+        RECIPE_TYPES.entrySet().removeIf(entry ->
+                Boolean.TRUE.equals(entry.getValue().getProperty("learned", Boolean.class)));
     }
 
     /**
@@ -157,7 +163,8 @@ public class DynamicRecipeTypeConfig {
      * 从处理器自动创建配方类型定义
      */
     private static RecipeTypeDefinition createDefinitionFromProcessor(String modId, String type, ModRecipeProcessor processor) {
-        RecipeTypeDefinition.Builder builder = new RecipeTypeDefinition.Builder(type, getDisplayName(modId, type))
+        String definitionId = type.contains(":") ? type : modId + ":" + type;
+        RecipeTypeDefinition.Builder builder = new RecipeTypeDefinition.Builder(definitionId, getDisplayName(modId, type))
                 .modId(modId)
                 .processor(processor);
 

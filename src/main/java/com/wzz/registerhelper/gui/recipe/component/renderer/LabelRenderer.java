@@ -2,6 +2,7 @@ package com.wzz.registerhelper.gui.recipe.component.renderer;
 
 import com.wzz.registerhelper.gui.recipe.component.ComponentRenderer;
 import com.wzz.registerhelper.gui.recipe.component.LabelComponent;
+import com.wzz.registerhelper.gui.GuiTheme;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 
@@ -31,7 +32,7 @@ public class LabelRenderer implements ComponentRenderer {
             guiGraphics.pose().translate(component.getX(), component.getY(), 0);
             guiGraphics.pose().scale(scale, scale, 1.0F);
             guiGraphics.drawString(font, component.getText(), 0, 0,
-                    component.getColor(), false);
+                    GuiTheme.readableLabelColor(component.getColor()), false);
         } finally {
             guiGraphics.pose().popPose();
         }

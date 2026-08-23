@@ -82,4 +82,8 @@ public class ComponentDataManager {
             data.putAll(values);
         }
     }
+
+    public void remove(String id) {
+        data.remove(id);
+    }
 }

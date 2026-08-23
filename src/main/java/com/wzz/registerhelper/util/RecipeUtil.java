@@ -21,7 +21,8 @@ public class RecipeUtil {
     public static final String SYMBOL_CHARS =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +           // 大写字母 (26个)
                     "abcdefghijklmnopqrstuvwxyz" +           // 小写字母 (26个)
-                    "!@#$%^&*()_{}[];:'/.,`";                // 特殊符号 (26个，总共78个)
+                    "0123456789" +
+                    "!@#$%^&*()_{}[];:'/.,`<>?+-=";            // 足够覆盖 9x9 配方的不同材料
 
     public static JsonObject createShapedTableRecipe(String type, RecipeRequest request) {
         JsonObject recipe = new JsonObject();

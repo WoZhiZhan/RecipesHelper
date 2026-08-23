@@ -41,6 +41,7 @@ public class RecipeClientCache {
         loaded = false;
         errorMessage = null;
         cachedRecipes.clear();
+        RecipeJsonClientCache.clear();
         
         // 发送请求到服务器
         RequestRecipeListPacket.sendToServer();
@@ -135,6 +136,7 @@ public class RecipeClientCache {
         loaded = false;
         errorMessage = null;
         callbacks.clear();
+        RecipeJsonClientCache.clear();
     }
     
     /**

@@ -1,21 +1,29 @@
 package com.wzz.registerhelper.recipe.integration.module;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.wzz.registerhelper.gui.recipe.IngredientData;
 import com.wzz.registerhelper.recipe.RecipeRequest;
 import com.wzz.registerhelper.recipe.integration.ModRecipeProcessor;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.tags.TagKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.fml.ModList;
 
-import static com.wzz.registerhelper.util.RecipeUtil.*;
+import java.util.ArrayList;
+import java.util.List;
 
-/**
- * 植物魔法配方处理器
- * 修复版：兼容新旧架构，正确处理物品ID，修复输出字段
- */
+import static com.wzz.registerhelper.util.RecipeUtil.createIngredientJson;
+import static com.wzz.registerhelper.util.RecipeUtil.getItemResourceLocation;
+
+/** JSON adapter for Botania's machine-style recipe serializers. */
 public class BotaniaProcessor implements ModRecipeProcessor {
-
     @Override
     public boolean isModLoaded() {
         return ModList.get().isLoaded("botania");
@@ -24,394 +32,342 @@ public class BotaniaProcessor implements ModRecipeProcessor {
     @Override
     public String[] getSupportedRecipeTypes() {
         return new String[]{
-                "runic_altar",
-                "mana_infusion",
-                "elven_trade",
-                "terra_plate",
-                "petal_apothecary",
-                "pure_daisy",
-                "brew",
-                "orechid",
-                "orechid_ignem",
-                "marimorphosis"
+                "runic_altar", "runic_altar_head", "mana_infusion", "elven_trade", "terra_plate",
+                "petal_apothecary", "pure_daisy", "state_copying_pure_daisy", "brew", "orechid",
+                "orechid_ignem", "marimorphosis"
         };
     }
 
     @Override
     public JsonObject createRecipeJson(RecipeRequest request) {
+        String type = normalizeType(request.recipeType);
         JsonObject recipe = new JsonObject();
-
-        String type = request.recipeType;
-
-        // 如果不包含modid，添加botania前缀
-        if (!type.contains(":")) {
-            type = "botania:" + type;
-        }
-
-        recipe.addProperty("type", type);
-
+        recipe.addProperty("type", "botania:" + type);
         switch (type) {
-            case "botania:runic_altar" -> createRunicAltarRecipe(recipe, request);
-            case "botania:mana_infusion" -> createManaInfusionRecipe(recipe, request);
-            case "botania:elven_trade" -> createElvenTradeRecipe(recipe, request);
-            case "botania:terra_plate" -> createTerraPlateRecipe(recipe, request);
-            case "botania:petal_apothecary" -> createPetalApothecaryRecipe(recipe, request);
-            case "botania:pure_daisy" -> createPureDaisyRecipe(recipe, request);
-            case "botania:brew" -> createBrewRecipe(recipe, request);
-            case "botania:orechid" -> createOrechidRecipe(recipe, request);
-            case "botania:orechid_ignem" -> createOrechidIgnemRecipe(recipe, request);
-            case "botania:marimorphosis" -> createMarimorphosisRecipe(recipe, request);
+            case "runic_altar", "runic_altar_head" -> createRunicAltarRecipe(recipe, request);
+            case "mana_infusion" -> createManaInfusionRecipe(recipe, request);
+            case "elven_trade" -> createElvenTradeRecipe(recipe, request);
+            case "terra_plate" -> createTerraPlateRecipe(recipe, request);
+            case "petal_apothecary" -> createPetalApothecaryRecipe(recipe, request);
+            case "pure_daisy" -> createPureDaisyRecipe(recipe, request);
+            case "state_copying_pure_daisy" -> createStateCopyingPureDaisyRecipe(recipe, request);
+            case "brew" -> createBrewRecipe(recipe, request);
+            case "orechid", "orechid_ignem" -> createOrechidRecipe(recipe, request);
+            case "marimorphosis" -> createMarimorphosisRecipe(recipe, request);
+            default -> {
+                return null;
+            }
         }
-
         return recipe;
     }
 
-    /**
-     * 符文祭坛配方
-     * 格式: ingredients + output + mana
-     */
     private void createRunicAltarRecipe(JsonObject recipe, RecipeRequest request) {
-        // ingredients数组
-        JsonArray ingredients = new JsonArray();
-        if (request.ingredients != null) {
-            for (Object ingredient : request.ingredients) {
-                ingredients.add(createIngredientJson(ingredient));
-            }
-        }
-        recipe.add("ingredients", ingredients);
-
-        // output字段
-        JsonObject output = new JsonObject();
-        output.addProperty("item", getItemId(request.result));
-        if (request.resultCount > 1) {
-            output.addProperty("count", request.resultCount);
-        }
-        recipe.add("output", output);
-
-        // mana消耗
-        Integer mana = (Integer) request.properties.get("mana");
-        recipe.addProperty("mana", mana != null ? mana : 5200);
+        recipe.add("ingredients", rawIngredients(request, ingredientArray(inputValues(request))));
+        recipe.add("output", itemResult(request.result, request.resultCount));
+        recipe.addProperty("mana", number(request.properties.get("mana"), 5200));
     }
 
-    /**
-     * 魔力池配方
-     * 格式: input + output + mana + 可选catalyst
-     */
     private void createManaInfusionRecipe(JsonObject recipe, RecipeRequest request) {
-        // 单个input
-        if (request.ingredients != null && request.ingredients.length > 0) {
-            recipe.add("input", createIngredientJson(request.ingredients[0]));
+        Object input = firstValue(request, "INPUT");
+        if (request.properties.get("rawInput") instanceof com.google.gson.JsonElement rawInput) {
+            recipe.add("input", rawInput.deepCopy());
+        } else if (input != null) {
+            recipe.add("input", createIngredientJson(input));
         }
+        recipe.add("output", itemResult(request.result, request.resultCount));
+        recipe.addProperty("mana", number(request.properties.get("mana"), 1000));
 
-        // output字段
-        JsonObject output = new JsonObject();
-        output.addProperty("item", getItemId(request.result));
-        if (request.resultCount > 1) {
-            output.addProperty("count", request.resultCount);
-        }
-        recipe.add("output", output);
-
-        // mana消耗
-        Integer mana = (Integer) request.properties.get("mana");
-        recipe.addProperty("mana", mana != null ? mana : 1000);
-
-        // 可选的催化剂
-        String catalyst = (String) request.properties.get("catalyst");
-        if (catalyst != null && !catalyst.isEmpty()) {
-            JsonObject catalystObj = new JsonObject();
-            catalystObj.addProperty("type", "block");
-            catalystObj.addProperty("block", ensureNamespace(catalyst));
-            recipe.add("catalyst", catalystObj);
+        Object catalyst = firstValue(request, "CATALYST");
+        if (catalyst == null) catalyst = request.properties.get("catalyst");
+        if (catalyst != null && !String.valueOf(catalyst).isBlank()) {
+            recipe.add("catalyst", stateIngredient(catalyst));
         }
     }
 
-    /**
-     * 精灵贸易配方
-     * 格式: ingredients + output (数组)
-     */
     private void createElvenTradeRecipe(JsonObject recipe, RecipeRequest request) {
-        // ingredients数组
-        JsonArray ingredients = new JsonArray();
-        if (request.ingredients != null) {
-            for (Object ingredient : request.ingredients) {
-                ingredients.add(createIngredientJson(ingredient));
-            }
-        }
-        recipe.add("ingredients", ingredients);
-
-        // output是数组
+        recipe.add("ingredients", rawIngredients(request, ingredientArray(inputValues(request))));
         JsonArray outputs = new JsonArray();
-
-        // 主要输出
-        JsonObject mainOutput = new JsonObject();
-        mainOutput.addProperty("item", getItemId(request.result));
-        if (request.resultCount > 1) {
-            mainOutput.addProperty("count", request.resultCount);
+        if (request.result != null && !request.result.isEmpty()) {
+            outputs.add(itemResult(request.result, request.resultCount));
         }
-        outputs.add(mainOutput);
-
-        // 额外输出
-        Object extraOutputsObj = request.properties.get("extraOutputs");
-        if (extraOutputsObj instanceof Object[] extraOutputs) {
-            for (Object extra : extraOutputs) {
-                JsonObject extraOutput = new JsonObject();
-                if (extra instanceof ItemStack stack) {
-                    extraOutput.addProperty("item", getItemId(stack));
-                    if (stack.getCount() > 1) {
-                        extraOutput.addProperty("count", stack.getCount());
-                    }
-                } else if (extra instanceof String str) {
-                    extraOutput.addProperty("item", ensureNamespace(str));
+        Object extras = request.properties.get("extraOutputs");
+        if (extras instanceof ItemStack[] stacks) {
+            for (ItemStack stack : stacks) {
+                if (!stack.isEmpty()) outputs.add(itemResult(stack, stack.getCount()));
+            }
+        } else if (extras instanceof Iterable<?> values) {
+            for (Object value : values) {
+                if (value instanceof ItemStack stack && !stack.isEmpty()) {
+                    outputs.add(itemResult(stack, stack.getCount()));
                 }
-                outputs.add(extraOutput);
             }
         }
-
         recipe.add("output", outputs);
     }
 
-    /**
-     * 泰拉凝聚板配方
-     * 格式: ingredients + result (不是output!) + mana
-     */
     private void createTerraPlateRecipe(JsonObject recipe, RecipeRequest request) {
-        // ingredients数组
-        JsonArray ingredients = new JsonArray();
-        if (request.ingredients != null) {
-            for (Object ingredient : request.ingredients) {
-                ingredients.add(createIngredientJson(ingredient));
-            }
-        }
-        recipe.add("ingredients", ingredients);
-
-        // 注意：这里用result而不是output！
-        JsonObject result = new JsonObject();
-        result.addProperty("item", getItemId(request.result));
-        if (request.resultCount > 1) {
-            result.addProperty("count", request.resultCount);
-        }
-        recipe.add("result", result);
-
-        // mana消耗
-        Integer mana = (Integer) request.properties.get("mana");
-        recipe.addProperty("mana", mana != null ? mana : 500000);
+        recipe.add("ingredients", rawIngredients(request, ingredientArray(inputValues(request))));
+        recipe.add("result", itemResult(request.result, request.resultCount));
+        recipe.addProperty("mana", number(request.properties.get("mana"), 500000));
     }
 
-    /**
-     * 花瓣药台配方
-     * 格式: ingredients + output + reagent
-     */
     private void createPetalApothecaryRecipe(JsonObject recipe, RecipeRequest request) {
-        // ingredients数组
-        JsonArray ingredients = new JsonArray();
-        if (request.ingredients != null) {
-            for (Object ingredient : request.ingredients) {
-                ingredients.add(createIngredientJson(ingredient));
-            }
-        }
-        recipe.add("ingredients", ingredients);
-
-        // output字段
-        JsonObject output = new JsonObject();
-        output.addProperty("item", getItemId(request.result));
-        recipe.add("output", output);
-
-        // reagent字段（试剂）
-        String reagent = (String) request.properties.get("reagent");
-        JsonObject reagentObj = new JsonObject();
-        if (reagent != null && !reagent.isEmpty()) {
-            if (reagent.startsWith("#")) {
-                reagentObj.addProperty("tag", reagent.substring(1));
-            } else {
-                reagentObj.addProperty("item", ensureNamespace(reagent));
-            }
-        } else {
-            // 默认试剂
-            reagentObj.addProperty("tag", "botania:seed_apothecary_reagent");
-        }
-        recipe.add("reagent", reagentObj);
+        recipe.add("ingredients", rawIngredients(request, ingredientArray(inputValues(request))));
+        recipe.add("output", itemResult(request.result, request.resultCount));
+        Object reagent = firstValue(request, "REAGENT");
+        if (reagent == null) reagent = request.properties.get("reagent");
+        recipe.add("reagent", reagent == null
+                ? tagIngredient("botania:seed_apothecary_reagent")
+                : ingredientJson(reagent));
     }
 
-    /**
-     * 纯洁雏菊配方
-     * 格式: input (block) + output (name字段)
-     */
     private void createPureDaisyRecipe(JsonObject recipe, RecipeRequest request) {
-        // input必须是方块
-        JsonObject input = new JsonObject();
-        if (request.ingredients != null && request.ingredients.length > 0) {
-            String inputStr = getIngredientString(request.ingredients[0]);
-            if (inputStr.startsWith("#")) {
-                input.addProperty("type", "tag");
-                input.addProperty("tag", inputStr.substring(1));
-            } else {
-                input.addProperty("type", "block");
-                input.addProperty("block", ensureNamespace(inputStr));
-            }
-        }
-        recipe.add("input", input);
-
-        // output使用name字段
-        JsonObject output = new JsonObject();
-        output.addProperty("name", getItemId(request.result));
-        recipe.add("output", output);
+        Object input = firstValue(request, "INPUT");
+        if (input != null) recipe.add("input", stateIngredient(input));
+        recipe.add("output", blockStateResult(request.result));
+        Object time = request.properties.get("time");
+        if (time instanceof Number) recipe.addProperty("time", ((Number) time).intValue());
+        addSuccessFunction(recipe, request);
     }
 
-    /**
-     * 酿造配方
-     * 格式: ingredients + brew (效果ID)
-     */
+    private void createStateCopyingPureDaisyRecipe(JsonObject recipe, RecipeRequest request) {
+        Object input = firstValue(request, "INPUT");
+        if (input != null) recipe.add("input", stateIngredient(input));
+        ItemStack output = request.result;
+        if (output == null || output.isEmpty() || !(output.getItem() instanceof BlockItem blockItem)) {
+            throw new IllegalArgumentException("State-copying Pure Daisy requires a block output");
+        }
+        ResourceLocation id = getBlockId(blockItem.getBlock());
+        if (id == null) throw new IllegalArgumentException("Unregistered Pure Daisy output block");
+        recipe.addProperty("output", id.toString());
+        Object time = request.properties.get("time");
+        if (time instanceof Number) recipe.addProperty("time", ((Number) time).intValue());
+    }
+
     private void createBrewRecipe(JsonObject recipe, RecipeRequest request) {
-        // ingredients数组
-        JsonArray ingredients = new JsonArray();
-        if (request.ingredients != null) {
-            for (Object ingredient : request.ingredients) {
-                if (ingredient != null) {
-                    String str = getIngredientString(ingredient);
-                    if (str != null && !str.isEmpty()) {
-                        ingredients.add(createIngredientJson(ingredient));
-                    }
-                }
-            }
+        recipe.add("ingredients", ingredientArray(inputValues(request)));
+        Object brew = request.properties.get("brew");
+        String brewId = ensureNamespace(brew == null ? "botania:speed" : String.valueOf(brew));
+        if (brewId.startsWith("#")) {
+            throw new IllegalArgumentException("Botania brew must use a concrete brew id");
         }
-        recipe.add("ingredients", ingredients);
-
-        // brew字段（酿造效果，不是输出物品）
-        String brew = (String) request.properties.get("brew");
-        if (brew != null && !brew.isEmpty()) {
-            recipe.addProperty("brew", ensureNamespace(brew));
-        } else {
-            // 默认效果
-            recipe.addProperty("brew", "botania:speed");
-        }
+        recipe.addProperty("brew", brewId);
     }
 
-    /**
-     * 矿石兰配方
-     * 格式: input (block) + output (block) + weight
-     */
     private void createOrechidRecipe(JsonObject recipe, RecipeRequest request) {
-        // input方块
-        JsonObject input = new JsonObject();
-        input.addProperty("type", "block");
-        if (request.ingredients != null && request.ingredients.length > 0) {
-            input.addProperty("block", ensureNamespace(getIngredientString(request.ingredients[0])));
-        } else {
-            input.addProperty("block", "minecraft:stone");
+        Object input = firstValue(request, "INPUT");
+        if (input != null) recipe.add("input", stateIngredient(input));
+        recipe.add("output", stateIngredient(request.result));
+        String type = normalizeType(request.recipeType);
+        int defaultWeight = "orechid_ignem".equals(type) ? 148
+                : "marimorphosis".equals(type) ? 1 : 67415;
+        Object configuredWeight = request.properties.get("weight");
+        if (configuredWeight instanceof Number number &&
+                ("orechid".equals(type) || number.intValue() != 67415)) {
+            defaultWeight = number.intValue();
         }
-        recipe.add("input", input);
-
-        // output方块
-        JsonObject output = new JsonObject();
-        output.addProperty("type", "block");
-        output.addProperty("block", getItemId(request.result));
-        recipe.add("output", output);
-
-        // weight权重
-        Integer weight = (Integer) request.properties.get("weight");
-        recipe.addProperty("weight", weight != null ? weight : 67415);
+        recipe.addProperty("weight", defaultWeight);
+        addSuccessFunction(recipe, request);
     }
 
-    /**
-     * 下界矿石兰配方
-     * 格式: input (block) + output (block) + weight
-     */
-    private void createOrechidIgnemRecipe(JsonObject recipe, RecipeRequest request) {
-        // input方块
-        JsonObject input = new JsonObject();
-        input.addProperty("type", "block");
-        if (request.ingredients != null && request.ingredients.length > 0) {
-            input.addProperty("block", ensureNamespace(getIngredientString(request.ingredients[0])));
-        } else {
-            input.addProperty("block", "minecraft:netherrack");
-        }
-        recipe.add("input", input);
-
-        // output方块
-        JsonObject output = new JsonObject();
-        output.addProperty("type", "block");
-        output.addProperty("block", getItemId(request.result));
-        recipe.add("output", output);
-
-        // weight权重
-        Integer weight = (Integer) request.properties.get("weight");
-        recipe.addProperty("weight", weight != null ? weight : 148);
-    }
-
-    /**
-     * 石之变换配方
-     * 格式: input (block/tag) + output (block) + weight + biome_bonus + biome_bonus_tag
-     */
     private void createMarimorphosisRecipe(JsonObject recipe, RecipeRequest request) {
-        // input支持tag或block
-        JsonObject input = new JsonObject();
-        if (request.ingredients != null && request.ingredients.length > 0) {
-            String inputStr = getIngredientString(request.ingredients[0]);
-            if (inputStr.startsWith("#")) {
-                input.addProperty("type", "tag");
-                input.addProperty("tag", inputStr.substring(1));
-            } else {
-                input.addProperty("type", "block");
-                input.addProperty("block", ensureNamespace(inputStr));
+        Object input = firstValue(request, "INPUT");
+        if (input != null) recipe.add("input", stateIngredient(input));
+        recipe.add("output", stateIngredient(request.result));
+        recipe.addProperty("weight", number(request.properties.get("weight"), 1));
+        recipe.addProperty("biome_bonus", number(request.properties.get("biome_bonus"), 11));
+        recipe.addProperty("biome_bonus_tag", ensureNamespace(String.valueOf(
+                request.properties.getOrDefault("biome_bonus_tag", "botania:marimorphosis_desert_bonus"))));
+        addSuccessFunction(recipe, request);
+    }
+
+    private JsonArray ingredientArray(List<Object> values) {
+        JsonArray array = new JsonArray();
+        for (Object value : values) {
+            JsonObject json = ingredientJson(value);
+            if (json != null) array.add(json);
+        }
+        return array;
+    }
+
+    private JsonElement rawIngredients(RecipeRequest request, JsonArray fallback) {
+        Object raw = request.properties.get("rawIngredients");
+        return raw instanceof JsonElement element ? element.deepCopy() : fallback;
+    }
+
+    private JsonObject ingredientJson(Object value) {
+        if (value instanceof IngredientData data
+                && (data.getType() != IngredientData.Type.ITEM || data.getItemStack().isEmpty())) {
+            return createIngredientJson(data);
+        }
+        return createIngredientJson(value);
+    }
+
+    private JsonObject stateIngredient(Object value) {
+        if (value instanceof IngredientData data) {
+            if (data.getType() == IngredientData.Type.TAG
+                    || data.getType() == IngredientData.Type.CUSTOM_TAG) {
+                if (data.getType() == IngredientData.Type.CUSTOM_TAG) {
+                    throw new IllegalArgumentException("Custom item tags cannot be used as Botania block tags");
+                }
+                ResourceLocation tagId = data.getTagId();
+                if (tagId == null || BuiltInRegistries.BLOCK.getTag(
+                        TagKey.create(Registries.BLOCK, tagId)).isEmpty()) {
+                    throw new IllegalArgumentException("Unknown Botania block tag: " + tagId);
+                }
+                return tagStateIngredient(tagId.toString());
+            }
+            value = data.getItemStack();
+        }
+
+        if (value instanceof ItemStack stack) {
+            if (!(stack.getItem() instanceof BlockItem blockItem)) {
+                throw new IllegalArgumentException("Botania state ingredient must be a block: "
+                        + getItemId(stack));
+            }
+            value = blockItem.getBlock();
+        }
+
+        if (value instanceof net.minecraft.world.level.block.Block block) {
+            ResourceLocation id = getBlockId(block);
+            if (id == null) throw new IllegalArgumentException("Unregistered Botania block ingredient");
+            JsonObject state = new JsonObject();
+            state.addProperty("type", "block");
+            state.addProperty("block", id.toString());
+            return state;
+        }
+
+        String id = getIngredientString(value);
+        if (id.startsWith("#")) {
+            ResourceLocation tagId = ResourceLocation.tryParse(id.substring(1));
+            if (tagId == null || BuiltInRegistries.BLOCK.getTag(
+                    TagKey.create(Registries.BLOCK, tagId)).isEmpty()) {
+                throw new IllegalArgumentException("Unknown Botania block tag: " + id);
+            }
+            return tagStateIngredient(tagId.toString());
+        }
+        JsonObject state = new JsonObject();
+        state.addProperty("type", "block");
+        String blockId = ensureNamespace(id);
+        ResourceLocation blockLocation = ResourceLocation.tryParse(blockId);
+        if (blockLocation == null || BuiltInRegistries.BLOCK.get(blockLocation)
+                == net.minecraft.world.level.block.Blocks.AIR) {
+            throw new IllegalArgumentException("Unknown Botania block: " + id);
+        }
+        state.addProperty("block", blockId);
+        return state;
+    }
+
+    private ResourceLocation getBlockId(net.minecraft.world.level.block.Block block) {
+        return net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(block);
+    }
+
+    private JsonObject tagStateIngredient(String id) {
+        JsonObject state = new JsonObject();
+        state.addProperty("type", "tag");
+        state.addProperty("tag", id);
+        return state;
+    }
+
+    private JsonObject blockStateResult(ItemStack stack) {
+        if (stack == null || stack.isEmpty() || !(stack.getItem() instanceof BlockItem blockItem)) {
+            throw new IllegalArgumentException("Botania block conversion requires a block output");
+        }
+        ResourceLocation id = getBlockId(blockItem.getBlock());
+        if (id == null) throw new IllegalArgumentException("Unregistered Botania block output");
+        JsonObject result = new JsonObject();
+        result.addProperty("name", id.toString());
+        return result;
+    }
+
+    private JsonObject tagIngredient(String id) {
+        JsonObject ingredient = new JsonObject();
+        ingredient.addProperty("tag", id);
+        return ingredient;
+    }
+
+    private JsonObject itemResult(ItemStack stack, int count) {
+        JsonObject result = new JsonObject();
+        result.addProperty("item", getItemId(stack));
+        if (count > 1) result.addProperty("count", count);
+        if (stack != null && stack.hasTag()) {
+            try {
+                result.add("nbt", JsonParser.parseString(stack.getTag().toString()));
+            } catch (Exception ignored) {
+                result.addProperty("nbt", stack.getTag().toString());
             }
         }
-        recipe.add("input", input);
-
-        // output方块
-        JsonObject output = new JsonObject();
-        output.addProperty("type", "block");
-        output.addProperty("block", getItemId(request.result));
-        recipe.add("output", output);
-
-        // 必须字段
-        Integer weight = (Integer) request.properties.get("weight");
-        recipe.addProperty("weight", weight != null ? weight : 1);
-
-        Integer biomeBonus = (Integer) request.properties.get("biome_bonus");
-        recipe.addProperty("biome_bonus", biomeBonus != null ? biomeBonus : 11);
-
-        String biomeBonusTag = (String) request.properties.get("biome_bonus_tag");
-        recipe.addProperty("biome_bonus_tag",
-                biomeBonusTag != null ? biomeBonusTag : "botania:marimorphosis_desert_bonus");
+        return result;
     }
 
-    /**
-     * 获取物品ID（从ItemStack）
-     */
-    private String getItemId(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) {
-            return "minecraft:air";
+    private List<Object> inputValues(RecipeRequest request) {
+        List<Object> values = valuesForRole(request, "INPUT");
+        if (values.isEmpty() && roleList(request).isEmpty() && request.ingredients != null) {
+            for (Object value : request.ingredients) if (value != null) values.add(value);
         }
+        return values;
+    }
+
+    private Object firstValue(RecipeRequest request, String role) {
+        List<Object> values = valuesForRole(request, role);
+        return values.isEmpty() ? null : values.get(0);
+    }
+
+    private List<Object> valuesForRole(RecipeRequest request, String role) {
+        List<Object> values = new ArrayList<>();
+        List<?> roles = roleList(request);
+        if (request.ingredients == null) return values;
+        for (int i = 0; i < request.ingredients.length; i++) {
+            String actualRole = roles.size() > i ? String.valueOf(roles.get(i)) : "INPUT";
+            if (role.equals(actualRole)) values.add(request.ingredients[i]);
+        }
+        return values;
+    }
+
+    private List<?> roleList(RecipeRequest request) {
+        Object roles = request.properties.get("slotRoles");
+        return roles instanceof List<?> list ? list : List.of();
+    }
+
+    private int number(Object value, int fallback) {
+        return value instanceof Number number ? number.intValue() : fallback;
+    }
+
+    private void addSuccessFunction(JsonObject recipe, RecipeRequest request) {
+        Object function = request.properties.get("success_function");
+        if (function != null && !String.valueOf(function).isBlank()) {
+            recipe.addProperty("success_function", String.valueOf(function));
+        }
+    }
+
+    private String getItemId(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return "minecraft:air";
         return getItemResourceLocation(stack.getItem()).toString();
     }
 
-    /**
-     * 获取材料的字符串表示
-     */
-    private String getIngredientString(Object ingredient) {
-        if (ingredient instanceof ItemStack stack) {
-            return getItemId(stack);
-        } else if (ingredient instanceof Item item) {
-            return getItemResourceLocation(item).toString();
-        } else if (ingredient instanceof String str) {
-            return str;
-        }
+    private String getIngredientString(Object value) {
+        if (value instanceof ItemStack stack) return getItemId(stack);
+        if (value instanceof Item item) return getItemResourceLocation(item).toString();
+        if (value instanceof IngredientData data) return getIngredientString(data.getItemStack());
+        if (value instanceof String string) return string;
         return "minecraft:air";
     }
 
-    /**
-     * 确保ID包含命名空间
-     */
     private String ensureNamespace(String id) {
-        if (id == null || id.isEmpty()) {
-            return "minecraft:air";
+        if (id == null || id.isBlank()) {
+            throw new IllegalArgumentException("Botania identifier cannot be empty");
         }
-        if (id.startsWith("#")) {
-            return id;  // tag保持原样
+        String normalized = id.startsWith("#") ? id.substring(1) : id;
+        if (!normalized.contains(":")) normalized = "minecraft:" + normalized;
+        if (ResourceLocation.tryParse(normalized) == null) {
+            throw new IllegalArgumentException("Invalid Botania identifier: " + id);
         }
-        if (!id.contains(":")) {
-            return "minecraft:" + id;
-        }
-        return id;
+        return id.startsWith("#") ? "#" + normalized : normalized;
+    }
+
+    private String normalizeType(String type) {
+        if (type == null) return "";
+        int separator = type.indexOf(':');
+        return (separator >= 0 ? type.substring(separator + 1) : type).toLowerCase();
     }
 }

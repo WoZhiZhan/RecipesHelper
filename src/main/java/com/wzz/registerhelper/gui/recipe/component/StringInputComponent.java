@@ -21,7 +21,7 @@ public class StringInputComponent extends RecipeComponent {
     
     @Override
     public ComponentType getType() {
-        return ComponentType.NUMBER_INPUT;
+        return ComponentType.STRING_INPUT;
     }
     
     public String getLabel() { return label; }

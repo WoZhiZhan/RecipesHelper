@@ -1,6 +1,9 @@
 package com.wzz.registerhelper.gui.recipe.layout.integration.botania;
 
 import com.wzz.registerhelper.gui.recipe.component.RecipeComponent;
+import com.wzz.registerhelper.gui.GuiText;
+import com.wzz.registerhelper.gui.recipe.component.LabelComponent;
+import com.wzz.registerhelper.gui.recipe.component.NumberInputComponent;
 import com.wzz.registerhelper.gui.recipe.component.SlotComponent;
 import com.wzz.registerhelper.gui.recipe.layout.RecipeLayout;
 
@@ -26,18 +29,20 @@ public class RunicAltarLayout implements RecipeLayout {
     public List<RecipeComponent> generateComponents(int baseX, int baseY, int tier) {
         List<RecipeComponent> components = new ArrayList<>();
         
-        // 计算圆形布局
-        int centerX = baseX + 3 * slotSpacing;
-        int centerY = baseY + 3 * slotSpacing;
-        int radius = 2 * slotSpacing;
-        
-        // 最多16个槽位围成圆圈
-        int maxSlots = Math.min(16, tier * 4); // 根据tier调整槽位数量
+        // Coordinates mirror Botania's JEI category and are slot top-lefts.
+        int centerX = baseX + 48;
+        int centerY = baseY + 45;
+        int radius = 32;
+
+        // Runic Altar supports up to sixteen inputs. Do not derive the
+        // visible slot count from the editor tier, otherwise valid recipes
+        // with more than four inputs are truncated.
+        int maxSlots = 16;
         
         for (int i = 0; i < maxSlots; i++) {
-            double angle = 2 * Math.PI * i / maxSlots;
-            int x = (int) (centerX + radius * Math.cos(angle));
-            int y = (int) (centerY + radius * Math.sin(angle));
+            double angle = 2 * Math.PI * i / maxSlots - Math.PI / 2;
+            int x = (int) Math.round(centerX + radius * Math.cos(angle));
+            int y = (int) Math.round(centerY + radius * Math.sin(angle));
             
             components.add(new SlotComponent(
                 x, y,
@@ -45,14 +50,21 @@ public class RunicAltarLayout implements RecipeLayout {
                 i
             ));
         }
+        components.add(new SlotComponent(baseX + 86, baseY + 10,
+                "output", -1, SlotComponent.SlotRole.OUTPUT));
+
+        components.add(new NumberInputComponent(baseX + 6, baseY + 98,
+                70, "mana", GuiText.string("registerhelper.recipe_layout.number"),
+                5200, 1, 1000001, "value", false));
+        components.add(new LabelComponent(baseX + 80, baseY + 98,
+                "mana_label", "Mana"));
         
         return components;
     }
     
     @Override
     public Rectangle getBounds(int tier) {
-        int size = 6 * slotSpacing;
-        return new Rectangle(0, 0, size, size);
+        return new Rectangle(0, 0, 114, 125);
     }
     
     @Override

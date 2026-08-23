@@ -14,23 +14,21 @@ public class EmptyingLayout implements RecipeLayout {
         List<RecipeComponent> components = new ArrayList<>();
         
         components.add(new SlotComponent(
-            baseX + 66, baseY + 66,
+            baseX + 24, baseY + 44,
             "comp_0",
             0
         ));
         components.add(new SlotComponent(
-            baseX + 132, baseY + 154,
-            "comp_1",
-            1
-        ));
+                baseX + 166, baseY + 44,
+                "output", -1, SlotComponent.SlotRole.OUTPUT));
         components.add(new StringInputComponent(
-            baseX + 132, baseY + 66,
+            baseX + 50, baseY + 92,
             80, "fluid",
              GuiText.string("registerhelper.recipe_layout.fluid"), "create:tea",
             "fluidOutput", false
         ));
         components.add(new NumberInputComponent(
-                baseX + 154, baseY + 110,
+                baseX + 126, baseY + 92,
                 60, "fluidAmount",
                 GuiText.string("registerhelper.recipe_layout.number"), 250,
                 0, 10000,
@@ -41,7 +39,7 @@ public class EmptyingLayout implements RecipeLayout {
     
     @Override
     public Rectangle getBounds(int tier) {
-        return new Rectangle(0, 0, 200, 200);
+        return new Rectangle(0, 0, 210, 165);
     }
     
     @Override

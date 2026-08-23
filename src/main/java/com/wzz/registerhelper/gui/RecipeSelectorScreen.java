@@ -1,6 +1,7 @@
 package com.wzz.registerhelper.gui;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.wzz.registerhelper.gui.component.CenteredEditBox;
 import com.mojang.logging.LogUtils;
 import com.wzz.registerhelper.info.UnifiedRecipeInfo;
 import com.wzz.registerhelper.util.PinyinSearchHelper;
@@ -444,7 +445,7 @@ public class RecipeSelectorScreen extends Screen {
         int listAreaX = leftPos + recipeDetailWidth + 20;
         int listAreaWidth = Math.max(40, contentWidth - recipeDetailWidth - 60);
 
-        searchBox = new EditBox(this.font, listAreaX, topPos + 45, listAreaWidth, 20,
+        searchBox = new CenteredEditBox(this.font, listAreaX, topPos + 45, listAreaWidth, 20,
                 GuiText.component("registerhelper.gui.recipe_selector.search"));
         GuiTheme.styleInput(searchBox);
         searchBox.setHint(GuiText.component("registerhelper.gui.recipe_selector.search_hint"));

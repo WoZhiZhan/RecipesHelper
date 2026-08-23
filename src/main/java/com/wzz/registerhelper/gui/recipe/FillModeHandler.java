@@ -62,6 +62,9 @@ public class FillModeHandler {
      * 处理画笔模式 - 用画笔物品填充单个槽位
      */
     private void handleBrushMode(SlotManager slotManager, int slotIndex) {
+        if (!slotManager.isInputSlot(slotIndex)) {
+            return;
+        }
         if (brushData.isEmpty()) {
             if (errorCallback != null) {
                 errorCallback.accept(GuiText.string("registerhelper.message.recipe.select_brush_first"));
